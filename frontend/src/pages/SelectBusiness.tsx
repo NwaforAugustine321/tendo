@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getProfiles, type BusinessProfile } from '../lib/services/business'
 import { Spinner } from '../components/atoms/Spinner'
+import { TalkingCharacter } from '../components/containers/TalkingCharacter'
 
 export function SelectBusiness() {
   const [profiles, setProfiles] = useState<BusinessProfile[]>([])
@@ -82,6 +83,8 @@ export function SelectBusiness() {
           </p>
         )}
       </div>
+
+      <TalkingCharacter isSpeaking={false} />
     </div>
   )
 }
