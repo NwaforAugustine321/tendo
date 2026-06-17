@@ -132,12 +132,24 @@ async def handle_session(websocket: WebSocket):
 
                 # Pass to MOA for processing
                 from app.graph.nodes.moa import moa_node
-                result = await moa_node({
+                from app.graph.nodes.onboarding import onboarding_node
+
+                state = {
                     "event": {"text": user_text, "thread_id": "default", "business_id": "default"},
                     "messages": [],
-                })
+                }
+
+                result = await moa_node(state)
+
+                # If MOA routes to onboarding, call onboarding node
+                if result.get("routed_domain") == "onboarding":
+                    result = await onboarding_node({
+                        **state,
+                        "messages": result.get("messages", []),
+                    })
+
                 moa_response = result.get("response", {}).get("text", "")
-                logger.info(f"MOA: {moa_response[:80]}")
+                logger.info(f"Response: {moa_response[:80]}")
 
                 # Send MOA response to Gemini for TTS (read aloud only)
                 await session.send(

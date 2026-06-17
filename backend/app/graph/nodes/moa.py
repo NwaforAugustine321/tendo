@@ -1,4 +1,4 @@
-"""MOA (Tendo) — Master Orchestrator Agent node for LangGraph."""
+"""MOA (Tendo) — Master Orchestrator Agent node."""
 
 import logging
 
@@ -14,33 +14,43 @@ async def moa_node(state: GraphState) -> dict:
     """
     Orchestrates the conversation:
     1. Loads BCC + session context
-    2. Decides sufficiency
-    3. Routes to sub-agents or responds directly
+    2. If no business profile → route to onboarding
+    3. Otherwise → decide sufficiency and respond or route
     """
     event = state.get("event", {})
     user_message = event.get("text", "")
     thread_id = event.get("thread_id", "default")
     business_id = event.get("business_id", "default")
 
+    business_context = get_business_context(business_id)
+    session_context = get_session_context(business_id, thread_id)
+
+    # No business profile → delegate to onboarding agent
+    if not business_context:
+        logger.info("No business context — routing to onboarding")
+        return {
+            "routed_domain": "onboarding",
+            "event": event,
+            "messages": state.get("messages", []),
+        }
+
+    # Has business profile → MOA handles directly
     config = load("moa")
     llm = get_llm()
 
-    business_context = get_business_context(business_id)
-    session_context = get_session_context(business_id, thread_id)
     context_block = _build_context(business_context, session_context)
+    history = state.get("messages", [])
 
     messages = [
         {"role": "system", "content": config.system_prompt + "\n\n" + context_block},
     ]
-
-    history = state.get("messages", [])
     messages.extend(history[-10:])
     messages.append({"role": "user", "content": user_message})
 
     response = await llm.ainvoke(messages)
     assistant_text = response.content
 
-    logger.info(f"MOA response: {assistant_text[:80]}")
+    logger.info(f"MOA: {assistant_text[:80]}")
 
     return {
         "response": {"mode": "conversation", "text": assistant_text},
@@ -67,7 +77,4 @@ def _build_context(business_context: dict | None, session_context: dict | None) 
             if value:
                 parts.append(f"- {key}: {value}")
 
-    if not parts:
-        parts.append("## Context\nNo business context available yet.")
-
-    return "\n".join(parts)
+    return "\n".join(parts) if parts else ""
