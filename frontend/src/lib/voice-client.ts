@@ -1,13 +1,11 @@
 /**
- * Voice WebSocket client — connects browser to backend /ws/voice endpoint.
- * Handles mic capture, audio streaming, and playback.
- *
- * Protocol:
- *   Send: {type: "audio", data: base64PCM} | {type: "text", data: string}
- *   Recv: {type: "audio", data: base64PCM} | {type: "transcript", data: string} | {type: "turn_complete"}
+ * Voice client — manages mic capture, audio playback, and voice WebSocket protocol.
+ * Uses the ws module for connection management.
  */
 
-type VoiceClientCallbacks = {
+import { WSClient } from './ws'
+
+type VoiceCallbacks = {
   onTranscript: (text: string) => void
   onTurnComplete: () => void
   onError: (error: string) => void
@@ -16,41 +14,28 @@ type VoiceClientCallbacks = {
 }
 
 export class VoiceClient {
-  private ws: WebSocket | null = null
+  private wsClient: WSClient | null = null
   private audioContext: AudioContext | null = null
   private mediaStream: MediaStream | null = null
   private processor: ScriptProcessorNode | null = null
   private playbackQueue: ArrayBuffer[] = []
   private isPlaying = false
-  private callbacks: VoiceClientCallbacks
+  private callbacks: VoiceCallbacks
 
-  constructor(callbacks: VoiceClientCallbacks) {
+  constructor(callbacks: VoiceCallbacks) {
     this.callbacks = callbacks
   }
 
   async connect(url: string) {
     this.audioContext = new AudioContext({ sampleRate: 24000 })
-    this.ws = new WebSocket(url)
 
-    this.ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data)
-      this.handleMessage(msg)
-    }
-
-    this.ws.onerror = () => {
-      this.callbacks.onError('Voice connection error')
-    }
-
-    this.ws.onclose = () => {
-      this.stopMic()
-    }
-
-    // Wait for connection
-    await new Promise<void>((resolve, reject) => {
-      if (!this.ws) return reject('No WebSocket')
-      this.ws.onopen = () => resolve()
-      this.ws.onerror = () => reject('Connection failed')
+    this.wsClient = new WSClient({
+      onMessage: (msg) => this.handleMessage(msg),
+      onError: (err) => this.callbacks.onError(err),
+      onClose: () => this.stopMic(),
     })
+
+    await this.wsClient.connect(url)
   }
 
   private handleMessage(msg: { type: string; data?: string }) {
@@ -67,14 +52,11 @@ export class VoiceClient {
         break
 
       case 'transcript':
-        if (msg.data) {
-          this.callbacks.onTranscript(msg.data)
-        }
+        if (msg.data) this.callbacks.onTranscript(msg.data)
         break
 
       case 'turn_complete':
         this.callbacks.onTurnComplete()
-        // Playback will call onSpeakingEnd when queue drains
         break
 
       case 'error':
@@ -95,7 +77,6 @@ export class VoiceClient {
     const int16Array = new Int16Array(pcmData)
     const float32Array = new Float32Array(int16Array.length)
 
-    // Convert Int16 PCM to Float32 for Web Audio
     for (let i = 0; i < int16Array.length; i++) {
       float32Array[i] = int16Array[i] / 32768
     }
@@ -123,10 +104,9 @@ export class VoiceClient {
     const micContext = new AudioContext({ sampleRate: 16000 })
     const source = micContext.createMediaStreamSource(this.mediaStream)
 
-    // Use ScriptProcessor for raw PCM access (deprecated but widely supported)
     this.processor = micContext.createScriptProcessor(4096, 1, 1)
     this.processor.onaudioprocess = (event) => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+      if (!this.wsClient?.isOpen()) return
 
       const inputData = event.inputBuffer.getChannelData(0)
       const int16Data = new Int16Array(inputData.length)
@@ -136,7 +116,7 @@ export class VoiceClient {
       }
 
       const base64 = arrayBufferToBase64(int16Data.buffer)
-      this.ws.send(JSON.stringify({ type: 'audio', data: base64 }))
+      this.wsClient.send({ type: 'audio', data: base64 })
     }
 
     source.connect(this.processor)
@@ -155,17 +135,13 @@ export class VoiceClient {
   }
 
   sendText(text: string) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'text', data: text }))
-    }
+    this.wsClient?.send({ type: 'text', data: text })
   }
 
   disconnect() {
     this.stopMic()
-    if (this.ws) {
-      this.ws.close()
-      this.ws = null
-    }
+    this.wsClient?.close()
+    this.wsClient = null
     if (this.audioContext) {
       this.audioContext.close()
       this.audioContext = null
@@ -175,7 +151,6 @@ export class VoiceClient {
   }
 }
 
-// Helpers
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64)
   const bytes = new Uint8Array(binary.length)

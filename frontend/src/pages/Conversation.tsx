@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { ConversationPage, type MessageItem } from '../components/conversation/ConversationPage'
+import { ConversationPage, type MessageItem } from '../components/containers'
 import { useVoiceSession } from '../hooks/useVoiceSession'
 
 type Props = {

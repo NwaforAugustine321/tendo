@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
-import { IconRail } from '../components/dashboard/IconRail'
-import { SecondaryNav } from '../components/dashboard/SecondaryNav'
-import { TopBar } from '../components/dashboard/TopBar'
+import { IconRail } from '../components/containers'
+import { SecondaryNav } from '../components/containers'
+import { TopBar } from '../components/containers'
 import { primaryFromPathname, type PrimarySection } from '../lib/navigation'
 
 export function WorkspaceLayout() {

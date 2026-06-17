@@ -1,5 +1,5 @@
 import { Conversation } from './Conversation'
-import { TopBar } from '../components/dashboard/TopBar'
+import { TopBar } from '../components/containers'
 
 export function Onboarding() {
   return (

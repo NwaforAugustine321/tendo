@@ -1,14 +1,16 @@
 import { useRef, useEffect } from 'react'
-import { MessageBubble } from './MessageBubble'
-import { UnderstandingCard } from './UnderstandingCard'
-import { OptionCard } from './OptionCard'
-import { ConfirmationCard } from './ConfirmationCard'
-import { OperationCard } from './OperationCard'
-import { TypingIndicator } from './TypingIndicator'
-import { TextInput } from './TextInput'
-import { VoiceButton } from './VoiceButton'
+import {
+  MessageBubble,
+  UnderstandingCard,
+  OptionCard,
+  ConfirmationCard,
+  OperationCard,
+  TypingIndicator,
+  TextInput,
+  VoiceButton,
+  EmptyState,
+} from '../atoms'
 import { TalkingCharacter } from './TalkingCharacter'
-import { EmptyState } from './EmptyState'
 
 export type MessageItem = {
   id: string
@@ -52,7 +54,6 @@ type Props = {
   showHeader?: boolean
   headerTitle?: string
   headerSubtitle?: string
-  /** When true, uses h-dvh for full-screen mode (onboarding). When false, fills parent container. */
   fullScreen?: boolean
 }
 
@@ -175,7 +176,7 @@ export function ConversationPage({
         </div>
       </div>
 
-      {/* Talking character — fixed bottom-right, animates when Gemini audio plays */}
+      {/* Talking character */}
       <TalkingCharacter isSpeaking={isTyping} />
     </div>
   )
