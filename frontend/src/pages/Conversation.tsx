@@ -94,7 +94,7 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
   return (
     <ConversationPage
       messages={messages}
-      isTyping={voice.isSpeaking && !voice.currentResponse}
+      isTyping={voice.isSpeaking}
       onSendText={handleSendText}
       onVoiceRecorded={() => {}}
       onVoiceToggle={handleVoiceToggle}
