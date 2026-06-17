@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Response, Request
 
 from app.models.auth import RegisterRequest, LoginRequest, AuthResponse
-from app.errors import AuthError
+from app.lib.errors import AuthError
 from app.services.auth import (
     handle_register,
     handle_login,

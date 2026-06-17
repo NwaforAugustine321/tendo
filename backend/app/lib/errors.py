@@ -3,6 +3,7 @@
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
@@ -17,19 +18,16 @@ class AppError(Exception):
 
 
 class AuthError(AppError):
-    """Authentication/authorization errors."""
     def __init__(self, message: str = "Authentication failed"):
         super().__init__(message, status_code=401)
 
 
 class NotFoundError(AppError):
-    """Resource not found."""
     def __init__(self, message: str = "Resource not found"):
         super().__init__(message, status_code=404)
 
 
 class ValidationError(AppError):
-    """Input validation error."""
     def __init__(self, message: str = "Invalid input"):
         super().__init__(message, status_code=422)
 
@@ -42,6 +40,25 @@ def register_error_handlers(app: FastAPI):
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": True, "message": exc.message},
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(request: Request, exc: RequestValidationError):
+        """Catch Pydantic validation errors and return user-friendly messages."""
+        errors = exc.errors()
+        if errors:
+            # Get the first error's message
+            first = errors[0]
+            msg = first.get("msg", "Invalid input")
+            # Strip "Value error, " prefix that Pydantic adds
+            if msg.startswith("Value error, "):
+                msg = msg[len("Value error, "):]
+        else:
+            msg = "Invalid input"
+
+        return JSONResponse(
+            status_code=422,
+            content={"error": True, "message": msg},
         )
 
     @app.exception_handler(Exception)
