@@ -9,6 +9,7 @@ from app.graph.nodes.db import db_node
 from app.graph.nodes.domain_router import domain_router_node
 from app.graph.nodes.memory import memory_node
 from app.graph.nodes.moa import moa_node
+from app.graph.nodes.onboarding import onboarding_node
 from app.graph.nodes.option_generator import option_generator_node
 from app.graph.nodes.response import response_node
 from app.graph.nodes.tool_planner import tool_planner_node
@@ -24,6 +25,8 @@ def route_from_bsga(state: GraphState) -> str:
 def route_from_moa(state: GraphState) -> str:
     if state.get("error"):
         return "response"
+    if state.get("routed_domain") == "onboarding":
+        return "onboarding"
     if state.get("output_mode") == "structured_options":
         return "option_generator"
     if state.get("tool_requests"):
@@ -42,6 +45,7 @@ def build_graph() -> StateGraph:
     builder.add_node("bsga", bsga_node)
     builder.add_node("memory", memory_node)
     builder.add_node("moa", moa_node)
+    builder.add_node("onboarding", onboarding_node)
     builder.add_node("tool_planner", tool_planner_node)
     builder.add_node("db_oracle", db_node)
     builder.add_node("context_resolution", context_resolution_node)
@@ -56,12 +60,13 @@ def build_graph() -> StateGraph:
     builder.add_conditional_edges(
         "moa",
         route_from_moa,
-        ["tool_planner", "option_generator", "domain_router", "confirmation", "response"],
+        ["tool_planner", "option_generator", "domain_router", "confirmation", "onboarding", "response"],
     )
     builder.add_edge("tool_planner", "db_oracle")
     builder.add_edge("db_oracle", "context_resolution")
     builder.add_edge("context_resolution", "moa")
     builder.add_edge("domain_router", "moa")
+    builder.add_edge("onboarding", "response")
     builder.add_edge("option_generator", "response")
     builder.add_edge("confirmation", "moa")
     builder.add_edge("response", END)
