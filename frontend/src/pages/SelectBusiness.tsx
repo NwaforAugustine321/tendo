@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { getProfiles, type BusinessProfile } from '../lib/services/business'
 import { Spinner } from '../components/atoms/Spinner'
 import { TalkingCharacter } from '../components/containers/TalkingCharacter'
+import { TopBar } from '../components/containers'
 
 export function SelectBusiness() {
   const [profiles, setProfiles] = useState<BusinessProfile[]>([])
@@ -24,7 +25,9 @@ export function SelectBusiness() {
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-[#0a0a0a] px-4">
+    <div className="flex min-h-dvh flex-col bg-[#0a0a0a]">
+      <TopBar onMenuClick={() => {}} />
+      <div className="flex flex-1 items-center justify-center px-4">
       <div className="w-full max-w-md">
         <div className="mb-8 flex justify-center">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white border-2 border-zinc-900">
@@ -82,6 +85,7 @@ export function SelectBusiness() {
             You don't have any business profiles yet. Create one to get started.
           </p>
         )}
+      </div>
       </div>
 
       <TalkingCharacter isSpeaking={false} />
