@@ -36,7 +36,7 @@ export function SelectBusiness() {
         </div>
 
         <h1 className="text-center text-2xl font-semibold tracking-tight text-white">
-          Select a business
+          Welcome!, Choose your business Profile
         </h1>
         <p className="mt-2 text-center text-sm text-zinc-500">
           Choose an existing business or create a new one.
