@@ -17,7 +17,7 @@ export function Login() {
     try {
       await login(email.trim(), password)
       toast.success('Welcome back!')
-      navigate('/app', { replace: true })
+      navigate('/onboarding', { replace: true })
     } catch {
       // Error already shown by http service toast
     } finally {

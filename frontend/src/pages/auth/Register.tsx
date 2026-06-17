@@ -22,7 +22,7 @@ export function Register() {
     try {
       await register(email.trim(), password, name.trim())
       toast.success('Account created!')
-      navigate('/onboarding', { replace: true })
+      navigate('/welcome', { replace: true })
     } catch {
       // Error already shown by http service toast
     } finally {
