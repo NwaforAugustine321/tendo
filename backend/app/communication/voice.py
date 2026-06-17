@@ -19,14 +19,7 @@ SPECS_DIR = Path(__file__).parent / "specs"
 
 
 def _load_instruction() -> str:
-    parts = []
-    for name in ["role", "backstory", "goal", "skill"]:
-        file = SPECS_DIR / f"{name}.md"
-        if file.exists():
-            content = file.read_text(encoding="utf-8").strip()
-            if content:
-                parts.append(content)
-    return "\n\n".join(parts)
+    return "Repeat exactly what the user says. Do not add anything."
 
 
 def _get_client():
@@ -127,8 +120,11 @@ async def handle_session(websocket: WebSocket):
                 if not user_text:
                     continue
 
-                # Send transcription to frontend
-                await send_transcript(websocket, f"You: {user_text}")
+                # Don't echo system triggers to the user
+                if user_text.startswith("start_"):
+                    pass
+                else:
+                    await send_transcript(websocket, f"You: {user_text}")
 
                 # Pass to MOA for processing
                 from app.graph.nodes.moa import moa_node
