@@ -5,6 +5,7 @@ channels:
 dependencies:
   - python=3.11
   - pip
+  - cryptography
   - pip:
     - fastapi
     - uvicorn[standard]
@@ -19,6 +20,8 @@ dependencies:
     - mem0ai
     - httpx
     - python-dotenv
+    - google-genai
+    - websockets
     - pytest
     - pytest-asyncio
     - ruff
