@@ -64,38 +64,6 @@ async def handle_session(websocket: WebSocket):
         ) as session:
             logger.info("AI session connected")
 
-            # Server initiates the conversation
-            from app.graph.nodes.moa import moa_node
-            from app.graph.nodes.onboarding import onboarding_node
-
-            init_state = {
-                "event": {"text": "hello", "thread_id": "default", "business_id": "default"},
-                "messages": [],
-            }
-            init_result = await moa_node(init_state)
-            routed = init_result.get("routed_domain")
-            if routed == "onboarding":
-                init_result = await onboarding_node({**init_state, "messages": init_result.get("messages", [])})
-
-            greeting = _clean_text(init_result.get("response", {}).get("text", ""))
-            if greeting:
-                logger.info(f"Greeting: {greeting[:80]}")
-                await send_transcript(websocket, greeting)
-
-                # Also speak it via Gemini TTS
-                await session.send(
-                    input=types.LiveClientContent(
-                        turns=[types.Content(role="user", parts=[types.Part.from_text(text=greeting)])],
-                        turn_complete=True,
-                    )
-                )
-                async for response in session.receive():
-                    if response.data:
-                        await send_audio(websocket, response.data)
-                    if response.server_content and response.server_content.turn_complete:
-                        await send_turn_complete(websocket)
-                        break
-
             while True:
                 input_result = await _collect_input(websocket)
 
