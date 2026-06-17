@@ -78,13 +78,13 @@ export function useVoiceSession() {
     }
   }, [connect])
 
-  const stopListening = useCallback(() => {
-    if (!clientRef.current) return
-    clientRef.current.stopMic()
-    // Clear current response for new turn
+  const stopListening = useCallback((): string | null => {
+    if (!clientRef.current) return null
+    const audioUrl = clientRef.current.stopMic()
     setCurrentResponse('')
     setTurnComplete(false)
     setState('idle')
+    return audioUrl
   }, [])
 
   const sendText = useCallback((text: string) => {

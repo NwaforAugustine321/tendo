@@ -21,6 +21,8 @@ export class VoiceClient {
   private micContext: AudioContext | null = null
   private mediaStream: MediaStream | null = null
   private workletNode: AudioWorkletNode | null = null
+  private recorder: MediaRecorder | null = null
+  private recordedChunks: Blob[] = []
   private playbackQueue: ArrayBuffer[] = []
   private isPlaying = false
   private callbacks: VoiceCallbacks
@@ -145,9 +147,27 @@ export class VoiceClient {
 
     source.connect(this.workletNode)
     this.workletNode.connect(this.micContext.destination)
+
+    // Also record locally for playback
+    this.recordedChunks = []
+    this.recorder = new MediaRecorder(this.mediaStream)
+    this.recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) this.recordedChunks.push(e.data)
+    }
+    this.recorder.start()
   }
 
-  stopMic() {
+  stopMic(): string | null {
+    // Stop local recorder and create blob URL
+    let audioUrl: string | null = null
+    if (this.recorder && this.recorder.state === 'recording') {
+      this.recorder.stop()
+      const blob = new Blob(this.recordedChunks, { type: 'audio/webm' })
+      audioUrl = URL.createObjectURL(blob)
+      this.recorder = null
+      this.recordedChunks = []
+    }
+
     if (this.workletNode) {
       this.workletNode.disconnect()
       this.workletNode = null
@@ -160,8 +180,10 @@ export class VoiceClient {
       this.mediaStream.getTracks().forEach((t) => t.stop())
       this.mediaStream = null
     }
-    // Signal end of user turn so AI knows to respond
+    // Signal end of user turn
     this.wsClient?.send({ type: 'end_turn' })
+
+    return audioUrl
   }
 
   sendText(text: string) {

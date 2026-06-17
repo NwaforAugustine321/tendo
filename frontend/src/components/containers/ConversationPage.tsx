@@ -17,6 +17,7 @@ export type MessageItem = {
   role: 'user' | 'assistant'
   content: string
   type: 'text' | 'understanding' | 'options' | 'confirmation' | 'operation'
+  audioUrl?: string  // For voice messages — blob URL to play back
   understanding?: {
     title?: string
     businessName?: string
@@ -156,6 +157,7 @@ export function ConversationPage({
                   key={msg.id}
                   role={msg.role}
                   content={msg.content}
+                  audioUrl={msg.audioUrl}
                 />
               )
             })}

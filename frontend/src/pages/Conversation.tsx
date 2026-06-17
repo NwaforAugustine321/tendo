@@ -59,9 +59,14 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
 
   const handleVoiceToggle = async () => {
     if (voice.isListening) {
-      voice.stopListening()
-      // Add a user message indicating voice was sent
-      setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'user', content: '🎤 Voice message', type: 'text' }])
+      const audioUrl = voice.stopListening()
+      setMessages((prev) => [...prev, {
+        id: Date.now().toString(),
+        role: 'user',
+        content: '🎤 Voice message',
+        type: 'text',
+        audioUrl: audioUrl ?? undefined,
+      }])
       streamingMsgId.current = null
     } else {
       await voice.startListening()
