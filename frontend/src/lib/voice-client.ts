@@ -1,6 +1,5 @@
 /**
- * Voice client — manages mic capture, audio playback, and voice WebSocket protocol.
- * Uses AudioWorkletNode for mic capture (no deprecated ScriptProcessorNode).
+ * Voice client — mic capture, audio playback, and voice protocol.
  */
 
 import { WSClient } from './ws'

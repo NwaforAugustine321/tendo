@@ -1,6 +1,5 @@
 /**
- * Base HTTP client — all API calls go through here.
- * Errors are thrown with user-safe messages from the backend.
+ * Base HTTP client.
  */
 
 import { toast } from 'sonner'

@@ -20,7 +20,6 @@ function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
 
   const NUM_BARS = 30
 
-  // Decode audio and extract waveform on mount
   useEffect(() => {
     if (!audioUrl) return
 

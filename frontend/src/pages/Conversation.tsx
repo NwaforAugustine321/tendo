@@ -14,16 +14,13 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
   const voice = useVoiceSession()
   const streamingMsgId = useRef<string | null>(null)
 
-  // Live streaming: update the current AI message as text arrives word-by-word
   useEffect(() => {
     if (voice.currentResponse) {
       if (!streamingMsgId.current) {
-        // Create a new streaming message
         const id = `ai-${Date.now()}`
         streamingMsgId.current = id
         setMessages((prev) => [...prev, { id, role: 'assistant', content: voice.currentResponse, type: 'text' }])
       } else {
-        // Update existing streaming message
         const id = streamingMsgId.current
         setMessages((prev) =>
           prev.map((m) => m.id === id ? { ...m, content: voice.currentResponse } : m)
@@ -32,14 +29,12 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
     }
   }, [voice.currentResponse])
 
-  // When turn completes, finalize the message
   useEffect(() => {
     if (voice.turnComplete && streamingMsgId.current) {
       streamingMsgId.current = null
     }
   }, [voice.turnComplete])
 
-  // Show errors
   useEffect(() => {
     if (voice.errorMessage) {
       setMessages((prev) => [...prev, {

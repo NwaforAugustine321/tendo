@@ -1,6 +1,5 @@
 /**
- * WebSocket client with intelligent auto-reconnect.
- * Exponential backoff, max retries, and connection state tracking.
+ * WebSocket client with auto-reconnect.
  */
 
 export type WSMessage = {

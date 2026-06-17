@@ -1,4 +1,4 @@
-"""Auth service — business logic for authentication."""
+"""Auth service."""
 
 import logging
 
@@ -12,7 +12,6 @@ COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 
 
 async def handle_register(email: str, password: str, name: str) -> dict:
-    """Register a new user. Input already validated by Pydantic."""
     try:
         return await register_user(email, password, name)
     except Exception as e:
@@ -21,7 +20,6 @@ async def handle_register(email: str, password: str, name: str) -> dict:
 
 
 async def handle_login(email: str, password: str) -> dict:
-    """Authenticate a user. Input already validated by Pydantic."""
     try:
         return await login_user(email, password)
     except Exception as e:
@@ -30,7 +28,6 @@ async def handle_login(email: str, password: str) -> dict:
 
 
 async def handle_get_me(token: str) -> dict | None:
-    """Get user from session token."""
     if not token:
         return None
     try:
