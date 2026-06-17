@@ -15,7 +15,7 @@ export function EmptyState() {
       </h2>
 
       <div className="mt-4 flex flex-wrap justify-center gap-2">
-        <Chip icon={<Package size={14} />} label="What I sell" color="orange" />
+        <Chip icon={<Package size={14} />} label="Business type" color="orange" />
         <Chip icon={<Wallet size={14} />} label="Team size" color="red" />
         <Chip icon={<BarChart3 size={14} />} label="How it runs" color="green" />
         <Chip icon={<Mic size={14} />} label="Use voice" color="green" />
