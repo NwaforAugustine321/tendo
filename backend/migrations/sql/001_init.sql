@@ -24,10 +24,11 @@ CREATE TABLE IF NOT EXISTS customers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     business_id UUID NOT NULL REFERENCES business_profiles(id),
     name TEXT NOT NULL,
-    phone TEXT,
-    email TEXT,
+    phone TEXT DEFAULT '',
+    email TEXT DEFAULT '',
     type TEXT DEFAULT 'customer',
     balance NUMERIC(12,2) DEFAULT 0,
+    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -37,9 +38,10 @@ CREATE TABLE IF NOT EXISTS products (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     business_id UUID NOT NULL REFERENCES business_profiles(id),
     name TEXT NOT NULL,
-    unit TEXT,
-    unit_price NUMERIC(12,2),
-    category TEXT,
+    unit TEXT DEFAULT '',
+    unit_price NUMERIC(12,2) DEFAULT 0,
+    category TEXT DEFAULT '',
+    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -48,8 +50,9 @@ CREATE TABLE IF NOT EXISTS services (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     business_id UUID NOT NULL REFERENCES business_profiles(id),
     name TEXT NOT NULL,
-    price NUMERIC(12,2),
-    category TEXT,
+    price NUMERIC(12,2) DEFAULT 0,
+    category TEXT DEFAULT '',
+    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -59,7 +62,8 @@ CREATE TABLE IF NOT EXISTS inventory (
     business_id UUID NOT NULL REFERENCES business_profiles(id),
     product_id UUID REFERENCES products(id),
     quantity NUMERIC(12,2) DEFAULT 0,
-    reorder_level NUMERIC(12,2),
+    reorder_level NUMERIC(12,2) DEFAULT 0,
+    metadata JSONB DEFAULT '{}',
     last_updated TIMESTAMPTZ DEFAULT now()
 );
 
@@ -68,9 +72,10 @@ CREATE TABLE IF NOT EXISTS inventory_movements (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     business_id UUID NOT NULL REFERENCES business_profiles(id),
     inventory_id UUID NOT NULL REFERENCES inventory(id),
-    movement_type TEXT NOT NULL,
-    quantity NUMERIC(12,2) NOT NULL,
-    reference TEXT,
+    movement_type TEXT NOT NULL DEFAULT 'in',
+    quantity NUMERIC(12,2) NOT NULL DEFAULT 0,
+    reference TEXT DEFAULT '',
+    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -79,9 +84,9 @@ CREATE TABLE IF NOT EXISTS transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     business_id UUID NOT NULL REFERENCES business_profiles(id),
     customer_id UUID REFERENCES customers(id),
-    type TEXT NOT NULL,
-    payment_type TEXT,
-    total NUMERIC(12,2) NOT NULL,
+    type TEXT NOT NULL DEFAULT 'sale',
+    payment_type TEXT DEFAULT 'cash',
+    total NUMERIC(12,2) NOT NULL DEFAULT 0,
     status TEXT DEFAULT 'completed',
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now()
@@ -92,10 +97,11 @@ CREATE TABLE IF NOT EXISTS invoices (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     business_id UUID NOT NULL REFERENCES business_profiles(id),
     customer_id UUID NOT NULL REFERENCES customers(id),
-    invoice_number TEXT,
-    total NUMERIC(12,2) NOT NULL,
+    invoice_number TEXT DEFAULT '',
+    total NUMERIC(12,2) NOT NULL DEFAULT 0,
     status TEXT DEFAULT 'pending',
     due_date DATE,
+    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -104,10 +110,11 @@ CREATE TABLE IF NOT EXISTS invoice_line_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     business_id UUID NOT NULL REFERENCES business_profiles(id),
     invoice_id UUID NOT NULL REFERENCES invoices(id),
-    description TEXT NOT NULL,
-    quantity NUMERIC(12,2) NOT NULL,
-    unit_price NUMERIC(12,2) NOT NULL,
-    total NUMERIC(12,2) NOT NULL
+    description TEXT NOT NULL DEFAULT '',
+    quantity NUMERIC(12,2) NOT NULL DEFAULT 0,
+    unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+    total NUMERIC(12,2) NOT NULL DEFAULT 0,
+    metadata JSONB DEFAULT '{}'
 );
 
 -- Payments
@@ -116,9 +123,10 @@ CREATE TABLE IF NOT EXISTS payments (
     business_id UUID NOT NULL REFERENCES business_profiles(id),
     invoice_id UUID REFERENCES invoices(id),
     customer_id UUID REFERENCES customers(id),
-    amount NUMERIC(12,2) NOT NULL,
-    payment_method TEXT,
-    reference TEXT,
+    amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+    payment_method TEXT DEFAULT 'cash',
+    reference TEXT DEFAULT '',
+    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -127,9 +135,10 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     business_id UUID NOT NULL REFERENCES business_profiles(id),
     transaction_id UUID NOT NULL REFERENCES transactions(id),
-    entry_type TEXT NOT NULL,
-    amount NUMERIC(12,2) NOT NULL,
-    account TEXT NOT NULL,
+    entry_type TEXT NOT NULL DEFAULT 'debit',
+    amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+    account TEXT NOT NULL DEFAULT '',
+    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
