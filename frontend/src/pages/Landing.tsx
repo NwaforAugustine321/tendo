@@ -1,31 +1,5 @@
 import { Link } from 'react-router-dom'
-
-function IconVoice() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0 text-[#3ecf8e]">
-      <path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4Z" stroke="currentColor" strokeWidth="1" />
-      <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function IconBrain() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0 text-[#3ecf8e]">
-      <path d="M12 2a7 7 0 0 0-7 7c0 3 1.5 5 4 6.5V20h6v-4.5c2.5-1.5 4-3.5 4-6.5a7 7 0 0 0-7-7Z" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" />
-      <path d="M9 20v2h6v-2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function IconShield() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0 text-[#3ecf8e]">
-      <path d="M12 2l8 4v6c0 5.5-3.8 9.7-8 11-4.2-1.3-8-5.5-8-11V6l8-4Z" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" />
-      <path d="M9 12l2 2 4-4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
+import { Mic, Brain, ShieldCheck } from 'lucide-react'
 
 export function Landing() {
   return (
@@ -94,15 +68,15 @@ export function Landing() {
             {/* Pillar cards */}
             <div className="mt-12 grid min-w-0 gap-4 border-t border-white/[0.06] pt-8 sm:mt-14 sm:grid-cols-3 sm:gap-5 sm:pt-9">
               {[
-                { Icon: IconVoice, title: 'Voice-first operations', body: 'Speak naturally. "I sold 5 bags of rice to Musa" — Tendo records it instantly.' },
-                { Icon: IconBrain, title: 'Learns your business', body: 'No forms or setup wizards. Tendo observes your operations and builds understanding over time.' },
-                { Icon: IconShield, title: 'Nothing without approval', body: 'Every financial action needs your confirmation. Review, approve, or reject before anything changes.' },
+                { Icon: Mic, title: 'Voice-first operations', body: 'Speak naturally. "I sold 5 bags of rice to Musa" — Tendo records it instantly.' },
+                { Icon: Brain, title: 'Learns your business', body: 'No forms or setup wizards. Tendo observes your operations and builds understanding over time.' },
+                { Icon: ShieldCheck, title: 'Nothing without approval', body: 'Every financial action needs your confirmation. Review, approve, or reject before anything changes.' },
               ].map((p) => (
                 <div
                   key={p.title}
                   className="landing-glass min-w-0 w-full px-3 py-4 transition-[border-color,background-color] duration-300 sm:px-4"
                 >
-                  <p.Icon />
+                  <p.Icon size={24} className="shrink-0 text-[#3ecf8e]" />
                   <p className="mt-2 text-sm font-medium leading-snug tracking-tight text-zinc-200 sm:text-[15px]">
                     {p.title}
                   </p>

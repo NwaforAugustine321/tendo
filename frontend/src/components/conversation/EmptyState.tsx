@@ -1,6 +1,5 @@
-/**
- * Empty state — shown when conversation has no messages yet.
- */
+import { Package, Wallet, BarChart3, Mic } from 'lucide-react'
+
 export function EmptyState() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-4 py-16">
@@ -21,19 +20,19 @@ export function EmptyState() {
 
       {/* Suggestion chips */}
       <div className="mt-8 flex flex-wrap justify-center gap-2">
-        <Chip icon="📦" label="Record a sale" />
-        <Chip icon="💰" label="Check customer debt" />
-        <Chip icon="📊" label="Today's summary" />
-        <Chip icon="🎤" label="Use voice" />
+        <Chip icon={<Package size={14} />} label="Record a sale" />
+        <Chip icon={<Wallet size={14} />} label="Check customer debt" />
+        <Chip icon={<BarChart3 size={14} />} label="Today's summary" />
+        <Chip icon={<Mic size={14} />} label="Use voice" />
       </div>
     </div>
   )
 }
 
-function Chip({ icon, label }: { icon: string; label: string }) {
+function Chip({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-800/90 bg-[#141414] px-3 py-1.5 text-xs text-zinc-400">
-      <span>{icon}</span>
+      <span className="text-zinc-500">{icon}</span>
       <span>{label}</span>
     </span>
   )
