@@ -15,17 +15,17 @@ function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
   const [progress, setProgress] = useState(0)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const animRef = useRef<number | null>(null)
+  const playingRef = useRef(false)
 
   const bars = [3, 6, 4, 8, 5, 10, 7, 4, 9, 6, 3, 7, 5, 8, 4, 6, 9, 5, 3, 7, 6, 4, 8, 5, 3]
   const totalBars = bars.length
 
-  const updateProgress = () => {
+  const tick = () => {
     if (audioRef.current && audioRef.current.duration) {
-      const pct = audioRef.current.currentTime / audioRef.current.duration
-      setProgress(pct)
+      setProgress(audioRef.current.currentTime / audioRef.current.duration)
     }
-    if (playing) {
-      animRef.current = requestAnimationFrame(updateProgress)
+    if (playingRef.current) {
+      animRef.current = requestAnimationFrame(tick)
     }
   }
 
@@ -35,6 +35,7 @@ function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
     if (!audioRef.current) {
       audioRef.current = new Audio(audioUrl)
       audioRef.current.onended = () => {
+        playingRef.current = false
         setPlaying(false)
         setProgress(0)
         if (animRef.current) cancelAnimationFrame(animRef.current)
@@ -43,16 +44,17 @@ function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
 
     if (playing) {
       audioRef.current.pause()
+      playingRef.current = false
       setPlaying(false)
       if (animRef.current) cancelAnimationFrame(animRef.current)
     } else {
       audioRef.current.play()
+      playingRef.current = true
       setPlaying(true)
-      animRef.current = requestAnimationFrame(updateProgress)
+      animRef.current = requestAnimationFrame(tick)
     }
   }
 
-  // How many bars should be "active" (green) based on progress
   const activeBars = Math.floor(progress * totalBars)
 
   return (
@@ -69,12 +71,10 @@ function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
         {bars.map((h, i) => (
           <span
             key={i}
-            className={clsx(
-              'inline-block w-[2.5px] rounded-full transition-all duration-150',
-              i < activeBars ? 'bg-[#3ecf8e]' : 'bg-zinc-600'
-            )}
+            className="inline-block w-[2.5px] rounded-full transition-all duration-100"
             style={{
-              height: `${playing && i === activeBars ? h + 2 : h}px`,
+              height: `${playing && i === activeBars ? h + 3 : h}px`,
+              backgroundColor: i < activeBars ? '#3ecf8e' : '#52525b',
             }}
           />
         ))}
