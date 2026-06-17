@@ -54,6 +54,9 @@ async def handle_session(websocket: WebSocket):
     await accept(websocket)
     logger.info("Voice WebSocket accepted")
 
+    from app.graph.nodes.moa import moa_node
+    from app.graph.nodes.onboarding import onboarding_node
+
     client = _get_client()
     config = _get_config()
     logger.info(f"Connecting to model: {settings.google_voice_model}")
