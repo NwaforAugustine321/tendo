@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { register } from '../../lib/services/auth'
+import { useAuth } from '../../context/auth'
 import { AuthCard, authInputClass } from './AuthCard'
 
 export function Register() {
   const navigate = useNavigate()
+  const { refresh } = useAuth()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -21,6 +23,7 @@ export function Register() {
     setBusy(true)
     try {
       await register(email.trim(), password, name.trim())
+      await refresh()
       toast.success('Account created!')
       navigate('/welcome', { replace: true })
     } catch {

@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { login } from '../../lib/services/auth'
+import { useAuth } from '../../context/auth'
 import { AuthCard, authInputClass } from './AuthCard'
 
 export function Login() {
   const navigate = useNavigate()
+  const { refresh } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -16,10 +18,10 @@ export function Login() {
 
     try {
       await login(email.trim(), password)
+      await refresh()
       toast.success('Welcome back!')
       navigate('/select-business', { replace: true })
     } catch {
-      // Error already shown by http service toast
     } finally {
       setBusy(false)
     }
