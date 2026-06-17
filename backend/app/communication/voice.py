@@ -51,7 +51,13 @@ def _get_config() -> types.LiveConnectConfig:
 
 
 async def handle_session(websocket: WebSocket):
-    """Full-duplex voice session."""
+    """
+    Voice session using the same pattern as the working snippet:
+    - Collect all audio until end_turn
+    - Send as one blob with turn_complete=True
+    - Then read response stream
+    - Repeat
+    """
     await accept(websocket)
     logger.info("Voice WebSocket accepted")
 
@@ -65,26 +71,71 @@ async def handle_session(websocket: WebSocket):
         ) as session:
             logger.info("AI session connected")
 
-            # Two independent loops running concurrently
-            receive_task = asyncio.create_task(_receive_loop(websocket, session))
-            stream_task = asyncio.create_task(_stream_loop(websocket, session))
+            while True:
+                # 1. Collect input from browser (buffer audio until end_turn or text)
+                input_result = await _collect_input(websocket)
 
-            done, pending = await asyncio.wait(
-                [receive_task, stream_task],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+                if input_result is None:
+                    break  # Client disconnected
 
-            for task in pending:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+                input_type, data = input_result
 
-            for task in done:
-                exc = task.exception()
-                if exc:
-                    logger.error(f"Task error: {exc}", exc_info=exc)
+                # 2. Send to AI as one complete turn
+                if input_type == "audio":
+                    logger.info(f"Sending audio: {len(data)} bytes")
+                    await session.send(
+                        input=types.LiveClientContent(
+                            turns=[
+                                types.Content(
+                                    role="user",
+                                    parts=[
+                                        types.Part(
+                                            inline_data=types.Blob(
+                                                data=data, mime_type="audio/pcm"
+                                            )
+                                        )
+                                    ],
+                                )
+                            ],
+                            turn_complete=True,
+                        )
+                    )
+                elif input_type == "text":
+                    logger.info(f"Sending text: {data[:50]}")
+                    await session.send(
+                        input=types.LiveClientContent(
+                            turns=[
+                                types.Content(
+                                    role="user",
+                                    parts=[types.Part.from_text(text=data)],
+                                )
+                            ],
+                            turn_complete=True,
+                        )
+                    )
+
+                # 3. Stream back the AI response
+                logger.info("Waiting for AI response...")
+                async for response in session.receive():
+                    if response.data:
+                        await send_audio(websocket, response.data)
+
+                    if (
+                        response.server_content
+                        and response.server_content.output_transcription
+                    ):
+                        text = response.server_content.output_transcription.text
+                        if text:
+                            logger.info(f"AI: {text[:80]}")
+                            await send_transcript(websocket, text)
+
+                    if response.server_content and response.server_content.turn_complete:
+                        logger.info("AI turn complete")
+                        await send_turn_complete(websocket)
+                        break
+
+                # Small pause between turns (matches working snippet)
+                await asyncio.sleep(0.3)
 
     except WebSocketDisconnect:
         logger.info("Client disconnected")
@@ -96,88 +147,37 @@ async def handle_session(websocket: WebSocket):
         logger.info("WebSocket closed")
 
 
-async def _receive_loop(websocket: WebSocket, session):
-    """Continuously receive from browser and forward to AI session."""
-    try:
-        while True:
-            message = await receive_json(websocket)
-            if message is None:
-                logger.info("Browser disconnected")
-                return
+async def _collect_input(websocket: WebSocket) -> tuple[str, bytes | str] | None:
+    """
+    Collect user input from browser.
+    For audio: buffers all chunks until end_turn, returns concatenated bytes.
+    For text: returns immediately.
+    Returns None if client disconnects.
+    """
+    audio_buffer: list[bytes] = []
 
-            kind = message.get("type")
+    while True:
+        message = await receive_json(websocket)
+        if message is None:
+            return None
 
-            if kind == "audio":
-                raw = decode_audio(message["data"])
-                await session.send(
-                    input=types.LiveClientContent(
-                        turns=[
-                            types.Content(
-                                role="user",
-                                parts=[
-                                    types.Part(
-                                        inline_data=types.Blob(
-                                            data=raw, mime_type="audio/pcm"
-                                        )
-                                    )
-                                ],
-                            )
-                        ],
-                        turn_complete=False,
-                    )
-                )
+        kind = message.get("type")
 
-            elif kind == "text":
-                logger.info(f"Text: {message.get('data', '')[:50]}")
-                await session.send(
-                    input=types.LiveClientContent(
-                        turns=[
-                            types.Content(
-                                role="user",
-                                parts=[types.Part.from_text(text=message["data"])],
-                            )
-                        ],
-                        turn_complete=True,
-                    )
-                )
+        if kind == "audio":
+            raw = decode_audio(message["data"])
+            audio_buffer.append(raw)
 
-            elif kind == "end_turn":
-                logger.info("End turn signal")
-                await session.send(
-                    input=types.LiveClientContent(turn_complete=True)
-                )
+        elif kind == "end_turn":
+            if audio_buffer:
+                # Concatenate all audio chunks into one blob
+                full_audio = b"".join(audio_buffer)
+                logger.info(f"Audio collected: {len(full_audio)} bytes from {len(audio_buffer)} chunks")
+                return ("audio", full_audio)
+            # end_turn with no audio — ignore
+            continue
 
-    except (WebSocketDisconnect, asyncio.CancelledError):
-        pass
-    except Exception as e:
-        logger.error(f"receive_loop error: {e}", exc_info=True)
-
-
-async def _stream_loop(websocket: WebSocket, session):
-    """Continuously stream AI responses back to browser. Never exits on turn_complete."""
-    try:
-        async for response in session.receive():
-            # Audio data
-            if response.data:
-                await send_audio(websocket, response.data)
-
-            # Transcript text
-            if response.server_content and response.server_content.output_transcription:
-                text = response.server_content.output_transcription.text
-                if text:
-                    logger.info(f"AI: {text[:80]}")
-                    await send_transcript(websocket, text)
-
-            # Turn complete — notify browser but keep listening
-            if response.server_content and response.server_content.turn_complete:
-                logger.info("AI turn complete")
-                await send_turn_complete(websocket)
-                # Do NOT break — keep the iterator alive for next turn
-
-    except (WebSocketDisconnect, asyncio.CancelledError):
-        pass
-    except Exception as e:
-        logger.error(f"stream_loop error: {e}", exc_info=True)
+        elif kind == "text":
+            return ("text", message.get("data", ""))
 
 
 async def transcribe(audio_bytes: bytes, timeout: float = 10.0) -> str:
