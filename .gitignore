@@ -7,6 +7,9 @@ frontend/dist/
 .env
 .DS_Store
 
+# Kiro specs (local only)
+.kiro/
+
 # Sigmoid reference (not part of tendo)
 sigmoid.ai/
 
