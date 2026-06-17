@@ -1,4 +1,4 @@
-"""LangGraph Redis checkpointer setup."""
+"""Graph checkpointer setup."""
 
 from langgraph.checkpoint.redis import RedisSaver
 

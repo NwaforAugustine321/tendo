@@ -1,11 +1,10 @@
-"""WhatsApp payload normalizer — transforms webhook payload to UnifiedUserEvent."""
+"""Payload normalizer — transforms webhook payload to event format."""
 
 
 def normalize(payload: dict) -> dict | None:
     """
-    Transform a Meta WhatsApp webhook payload into UnifiedUserEvent fields.
+    Transform a webhook payload into unified event fields.
     Returns None if the payload is not a user message.
     """
-    # TODO: parse Meta webhook structure
-    # entry → changes → value → messages → [0]
+    # TODO: parse webhook structure
     return None

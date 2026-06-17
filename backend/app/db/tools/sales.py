@@ -1,4 +1,4 @@
-"""Sales tools — create sale (write, confirmation-gated)."""
+"""Sales tools."""
 
 from app.db.registry import register
 
@@ -12,8 +12,8 @@ def create_sale(
     event_id: str,
     confirmation_status: str = "",
 ) -> dict:
-    """Create a sale transaction. Requires confirmation_status == 'confirmed'."""
+    """Create a sale transaction. Requires confirmation."""
     if confirmation_status != "confirmed":
         return {"error": "Confirmation required before executing write operation."}
-    # TODO: idempotency check, execute via Supabase RPC, audit log
+    # TODO: idempotency check, execute, audit log
     return {"status": "created", "event_id": event_id}

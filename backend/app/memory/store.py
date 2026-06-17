@@ -1,10 +1,10 @@
-"""Persist conversation turns to Mem0."""
+"""Persist conversation turns to memory."""
 
 from app.memory.client import get_client
 
 
 def store_turn(user_id: str, user_text: str, assistant_text: str) -> None:
-    """Store a conversation turn in Mem0 for long-term memory."""
+    """Store a conversation turn for long-term recall."""
     get_client().add(
         [
             {"role": "user", "content": user_text},

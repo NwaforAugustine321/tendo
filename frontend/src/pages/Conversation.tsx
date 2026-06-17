@@ -1,103 +1,84 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ConversationPage, type MessageItem } from '../components/conversation/ConversationPage'
+import { useVoiceSession } from '../hooks/useVoiceSession'
 
 type Props = {
-  /** Initial messages to seed the conversation (e.g., onboarding welcome) */
   initialMessages?: MessageItem[]
-  /** Session title shown in header subtitle */
   sessionTitle?: string
-  /** Full-screen mode (onboarding) vs embedded in workspace */
   fullScreen?: boolean
-  /** Show the Tendo header */
   showHeader?: boolean
 }
 
-/**
- * Unified conversation page — used for onboarding AND ongoing business sessions.
- * The page is the same; only the initial messages and context differ.
- */
 export function Conversation({ initialMessages, sessionTitle, fullScreen = false, showHeader = false }: Props) {
-  const [messages, setMessages] = useState<MessageItem[]>(
-    initialMessages ?? []
-  )
-  const [isTyping, setIsTyping] = useState(false)
+  const [messages, setMessages] = useState<MessageItem[]>(initialMessages ?? [])
+  const voice = useVoiceSession()
 
-  const addUserMessage = (content: string) => {
-    const msg: MessageItem = {
-      id: Date.now().toString(),
-      role: 'user',
-      content,
-      type: 'text',
+  useEffect(() => {
+    voice.connect()
+    return () => voice.disconnect()
+  }, [])
+
+  // Add AI transcript as a message when turn completes
+  useEffect(() => {
+    if (voice.transcript) {
+      const aiMsg: MessageItem = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: voice.transcript,
+        type: 'text',
+      }
+      setMessages((prev) => [...prev, aiMsg])
     }
-    setMessages((prev) => [...prev, msg])
-    return msg
-  }
-
-  const simulateAIResponse = (response: MessageItem) => {
-    setIsTyping(true)
-    setTimeout(() => {
-      setIsTyping(false)
-      setMessages((prev) => [...prev, response])
-    }, 1200 + Math.random() * 800)
-  }
+  }, [voice.transcript])
 
   const handleSendText = (text: string) => {
-    addUserMessage(text)
-    // In production this calls POST /events — for now simulate
-    simulateAIResponse({
-      id: (Date.now() + 1).toString(),
-      role: 'assistant',
-      content: `I understand. Let me process that for you.`,
+    const userMsg: MessageItem = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: text,
       type: 'text',
-    })
+    }
+    setMessages((prev) => [...prev, userMsg])
+    voice.sendText(text)
   }
 
-  const handleVoiceRecorded = (_blob: Blob) => {
-    addUserMessage('🎤 Voice message')
-    simulateAIResponse({
-      id: (Date.now() + 1).toString(),
-      role: 'assistant',
-      content: 'I received your voice message. Processing...',
-      type: 'text',
-    })
+  const handleVoiceToggle = async () => {
+    if (voice.isListening) {
+      voice.stopListening()
+    } else {
+      await voice.startListening()
+    }
   }
 
   const handleOptionSelect = (optionId: string) => {
-    addUserMessage(`Selected: ${optionId}`)
-    simulateAIResponse({
-      id: (Date.now() + 1).toString(),
-      role: 'assistant',
-      content: `Got it. Moving forward with your selection.`,
+    const userMsg: MessageItem = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: optionId,
       type: 'text',
-    })
+    }
+    setMessages((prev) => [...prev, userMsg])
+    voice.sendText(optionId)
   }
 
   const handleConfirm = () => {
-    addUserMessage('✓ Confirmed')
-    simulateAIResponse({
-      id: (Date.now() + 1).toString(),
-      role: 'assistant',
-      content: 'Operation confirmed and executed successfully.',
-      type: 'text',
-    })
+    setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'user', content: '✓ Confirmed', type: 'text' }])
+    voice.sendText('confirmed')
   }
 
   const handleCancel = () => {
-    addUserMessage('✕ Cancelled')
-    simulateAIResponse({
-      id: (Date.now() + 1).toString(),
-      role: 'assistant',
-      content: 'Operation cancelled. No changes were made.',
-      type: 'text',
-    })
+    setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'user', content: '✕ Cancelled', type: 'text' }])
+    voice.sendText('cancelled')
   }
 
   return (
     <ConversationPage
       messages={messages}
-      isTyping={isTyping}
+      isTyping={voice.isSpeaking || !!voice.transcriptBuffer}
       onSendText={handleSendText}
-      onVoiceRecorded={handleVoiceRecorded}
+      onVoiceRecorded={() => {}}
+      onVoiceToggle={handleVoiceToggle}
+      isListening={voice.isListening}
       onOptionSelect={handleOptionSelect}
       onConfirm={handleConfirm}
       onModify={() => {}}

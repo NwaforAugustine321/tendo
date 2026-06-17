@@ -1,4 +1,4 @@
-"""LangGraph workflow assembly — StateGraph with all nodes wired."""
+"""Workflow assembly — state graph with all nodes wired."""
 
 from langgraph.graph import END, START, StateGraph
 
@@ -16,14 +16,12 @@ from app.models.state import GraphState
 
 
 def route_from_bsga(state: GraphState) -> str:
-    """Route based on BSGA classification."""
     if state.get("classification") == "OUT_OF_SCOPE":
         return "response"
     return "memory"
 
 
 def route_from_moa(state: GraphState) -> str:
-    """Route based on MOA decisions."""
     if state.get("error"):
         return "response"
     if state.get("output_mode") == "structured_options":
@@ -38,10 +36,9 @@ def route_from_moa(state: GraphState) -> str:
 
 
 def build_graph() -> StateGraph:
-    """Build the LangGraph StateGraph with all nodes and edges."""
+    """Build the state graph with all nodes and edges."""
     builder = StateGraph(GraphState)
 
-    # Register nodes
     builder.add_node("bsga", bsga_node)
     builder.add_node("memory", memory_node)
     builder.add_node("moa", moa_node)
@@ -53,7 +50,6 @@ def build_graph() -> StateGraph:
     builder.add_node("confirmation", confirmation_node)
     builder.add_node("response", response_node)
 
-    # Edges
     builder.add_edge(START, "bsga")
     builder.add_conditional_edges("bsga", route_from_bsga, ["memory", "response"])
     builder.add_edge("memory", "moa")
@@ -74,7 +70,7 @@ def build_graph() -> StateGraph:
 
 
 def compile_graph():
-    """Compile the graph with Redis checkpointer and interrupts."""
+    """Compile the graph with checkpointer and interrupts."""
     from app.redis.checkpointer import get_checkpointer
 
     builder = build_graph()
