@@ -22,7 +22,7 @@ export function EmptyState() {
       </div>
 
       <p className="mt-4 max-w-xs text-center text-sm text-zinc-500">
-        Tell me how your business works. I'll learn your customers, products, services, and how you operate.
+        Tell me how your business works. I'll learn your customers, products, services or any type of bussiness, and how you operate.
       </p>
     </div>
   )
