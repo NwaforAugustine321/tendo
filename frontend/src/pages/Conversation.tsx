@@ -7,24 +7,12 @@ type Props = {
   sessionTitle?: string
   fullScreen?: boolean
   showHeader?: boolean
-  autoStart?: string
 }
 
-export function Conversation({ initialMessages, sessionTitle, fullScreen = false, showHeader = false, autoStart }: Props) {
+export function Conversation({ initialMessages, sessionTitle, fullScreen = false, showHeader = false }: Props) {
   const [messages, setMessages] = useState<MessageItem[]>(initialMessages ?? [])
   const voice = useVoiceSession()
   const streamingMsgId = useRef<string | null>(null)
-  const autoStarted = useRef(false)
-
-  // Auto-start: send initial trigger to get the agent to initiate conversation
-  useEffect(() => {
-    if (autoStart && !autoStarted.current) {
-      autoStarted.current = true
-      setTimeout(() => {
-        voice.sendText(autoStart)
-      }, 800)
-    }
-  }, [autoStart])
 
   useEffect(() => {
     if (voice.currentResponse) {

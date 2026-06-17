@@ -64,6 +64,38 @@ async def handle_session(websocket: WebSocket):
         ) as session:
             logger.info("AI session connected")
 
+            # Server initiates the conversation
+            from app.graph.nodes.moa import moa_node
+            from app.graph.nodes.onboarding import onboarding_node
+
+            init_state = {
+                "event": {"text": "hello", "thread_id": "default", "business_id": "default"},
+                "messages": [],
+            }
+            init_result = await moa_node(init_state)
+            routed = init_result.get("routed_domain")
+            if routed == "onboarding":
+                init_result = await onboarding_node({**init_state, "messages": init_result.get("messages", [])})
+
+            greeting = init_result.get("response", {}).get("text", "")
+            if greeting:
+                logger.info(f"Greeting: {greeting[:80]}")
+                await send_transcript(websocket, greeting)
+
+                # Also speak it via Gemini TTS
+                await session.send(
+                    input=types.LiveClientContent(
+                        turns=[types.Content(role="user", parts=[types.Part.from_text(text=greeting)])],
+                        turn_complete=True,
+                    )
+                )
+                async for response in session.receive():
+                    if response.data:
+                        await send_audio(websocket, response.data)
+                    if response.server_content and response.server_content.turn_complete:
+                        await send_turn_complete(websocket)
+                        break
+
             while True:
                 input_result = await _collect_input(websocket)
 
@@ -72,7 +104,6 @@ async def handle_session(websocket: WebSocket):
 
                 input_type, data = input_result
 
-                # Get text from user (either directly or via Gemini STT)
                 user_text = ""
 
                 if input_type == "text":
@@ -120,16 +151,9 @@ async def handle_session(websocket: WebSocket):
                 if not user_text:
                     continue
 
-                # Don't echo system triggers to the user
-                if user_text.startswith("start_"):
-                    pass
-                else:
-                    await send_transcript(websocket, f"You: {user_text}")
+                await send_transcript(websocket, f"You: {user_text}")
 
-                # Pass to MOA for processing
-                from app.graph.nodes.moa import moa_node
-                from app.graph.nodes.onboarding import onboarding_node
-
+                # Pass to MOA
                 state = {
                     "event": {"text": user_text, "thread_id": "default", "business_id": "default"},
                     "messages": [],
@@ -137,7 +161,6 @@ async def handle_session(websocket: WebSocket):
 
                 result = await moa_node(state)
 
-                # If MOA routes to a sub-agent, delegate
                 routed = result.get("routed_domain")
                 if routed == "onboarding":
                     result = await onboarding_node({**state, "messages": result.get("messages", [])})

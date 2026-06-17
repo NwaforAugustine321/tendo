@@ -10,7 +10,6 @@ export function Onboarding() {
           sessionTitle="Let Tendo know about your business"
           fullScreen={false}
           showHeader={false}
-          autoStart="start_onboarding"
         />
       </div>
     </div>
