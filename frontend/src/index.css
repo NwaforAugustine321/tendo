@@ -1,0 +1,146 @@
+@import "tailwindcss";
+@import "./landing.css";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Two-tone dark: nav panels are #0f0f0f, everything else is #0a0a0a */
+  --color-brand-bg: #0a0a0a;
+  --color-brand-bg-deep: #0a0a0a;
+  --color-brand-canvas: #0f0f0f;
+  --color-brand-surface: #141414;
+  --color-brand-surface-hover: #1a1a1a;
+
+  /* Accent — mint/emerald */
+  --color-brand-accent: #3ecf8e;
+  --color-brand-accent-hover: #4ddb9b;
+  --color-brand-cta-fill: #1c6348;
+  --color-brand-cta-fill-hover: #247a5c;
+  --color-brand-cta-border: #3ecf8e;
+
+  /* Text */
+  --color-brand-muted: #a1a1aa;
+
+  /* Borders — matching sigmoid.ai: zinc-800/90 and zinc-800/60 */
+  --color-brand-border: rgb(39 39 42 / 0.9);
+  --color-brand-border-hover: rgb(63 63 70 / 0.9);
+  --color-brand-border-subtle: rgb(39 39 42 / 0.6);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  @apply min-h-screen bg-[#0a0a0a] font-sans text-zinc-100 antialiased;
+}
+
+@layer components {
+  .av-border {
+    @apply border border-zinc-800/90;
+  }
+
+  .av-border-subtle {
+    @apply border border-zinc-800/60;
+  }
+
+  .av-card {
+    @apply rounded-2xl border border-zinc-800/90 bg-[#141414] p-6 shadow-none transition-[border-color,background-color,box-shadow] duration-300 ease-out;
+  }
+
+  .av-card-interactive {
+    @apply cursor-default rounded-2xl border border-zinc-800/90 bg-[#141414] p-6 shadow-none transition-[border-color,background-color,box-shadow] duration-300 ease-out hover:border-zinc-700/90 hover:bg-[#1a1a1a];
+  }
+
+  .av-card-interactive:active {
+    @apply border-zinc-800/90;
+  }
+
+  .av-input {
+    @apply w-full rounded-md border border-zinc-800/80 bg-[#0a0a0a] px-2.5 py-2 font-sans text-xs text-zinc-200 transition-[border-color,background-color] duration-200 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-600/25;
+  }
+
+  .av-section-divider {
+    @apply border-zinc-800/90;
+  }
+
+  .av-hero-title {
+    @apply font-sans font-bold tracking-[-0.03em] text-white;
+  }
+
+  .av-kicker {
+    @apply font-sans text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-500;
+  }
+
+  .av-page-title {
+    @apply font-sans font-bold tracking-[-0.02em] text-white;
+  }
+
+  .av-dashboard-grid {
+    background-image:
+      linear-gradient(to right, rgb(255 255 255 / 0.03) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(255 255 255 / 0.03) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+
+  .av-dashboard-surface {
+    @apply rounded-xl border border-zinc-800/90 bg-[#141414] p-3 transition-[border-color,background-color] duration-300 ease-out;
+  }
+
+  .av-dashboard-surface-interactive {
+    @apply rounded-xl border border-zinc-800/90 bg-[#141414] p-3 transition-[border-color,background-color] duration-300 ease-out hover:border-zinc-700/90 hover:bg-[#1a1a1a];
+  }
+
+  .av-dashboard-surface-interactive-compact {
+    @apply rounded-xl border border-zinc-800/90 bg-[#141414] px-3 py-2 transition-[border-color,background-color] duration-300 ease-out hover:border-zinc-700/90 hover:bg-[#1a1a1a];
+  }
+
+  .av-dashboard-surface-relaxed {
+    @apply rounded-xl border border-zinc-800/90 bg-[#141414] p-4 sm:p-5 transition-[border-color,background-color] duration-300 ease-out;
+  }
+
+  .av-console-surface {
+    @apply rounded-lg border border-zinc-800/50 bg-[#0f0f0f] p-3 sm:p-3.5;
+  }
+
+  .av-dashboard-surface-flush {
+    @apply overflow-hidden rounded-xl border border-zinc-800/90 bg-[#141414] transition-[border-color,background-color] duration-300 ease-out;
+  }
+
+  .av-dashboard-stat-tile {
+    @apply rounded-lg border border-zinc-800/90 bg-zinc-900/60 px-2 py-2 text-center;
+  }
+
+  .av-btn-primary {
+    @apply inline-flex h-[38px] items-center justify-center gap-2 rounded-md border border-[#3ecf8e] bg-[#1c6348] px-4 text-sm font-semibold text-white shadow-sm shadow-[#3ecf8e]/[0.15] transition-[background-color,border-color,color,box-shadow,filter] duration-300 ease-out hover:border-[#5ee9b0] hover:bg-[#247a5c] hover:shadow-[0_0_20px_-6px_rgba(62,207,142,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .av-btn-secondary {
+    @apply inline-flex h-[38px] items-center justify-center gap-1.5 rounded-md border border-zinc-700/90 bg-zinc-900/60 px-4 text-sm font-semibold text-zinc-200 transition-[background-color,border-color,color] duration-300 ease-out hover:border-zinc-600 hover:bg-zinc-800/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .av-btn-icon {
+    @apply inline-flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-md border border-zinc-700/90 bg-zinc-900/60 text-zinc-400 transition-colors hover:border-zinc-600 hover:bg-zinc-800/80 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .av-btn-toolbar-primary {
+    @apply inline-flex h-7 shrink-0 items-center justify-center gap-0.5 rounded-md border border-[#3ecf8e] bg-[#1c6348] px-2 text-[11px] font-semibold leading-none text-white shadow-sm shadow-[#3ecf8e]/[0.12] transition-[background-color,border-color,color] duration-200 hover:border-[#5ee9b0] hover:bg-[#247a5c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/40 disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .av-btn-toolbar-secondary {
+    @apply inline-flex h-7 shrink-0 items-center justify-center gap-0.5 rounded-md border border-zinc-700 bg-zinc-900/50 px-2 text-[11px] font-semibold leading-none text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/40 disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .av-btn-toolbar-icon {
+    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900/50 text-zinc-400 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/40 disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .av-btn-toolbar-emerald {
+    @apply inline-flex h-7 shrink-0 items-center justify-center rounded-md bg-[#3ecf8e] px-2.5 text-[11px] font-semibold leading-none text-[#0a0a0a] shadow-sm shadow-[#3ecf8e]/20 transition hover:bg-[#5ee9b0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/40 disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .av-btn-emerald-solid {
+    @apply inline-flex items-center justify-center rounded-lg bg-[#3ecf8e] px-6 py-2.5 text-sm font-semibold text-[#0a0a0a] shadow-sm shadow-[#3ecf8e]/25 transition hover:bg-[#5ee9b0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:pointer-events-none disabled:opacity-45;
+  }
+}
