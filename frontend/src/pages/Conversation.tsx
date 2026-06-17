@@ -59,7 +59,7 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
 
   const handleVoiceToggle = async () => {
     if (voice.isListening) {
-      const audioUrl = voice.stopListening()
+      const audioUrl = await voice.stopListening()
       setMessages((prev) => [...prev, {
         id: Date.now().toString(),
         role: 'user',

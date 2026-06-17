@@ -78,9 +78,9 @@ export function useVoiceSession() {
     }
   }, [connect])
 
-  const stopListening = useCallback((): string | null => {
+  const stopListening = useCallback(async (): Promise<string | null> => {
     if (!clientRef.current) return null
-    const audioUrl = clientRef.current.stopMic()
+    const audioUrl = await clientRef.current.stopMic()
     setCurrentResponse('')
     setTurnComplete(false)
     setState('idle')

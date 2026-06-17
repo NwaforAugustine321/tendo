@@ -157,33 +157,42 @@ export class VoiceClient {
     this.recorder.start()
   }
 
-  stopMic(): string | null {
-    // Stop local recorder and create blob URL
-    let audioUrl: string | null = null
-    if (this.recorder && this.recorder.state === 'recording') {
-      this.recorder.stop()
-      const blob = new Blob(this.recordedChunks, { type: 'audio/webm' })
-      audioUrl = URL.createObjectURL(blob)
-      this.recorder = null
-      this.recordedChunks = []
-    }
+  stopMic(): Promise<string | null> {
+    return new Promise((resolve) => {
+      // Stop worklet and mic stream
+      if (this.workletNode) {
+        this.workletNode.disconnect()
+        this.workletNode = null
+      }
+      if (this.micContext) {
+        this.micContext.close()
+        this.micContext = null
+      }
 
-    if (this.workletNode) {
-      this.workletNode.disconnect()
-      this.workletNode = null
-    }
-    if (this.micContext) {
-      this.micContext.close()
-      this.micContext = null
-    }
-    if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach((t) => t.stop())
-      this.mediaStream = null
-    }
-    // Signal end of user turn
-    this.wsClient?.send({ type: 'end_turn' })
+      // Signal end of user turn
+      this.wsClient?.send({ type: 'end_turn' })
 
-    return audioUrl
+      // Stop recorder and wait for final data
+      if (this.recorder && this.recorder.state === 'recording') {
+        this.recorder.onstop = () => {
+          const blob = new Blob(this.recordedChunks, { type: 'audio/webm' })
+          const audioUrl = URL.createObjectURL(blob)
+          this.recordedChunks = []
+          this.recorder = null
+          resolve(audioUrl)
+        }
+        this.recorder.stop()
+      } else {
+        this.recorder = null
+        this.recordedChunks = []
+        resolve(null)
+      }
+
+      if (this.mediaStream) {
+        this.mediaStream.getTracks().forEach((t) => t.stop())
+        this.mediaStream = null
+      }
+    })
   }
 
   sendText(text: string) {
