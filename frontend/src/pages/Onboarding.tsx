@@ -9,7 +9,7 @@ export function Onboarding() {
         <Conversation
           sessionTitle="Let Tendo know about your business"
           fullScreen={false}
-          showHeader={true}
+          showHeader={false}
         />
       </div>
     </div>
