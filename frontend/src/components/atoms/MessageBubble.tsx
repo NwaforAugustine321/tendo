@@ -12,26 +12,48 @@ type Props = {
 
 function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
   const [playing, setPlaying] = useState(false)
+  const [progress, setProgress] = useState(0)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const animRef = useRef<number | null>(null)
 
   const bars = [3, 6, 4, 8, 5, 10, 7, 4, 9, 6, 3, 7, 5, 8, 4, 6, 9, 5, 3, 7, 6, 4, 8, 5, 3]
+  const totalBars = bars.length
+
+  const updateProgress = () => {
+    if (audioRef.current && audioRef.current.duration) {
+      const pct = audioRef.current.currentTime / audioRef.current.duration
+      setProgress(pct)
+    }
+    if (playing) {
+      animRef.current = requestAnimationFrame(updateProgress)
+    }
+  }
 
   const togglePlay = () => {
     if (!audioUrl) return
 
     if (!audioRef.current) {
       audioRef.current = new Audio(audioUrl)
-      audioRef.current.onended = () => setPlaying(false)
+      audioRef.current.onended = () => {
+        setPlaying(false)
+        setProgress(0)
+        if (animRef.current) cancelAnimationFrame(animRef.current)
+      }
     }
 
     if (playing) {
       audioRef.current.pause()
       setPlaying(false)
+      if (animRef.current) cancelAnimationFrame(animRef.current)
     } else {
       audioRef.current.play()
       setPlaying(true)
+      animRef.current = requestAnimationFrame(updateProgress)
     }
   }
+
+  // How many bars should be "active" (green) based on progress
+  const activeBars = Math.floor(progress * totalBars)
 
   return (
     <div className="flex items-center gap-1.5 py-0.5">
@@ -48,10 +70,12 @@ function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
           <span
             key={i}
             className={clsx(
-              'inline-block w-[2.5px] rounded-full transition-colors',
-              playing ? 'bg-[#3ecf8e]' : 'bg-zinc-600'
+              'inline-block w-[2.5px] rounded-full transition-all duration-150',
+              i < activeBars ? 'bg-[#3ecf8e]' : 'bg-zinc-600'
             )}
-            style={{ height: `${h}px` }}
+            style={{
+              height: `${playing && i === activeBars ? h + 2 : h}px`,
+            }}
           />
         ))}
       </div>
