@@ -3,6 +3,7 @@
 import logging
 
 from app.db.tools.auth import register_user, login_user, get_user_by_token
+from app.db.tools.profiles import create_user_profile
 from app.lib.errors import AuthError
 
 logger = logging.getLogger(__name__)
@@ -13,7 +14,15 @@ COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 
 async def handle_register(email: str, password: str, name: str) -> dict:
     try:
-        return await register_user(email, password, name)
+        result = await register_user(email, password, name)
+
+        # Create user profile record
+        try:
+            await create_user_profile(result["user_id"], email, name)
+        except Exception as e:
+            logger.warning(f"User profile creation failed (non-blocking): {e}")
+
+        return result
     except Exception as e:
         logger.error(f"Register failed: {e}")
         raise AuthError("Could not create account. Email may already be in use.")
