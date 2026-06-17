@@ -122,9 +122,6 @@ async def handle_session(websocket: WebSocket):
                 if not user_text:
                     continue
 
-                await send_transcript(websocket, f"You: {user_text}")
-
-                # Pass to MOA
                 state = {
                     "event": {"text": user_text, "thread_id": "default", "business_id": "default"},
                     "messages": [],
