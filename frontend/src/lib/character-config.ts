@@ -8,7 +8,7 @@
  */
 
 // ─── CHANGE THIS TO SWITCH CHARACTER ─────────────────────
-export const ACTIVE_CHARACTER: CharacterOption = 'luke'
+export const ACTIVE_CHARACTER: CharacterOption = 'wes'
 // ──────────────────────────────────────────────────────────
 
 type CharacterOption =
