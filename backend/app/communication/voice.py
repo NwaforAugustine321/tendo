@@ -63,7 +63,7 @@ async def handle_session(websocket: WebSocket):
 
     try:
         async with client.aio.live.connect(
-            model="gemini-2.0-flash-live-001", config=config
+            model=settings.google_voice_model, config=config
         ) as session:
             logger.info("AI session connected successfully")
             receive_task = asyncio.create_task(_receive(websocket, session))

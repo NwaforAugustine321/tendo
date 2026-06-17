@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
     anthropic_api_key: str
     google_voice_api_key: str = ""
+    google_voice_model: str = "gemini-2.0-flash-live-001"
     spec_hot_reload: bool = True
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
