@@ -23,3 +23,6 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+
+# Amazon Sumerian Hosts (reference only)
+amazon-sumerian-hosts

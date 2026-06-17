@@ -1,0 +1,24 @@
+name: tendo
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - fastapi
+    - uvicorn[standard]
+    - langgraph
+    - langgraph-checkpoint-redis
+    - langchain-anthropic
+    - langchain-core
+    - supabase
+    - pydantic
+    - pydantic-settings
+    - redis
+    - mem0ai
+    - httpx
+    - python-dotenv
+    - pytest
+    - pytest-asyncio
+    - ruff

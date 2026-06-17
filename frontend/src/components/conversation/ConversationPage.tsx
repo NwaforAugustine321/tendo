@@ -7,6 +7,7 @@ import { OperationCard } from './OperationCard'
 import { TypingIndicator } from './TypingIndicator'
 import { TextInput } from './TextInput'
 import { VoiceButton } from './VoiceButton'
+import { TalkingCharacter } from './TalkingCharacter'
 
 export type MessageItem = {
   id: string
@@ -69,6 +70,11 @@ export function ConversationPage({
   fullScreen = true,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Track the latest AI text message for speech
+  const lastAssistantText = messages
+    .filter((m) => m.role === 'assistant' && m.type === 'text')
+    .at(-1)?.content
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -160,6 +166,9 @@ export function ConversationPage({
           <TextInput onSend={onSendText} />
         </div>
       </div>
+
+      {/* Talking character — fixed bottom-right */}
+      <TalkingCharacter speakText={lastAssistantText} isSpeaking={isTyping} />
     </div>
   )
 }
