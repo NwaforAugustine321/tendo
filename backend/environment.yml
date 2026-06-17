@@ -12,6 +12,7 @@ dependencies:
     - langgraph
     - langgraph-checkpoint-redis
     - langchain-anthropic
+    - langchain-google-genai
     - langchain-core
     - supabase
     - pydantic
