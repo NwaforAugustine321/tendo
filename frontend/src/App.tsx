@@ -5,6 +5,7 @@ import { Landing } from './pages/Landing'
 import { Login } from './pages/auth/Login'
 import { Register } from './pages/auth/Register'
 import { Welcome } from './pages/auth/Welcome'
+import { SelectBusiness } from './pages/SelectBusiness'
 import { Onboarding } from './pages/Onboarding'
 import { Conversation } from './pages/Conversation'
 import { WorkspaceLayout } from './layout/WorkspaceLayout'
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/welcome" element={<Welcome />} />
 
         {/* Requires auth */}
+        <Route path="/select-business" element={<ProtectedRoute><SelectBusiness /></ProtectedRoute>} />
         <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
 
         {/* Protected workspace */}
