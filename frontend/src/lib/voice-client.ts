@@ -1,6 +1,6 @@
 /**
  * Voice client — manages mic capture, audio playback, and voice WebSocket protocol.
- * Uses the ws module for connection management.
+ * Uses AudioWorkletNode for mic capture (no deprecated ScriptProcessorNode).
  */
 
 import { WSClient } from './ws'
@@ -16,8 +16,9 @@ type VoiceCallbacks = {
 export class VoiceClient {
   private wsClient: WSClient | null = null
   private audioContext: AudioContext | null = null
+  private micContext: AudioContext | null = null
   private mediaStream: MediaStream | null = null
-  private processor: ScriptProcessorNode | null = null
+  private workletNode: AudioWorkletNode | null = null
   private playbackQueue: ArrayBuffer[] = []
   private isPlaying = false
   private callbacks: VoiceCallbacks
@@ -101,32 +102,55 @@ export class VoiceClient {
       },
     })
 
-    const micContext = new AudioContext({ sampleRate: 16000 })
-    const source = micContext.createMediaStreamSource(this.mediaStream)
+    this.micContext = new AudioContext({ sampleRate: 16000 })
+    const source = this.micContext.createMediaStreamSource(this.mediaStream)
 
-    this.processor = micContext.createScriptProcessor(4096, 1, 1)
-    this.processor.onaudioprocess = (event) => {
+    // Register AudioWorklet processor inline via Blob URL
+    const processorCode = `
+      class PCMProcessor extends AudioWorkletProcessor {
+        process(inputs) {
+          const input = inputs[0][0]
+          if (input) {
+            this.port.postMessage(input)
+          }
+          return true
+        }
+      }
+      registerProcessor('pcm-processor', PCMProcessor)
+    `
+    const blob = new Blob([processorCode], { type: 'application/javascript' })
+    const url = URL.createObjectURL(blob)
+
+    await this.micContext.audioWorklet.addModule(url)
+    URL.revokeObjectURL(url)
+
+    this.workletNode = new AudioWorkletNode(this.micContext, 'pcm-processor')
+    this.workletNode.port.onmessage = (event) => {
       if (!this.wsClient?.isOpen()) return
 
-      const inputData = event.inputBuffer.getChannelData(0)
-      const int16Data = new Int16Array(inputData.length)
+      const float32Data: Float32Array = event.data
+      const int16Data = new Int16Array(float32Data.length)
 
-      for (let i = 0; i < inputData.length; i++) {
-        int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32768))
+      for (let i = 0; i < float32Data.length; i++) {
+        int16Data[i] = Math.max(-32768, Math.min(32767, float32Data[i] * 32768))
       }
 
       const base64 = arrayBufferToBase64(int16Data.buffer)
       this.wsClient.send({ type: 'audio', data: base64 })
     }
 
-    source.connect(this.processor)
-    this.processor.connect(micContext.destination)
+    source.connect(this.workletNode)
+    this.workletNode.connect(this.micContext.destination)
   }
 
   stopMic() {
-    if (this.processor) {
-      this.processor.disconnect()
-      this.processor = null
+    if (this.workletNode) {
+      this.workletNode.disconnect()
+      this.workletNode = null
+    }
+    if (this.micContext) {
+      this.micContext.close()
+      this.micContext = null
     }
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((t) => t.stop())

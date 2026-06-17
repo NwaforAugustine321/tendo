@@ -128,22 +128,24 @@ async def _receive(websocket: WebSocket, session):
 
 
 async def _stream(websocket: WebSocket, session):
-    """Stream AI responses back to browser."""
+    """Stream AI responses back to browser. Keeps listening for multiple turns."""
     try:
-        async for response in session.receive():
-            if response.data:
-                await send_audio(websocket, response.data)
+        while True:
+            async for response in session.receive():
+                if response.data:
+                    await send_audio(websocket, response.data)
 
-            if (
-                response.server_content
-                and response.server_content.output_transcription
-            ):
-                text = response.server_content.output_transcription.text
-                if text:
-                    await send_transcript(websocket, text)
+                if (
+                    response.server_content
+                    and response.server_content.output_transcription
+                ):
+                    text = response.server_content.output_transcription.text
+                    if text:
+                        await send_transcript(websocket, text)
 
-            if response.server_content and response.server_content.turn_complete:
-                await send_turn_complete(websocket)
+                if response.server_content and response.server_content.turn_complete:
+                    await send_turn_complete(websocket)
+                    break  # Break inner loop, outer while keeps listening for next turn
 
     except (WebSocketDisconnect, asyncio.CancelledError):
         pass
