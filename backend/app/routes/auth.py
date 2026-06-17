@@ -1,8 +1,9 @@
-"""Auth routes — thin HTTP layer, delegates to auth service."""
+"""Auth routes — thin HTTP layer."""
 
-from fastapi import APIRouter, Response, Request, HTTPException
+from fastapi import APIRouter, Response, Request
 
 from app.models.auth import RegisterRequest, LoginRequest, AuthResponse
+from app.errors import AuthError
 from app.services.auth import (
     handle_register,
     handle_login,
@@ -16,10 +17,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=AuthResponse)
 async def register(body: RegisterRequest, response: Response):
-    try:
-        result = await handle_register(body.email, body.password, body.name)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    result = await handle_register(body.email, body.password, body.name)
 
     if result.get("access_token"):
         response.set_cookie(
@@ -36,10 +34,7 @@ async def register(body: RegisterRequest, response: Response):
 
 @router.post("/login", response_model=AuthResponse)
 async def login(body: LoginRequest, response: Response):
-    try:
-        result = await handle_login(body.email, body.password)
-    except ValueError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+    result = await handle_login(body.email, body.password)
 
     if result.get("access_token"):
         response.set_cookie(
@@ -64,10 +59,10 @@ async def logout(response: Response):
 async def me(request: Request):
     token = request.cookies.get(COOKIE_NAME)
     if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise AuthError("Not authenticated")
 
     user = await handle_get_me(token)
     if not user:
-        raise HTTPException(status_code=401, detail="Session expired")
+        raise AuthError("Session expired. Please log in again.")
 
     return AuthResponse(user_id=user["user_id"], email=user["email"], name=user["name"])

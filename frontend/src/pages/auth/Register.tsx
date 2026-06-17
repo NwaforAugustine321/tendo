@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { register } from '../../lib/services/auth'
 import { AuthCard, authInputClass } from './AuthCard'
 
@@ -10,21 +11,20 @@ export function Register() {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setError('')
 
-    if (password !== confirm) { setError('Passwords do not match'); return }
-    if (password.length < 8) { setError('Password must be at least 8 characters'); return }
+    if (password !== confirm) { toast.error('Passwords do not match'); return }
+    if (password.length < 8) { toast.error('Password must be at least 8 characters'); return }
 
     setBusy(true)
     try {
       await register(email.trim(), password, name.trim())
+      toast.success('Account created!')
       navigate('/onboarding', { replace: true })
-    } catch (err: any) {
-      setError(err.message || 'Registration failed')
+    } catch {
+      // Error already shown by http service toast
     } finally {
       setBusy(false)
     }
@@ -42,9 +42,6 @@ export function Register() {
       }
     >
       <form className="space-y-4" onSubmit={onSubmit}>
-        {error && (
-          <p className="rounded-md border border-red-500/20 bg-red-950/20 px-3 py-2 text-xs text-red-400">{error}</p>
-        )}
         <label className="block text-[11px] font-medium text-zinc-500">
           Name
           <input className={authInputClass} type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />

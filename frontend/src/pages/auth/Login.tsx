@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { login } from '../../lib/services/auth'
 import { AuthCard, authInputClass } from './AuthCard'
 
@@ -8,18 +9,17 @@ export function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setError('')
     setBusy(true)
 
     try {
       await login(email.trim(), password)
+      toast.success('Welcome back!')
       navigate('/app', { replace: true })
-    } catch (err: any) {
-      setError(err.message || 'Login failed')
+    } catch {
+      // Error already shown by http service toast
     } finally {
       setBusy(false)
     }
@@ -37,9 +37,6 @@ export function Login() {
       }
     >
       <form className="space-y-4" onSubmit={onSubmit}>
-        {error && (
-          <p className="rounded-md border border-red-500/20 bg-red-950/20 px-3 py-2 text-xs text-red-400">{error}</p>
-        )}
         <label className="block text-[11px] font-medium text-zinc-500">
           Email
           <input className={authInputClass} type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
