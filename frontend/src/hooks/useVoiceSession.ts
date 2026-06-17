@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { VoiceClient } from '../lib/voice-client'
 
-type VoiceSessionState = 'disconnected' | 'connecting' | 'idle' | 'listening' | 'speaking' | 'error'
+type VoiceSessionState = 'disconnected' | 'connecting' | 'reconnecting' | 'idle' | 'listening' | 'speaking' | 'error'
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/voice'
 
@@ -10,6 +10,7 @@ export function useVoiceSession() {
   const [transcript, setTranscript] = useState('')
   const [transcriptBuffer, setTranscriptBuffer] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
+  const [reconnectAttempt, setReconnectAttempt] = useState(0)
   const clientRef = useRef<VoiceClient | null>(null)
 
   const connect = useCallback(async () => {
@@ -34,6 +35,15 @@ export function useVoiceSession() {
       },
       onSpeakingStart: () => setState('speaking'),
       onSpeakingEnd: () => setState('idle'),
+      onReconnecting: (attempt) => {
+        setReconnectAttempt(attempt)
+        setState('reconnecting')
+      },
+      onReconnected: () => {
+        setReconnectAttempt(0)
+        setState('idle')
+        setErrorMessage('')
+      },
     })
 
     try {
@@ -47,7 +57,6 @@ export function useVoiceSession() {
   }, [])
 
   const startListening = useCallback(async () => {
-    // If not connected yet, connect first
     if (!clientRef.current) {
       await connect()
     }
@@ -80,7 +89,6 @@ export function useVoiceSession() {
 
   const sendText = useCallback((text: string) => {
     if (!clientRef.current) {
-      // If not connected, try connecting then send
       connect().then(() => {
         clientRef.current?.sendText(text)
       })
@@ -98,6 +106,7 @@ export function useVoiceSession() {
     setTranscript('')
     setTranscriptBuffer('')
     setErrorMessage('')
+    setReconnectAttempt(0)
   }, [])
 
   useEffect(() => {
@@ -114,6 +123,7 @@ export function useVoiceSession() {
     transcript,
     transcriptBuffer,
     errorMessage,
+    reconnectAttempt,
     connect,
     startListening,
     stopListening,
@@ -122,6 +132,7 @@ export function useVoiceSession() {
     isConnected: state === 'idle' || state === 'listening' || state === 'speaking',
     isSpeaking: state === 'speaking',
     isListening: state === 'listening',
+    isReconnecting: state === 'reconnecting',
     isError: state === 'error',
   }
 }

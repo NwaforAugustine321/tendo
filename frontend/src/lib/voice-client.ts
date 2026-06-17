@@ -11,6 +11,8 @@ type VoiceCallbacks = {
   onError: (error: string) => void
   onSpeakingStart: () => void
   onSpeakingEnd: () => void
+  onReconnecting?: (attempt: number) => void
+  onReconnected?: () => void
 }
 
 export class VoiceClient {
@@ -34,6 +36,8 @@ export class VoiceClient {
       onMessage: (msg) => this.handleMessage(msg),
       onError: (err) => this.callbacks.onError(err),
       onClose: () => this.stopMic(),
+      onReconnecting: (attempt) => this.callbacks.onReconnecting?.(attempt),
+      onReconnected: () => this.callbacks.onReconnected?.(),
     })
 
     await this.wsClient.connect(url)
