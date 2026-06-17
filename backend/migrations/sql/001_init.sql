@@ -12,8 +12,9 @@ CREATE TABLE IF NOT EXISTS business_profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES user_profiles(id),
     name TEXT NOT NULL,
-    category TEXT DEFAULT 'product',
+    category TEXT DEFAULT 'hybrid',
     description TEXT DEFAULT '',
+    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
