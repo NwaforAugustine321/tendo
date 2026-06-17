@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Play, Pause } from 'lucide-react'
 import clsx from 'clsx'
 import { BotAvatar } from './BotAvatar'
@@ -13,12 +13,42 @@ type Props = {
 function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [waveform, setWaveform] = useState<number[]>([])
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const animRef = useRef<number | null>(null)
   const playingRef = useRef(false)
 
-  const bars = [3, 6, 4, 8, 5, 10, 7, 4, 9, 6, 3, 7, 5, 8, 4, 6, 9, 5, 3, 7, 6, 4, 8, 5, 3]
-  const totalBars = bars.length
+  const NUM_BARS = 30
+
+  // Decode audio and extract waveform on mount
+  useEffect(() => {
+    if (!audioUrl) return
+
+    const ctx = new AudioContext()
+    fetch(audioUrl)
+      .then((res) => res.arrayBuffer())
+      .then((buf) => ctx.decodeAudioData(buf))
+      .then((decoded) => {
+        const raw = decoded.getChannelData(0)
+        const step = Math.floor(raw.length / NUM_BARS)
+        const bars: number[] = []
+        for (let i = 0; i < NUM_BARS; i++) {
+          let sum = 0
+          for (let j = 0; j < step; j++) {
+            sum += Math.abs(raw[i * step + j])
+          }
+          bars.push(sum / step)
+        }
+        // Normalize to 4–14px range
+        const max = Math.max(...bars, 0.01)
+        setWaveform(bars.map((v) => 4 + (v / max) * 10))
+        ctx.close()
+      })
+      .catch(() => {
+        // Fallback static bars
+        setWaveform(Array.from({ length: NUM_BARS }, () => 4 + Math.random() * 8))
+      })
+  }, [audioUrl])
 
   const tick = () => {
     if (audioRef.current && audioRef.current.duration) {
@@ -55,7 +85,7 @@ function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
     }
   }
 
-  const activeBars = Math.floor(progress * totalBars)
+  const activeBars = Math.floor(progress * waveform.length)
 
   return (
     <div className="flex items-center gap-1.5 py-0.5">
@@ -67,13 +97,13 @@ function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
       >
         {playing ? <Pause size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />}
       </button>
-      <div className="flex items-center gap-[2px]">
-        {bars.map((h, i) => (
+      <div className="flex items-end gap-[2px]" style={{ height: 16 }}>
+        {waveform.map((h, i) => (
           <span
             key={i}
-            className="inline-block w-[2.5px] rounded-full transition-all duration-100"
+            className="inline-block w-[2px] rounded-full transition-colors duration-75"
             style={{
-              height: `${playing && i === activeBars ? h + 3 : h}px`,
+              height: `${h}px`,
               backgroundColor: i < activeBars ? '#3ecf8e' : '#52525b',
             }}
           />
