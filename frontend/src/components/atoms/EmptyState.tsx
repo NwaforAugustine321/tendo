@@ -3,7 +3,6 @@ import { Package, Wallet, BarChart3, Mic } from 'lucide-react'
 export function EmptyState() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-4 py-16">
-      {/* Tendo icon */}
       <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white border-2 border-zinc-900">
         <span className="flex items-center gap-[4px]">
           <span className="h-[8px] w-[8px] rounded-full bg-purple-600" />
@@ -14,17 +13,17 @@ export function EmptyState() {
       <h2 className="mt-5 text-lg font-semibold tracking-tight text-white">
         Let Tendo know about your business
       </h2>
-      <p className="mt-2 max-w-xs text-center text-sm text-zinc-500">
-        Tell me how your business works. I'll learn your customers, products, services, and how you operate.
-      </p>
 
-      {/* Suggestion chips with colored accents */}
-      <div className="mt-8 flex flex-wrap justify-center gap-2">
-        <Chip icon={<Package size={14} />} label="Record a sale" color="orange" />
-        <Chip icon={<Wallet size={14} />} label="Check debt" color="red" />
-        <Chip icon={<BarChart3 size={14} />} label="Today's summary" color="green" />
+      <div className="mt-4 flex flex-wrap justify-center gap-2">
+        <Chip icon={<Package size={14} />} label="What I sell" color="orange" />
+        <Chip icon={<Wallet size={14} />} label="Team size" color="red" />
+        <Chip icon={<BarChart3 size={14} />} label="How it runs" color="green" />
         <Chip icon={<Mic size={14} />} label="Use voice" color="green" />
       </div>
+
+      <p className="mt-4 max-w-xs text-center text-sm text-zinc-500">
+        Tell me how your business works. I'll learn your customers, products, services, and how you operate.
+      </p>
     </div>
   )
 }
