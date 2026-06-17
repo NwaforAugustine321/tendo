@@ -64,7 +64,8 @@ export function Register() {
         </label>
         <div className="pt-2">
           <button type="submit" disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-md bg-[#3ecf8e] px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-[#5ee9b0] disabled:opacity-50">
-            {busy ? <Spinner size="sm" className="border-[#0a0a0a]/30 border-t-[#0a0a0a]" /> : 'Register'}
+            {busy && <Spinner size="sm" className="border-[#0a0a0a]/30 border-t-[#0a0a0a]" />}
+            {busy ? 'Creating' : 'Register'}
           </button>
         </div>
       </form>
