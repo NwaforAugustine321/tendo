@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { register } from '../../lib/services/auth'
 import { useAuth } from '../../context/auth'
+import { Spinner } from '../../components/atoms/Spinner'
 import { AuthCard, authInputClass } from './AuthCard'
 
 export function Register() {
@@ -62,8 +63,8 @@ export function Register() {
           <input className={authInputClass} type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
         </label>
         <div className="pt-2">
-          <button type="submit" disabled={busy} className="w-full rounded-md bg-[#3ecf8e] px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-[#5ee9b0] disabled:opacity-50">
-            {busy ? 'Creating…' : 'Register'}
+          <button type="submit" disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-md bg-[#3ecf8e] px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-[#5ee9b0] disabled:opacity-50">
+            {busy ? <Spinner size="sm" className="border-[#0a0a0a]/30 border-t-[#0a0a0a]" /> : 'Register'}
           </button>
         </div>
       </form>

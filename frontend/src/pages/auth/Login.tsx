@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { login } from '../../lib/services/auth'
 import { useAuth } from '../../context/auth'
+import { Spinner } from '../../components/atoms/Spinner'
 import { AuthCard, authInputClass } from './AuthCard'
 
 export function Login() {
@@ -53,8 +54,8 @@ export function Login() {
           </Link>
         </div>
         <div className="pt-2">
-          <button type="submit" disabled={busy} className="w-full rounded-md bg-[#3ecf8e] px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-[#5ee9b0] disabled:opacity-50">
-            {busy ? 'Signing in…' : 'Sign in'}
+          <button type="submit" disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-md bg-[#3ecf8e] px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-[#5ee9b0] disabled:opacity-50">
+            {busy ? <Spinner size="sm" className="border-[#0a0a0a]/30 border-t-[#0a0a0a]" /> : 'Sign in'}
           </button>
         </div>
       </form>
