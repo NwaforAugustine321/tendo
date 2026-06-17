@@ -103,16 +103,13 @@ async def handle_session(websocket: WebSocket):
                 elif input_type == "text":
                     logger.info(f"Text input: {data[:50]}")
 
-                    # Text goes through MOA agent
-                    from app.agents.moa import process as moa_process
-                    result = await moa_process(
-                        user_message=data,
-                        thread_id="default",
-                        business_id="default",
-                        conversation_history=[],
-                    )
-                    moa_response = result["response"]
-                    logger.info(f"MOA response: {moa_response[:80]}")
+                    from app.graph.nodes.moa import moa_node
+                    result = await moa_node({
+                        "event": {"text": data, "thread_id": "default", "business_id": "default"},
+                        "messages": [],
+                    })
+                    moa_response = result.get("response", {}).get("text", "")
+                    logger.info(f"MOA: {moa_response[:80]}")
 
                     # Send MOA response to Gemini for TTS
                     await session.send(
