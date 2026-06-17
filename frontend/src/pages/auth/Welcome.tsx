@@ -15,14 +15,14 @@ export function Welcome() {
           Welcome to Tendo!
         </h1>
         <p className="mt-3 text-sm text-zinc-500">
-          Your account is ready. Let's set up your business profile so Tendo can start learning how you operate.
+          Your account is ready. Let Tendo know about your business so it can start learning how you operate.
         </p>
 
         <Link
           to="/onboarding"
           className="mt-8 inline-flex w-full items-center justify-center rounded-md bg-[#3ecf8e] px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-[#5ee9b0]"
         >
-          Set up my business
+          Tell Tendo about my business
         </Link>
 
         <p className="mt-6 text-xs text-zinc-600">
