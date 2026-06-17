@@ -30,7 +30,7 @@ export function TextInput({ onSend, placeholder = 'Type or tap the mic to speak.
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        className="av-input pr-10"
+        className="av-input pr-10 placeholder:text-[#3ecf8e]/60"
       />
       <button
         type="button"
