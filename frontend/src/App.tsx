@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { AuthProvider } from './lib/auth-context'
+import { AuthProvider } from './context/auth'
 import { ProtectedRoute } from './components/containers/ProtectedRoute'
 import { Landing } from './pages/Landing'
 import { Login } from './pages/auth/Login'
