@@ -10,24 +10,6 @@ from app.redis.sessions import get_business_context, get_session_context
 
 logger = logging.getLogger(__name__)
 
-ROUTING_INSTRUCTION = """
-Based on the conversation and context, decide your action. Respond with a JSON object:
-
-{"action": "respond", "text": "your response to the user"}
-  — Use when you can answer directly.
-
-{"action": "route", "target": "onboarding", "text": "your message to guide the user"}
-  — Use when the user needs to provide business information (no profile exists or incomplete).
-
-{"action": "route", "target": "sales", "text": "your message"}
-{"action": "route", "target": "payment", "text": "your message"}
-{"action": "route", "target": "inventory", "text": "your message"}
-  — Use when routing to a domain agent.
-
-Always include "text" — this is what the user will hear.
-Respond ONLY with the JSON object. No markdown, no explanation.
-"""
-
 
 async def moa_node(state: GraphState) -> dict:
     event = state.get("event", {})
@@ -45,7 +27,7 @@ async def moa_node(state: GraphState) -> dict:
     history = state.get("messages", [])
 
     messages = [
-        {"role": "system", "content": config.system_prompt + "\n\n" + context_block + "\n\n" + ROUTING_INSTRUCTION},
+        {"role": "system", "content": config.system_prompt + "\n\n" + context_block},
     ]
     messages.extend(history[-10:])
     messages.append({"role": "user", "content": user_message})
