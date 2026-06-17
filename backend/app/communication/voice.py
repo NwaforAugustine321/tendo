@@ -59,7 +59,7 @@ async def handle_session(websocket: WebSocket):
 
     try:
         async with client.aio.live.connect(
-            model="gemini-2.0-flash-live-001", config=config
+            model="gemini-3.1-flash-live-preview", config=config
         ) as session:
             receive_task = asyncio.create_task(_receive(websocket, session))
             stream_task = asyncio.create_task(_stream(websocket, session))

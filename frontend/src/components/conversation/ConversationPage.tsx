@@ -76,11 +76,6 @@ export function ConversationPage({
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Track the latest AI text message for speech
-  const lastAssistantText = messages
-    .filter((m) => m.role === 'assistant' && m.type === 'text')
-    .at(-1)?.content
-
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
@@ -180,8 +175,8 @@ export function ConversationPage({
         </div>
       </div>
 
-      {/* Talking character — fixed bottom-right */}
-      <TalkingCharacter speakText={lastAssistantText} isSpeaking={isTyping} />
+      {/* Talking character — fixed bottom-right, animates when Gemini audio plays */}
+      <TalkingCharacter isSpeaking={isTyping} />
     </div>
   )
 }
