@@ -26,7 +26,7 @@ export default function App() {
         <Route path="/welcome" element={<Welcome />} />
 
         {/* Requires auth */}
-        <Route path="/select-business" element={<ProtectedRoute><SelectBusiness /></ProtectedRoute>} />
+        <Route path="/business-profile" element={<ProtectedRoute><SelectBusiness /></ProtectedRoute>} />
         <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
 
         {/* Protected workspace */}

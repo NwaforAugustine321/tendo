@@ -21,7 +21,7 @@ export function Login() {
       await login(email.trim(), password)
       await refresh()
       toast.success('Welcome back!')
-      navigate('/select-business', { replace: true })
+      navigate('/business-profile', { replace: true })
     } catch {
     } finally {
       setBusy(false)
