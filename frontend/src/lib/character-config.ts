@@ -1,21 +1,40 @@
 /**
- * Character configuration — change these to switch characters.
+ * Character configuration — change the ACTIVE_CHARACTER to switch.
+ *
+ * Available characters:
+ *   adult_female: cristine, fiona, grace, maya
+ *   adult_male: jay, luke, preston, wes
+ *   alien: alien
  */
 
-// Character type: 'adult_female' | 'adult_male' | 'alien'
-export const CHARACTER_TYPE = 'alien'
+// ─── CHANGE THIS TO SWITCH CHARACTER ─────────────────────
+export const ACTIVE_CHARACTER: CharacterOption = 'luke'
+// ──────────────────────────────────────────────────────────
 
-// Character name: 'cristine' | 'fiona' | 'grace' | 'maya' (female) | 'jay' | 'luke' | 'preston' | 'wes' (male) | 'alien'
-export const CHARACTER_NAME = 'maya'
+type CharacterOption =
+  | 'cristine' | 'fiona' | 'grace' | 'maya'
+  | 'jay' | 'luke' | 'preston' | 'wes'
+  | 'alien'
 
-// Model file name (usually same as character name)
-export const CHARACTER_MODEL = `${CHARACTER_NAME}.gltf`
+const CHARACTER_MAP: Record<CharacterOption, { type: string; path: string; model: string; animPath: string }> = {
+  cristine: { type: 'adult_female', path: '/assets/characters/adult_female/cristine/', model: 'cristine.gltf', animPath: '/assets/animations/adult_female/' },
+  fiona: { type: 'adult_female', path: '/assets/characters/adult_female/fiona/', model: 'fiona.gltf', animPath: '/assets/animations/adult_female/' },
+  grace: { type: 'adult_female', path: '/assets/characters/adult_female/grace/', model: 'grace.gltf', animPath: '/assets/animations/adult_female/' },
+  maya: { type: 'adult_female', path: '/assets/characters/adult_female/maya/', model: 'maya.gltf', animPath: '/assets/animations/adult_female/' },
+  jay: { type: 'adult_male', path: '/assets/characters/adult_male/jay/', model: 'jay.gltf', animPath: '/assets/animations/adult_male/' },
+  luke: { type: 'adult_male', path: '/assets/characters/adult_male/luke/', model: 'luke.gltf', animPath: '/assets/animations/adult_male/' },
+  preston: { type: 'adult_male', path: '/assets/characters/adult_male/preston/', model: 'preston.gltf', animPath: '/assets/animations/adult_male/' },
+  wes: { type: 'adult_male', path: '/assets/characters/adult_male/wes/', model: 'wes.gltf', animPath: '/assets/animations/adult_male/' },
+  alien: { type: 'alien', path: '/assets/characters/alien/', model: 'alien.gltf', animPath: '/assets/animations/alien/' },
+}
 
-// Derived paths
-export const CHARACTER_PATH = `/assets/characters/${CHARACTER_TYPE}/${CHARACTER_NAME}/`
-export const ANIMATION_PATH = `/assets/animations/${CHARACTER_TYPE}/`
+const config = CHARACTER_MAP[ACTIVE_CHARACTER]
 
-// Character display size (bottom-right overlay)
+export const CHARACTER_PATH = config.path
+export const CHARACTER_MODEL = config.model
+export const ANIMATION_PATH = config.animPath
+
+// Display size
 export const CHARACTER_WIDTH = 380
 export const CHARACTER_HEIGHT = 420
 
