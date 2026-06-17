@@ -1,14 +1,12 @@
 import { Link } from 'react-router-dom'
+import { BotAvatar } from '../../components/atoms/BotAvatar'
 
 export function Welcome() {
   return (
     <div className="flex min-h-dvh items-center justify-center bg-[#0a0a0a] px-4">
       <div className="w-full max-w-md text-center">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white border-2 border-zinc-900">
-          <span className="flex items-center gap-[4px]">
-            <span className="h-[8px] w-[8px] rounded-full bg-purple-600" />
-            <span className="h-[8px] w-[8px] rounded-full bg-purple-600" />
-          </span>
+        <div className="mx-auto">
+          <BotAvatar size={72} />
         </div>
 
         <h1 className="mt-6 text-2xl font-semibold tracking-tight text-white">
