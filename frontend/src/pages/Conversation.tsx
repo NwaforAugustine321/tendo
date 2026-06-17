@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ConversationPage, type MessageItem } from '../components/containers'
 import { useVoiceSession } from '../hooks/useVoiceSession'
 
@@ -12,78 +12,84 @@ type Props = {
 export function Conversation({ initialMessages, sessionTitle, fullScreen = false, showHeader = false }: Props) {
   const [messages, setMessages] = useState<MessageItem[]>(initialMessages ?? [])
   const voice = useVoiceSession()
+  const streamingMsgId = useRef<string | null>(null)
 
-  // Add AI transcript as a message when turn completes
+  // Live streaming: update the current AI message as text arrives word-by-word
   useEffect(() => {
-    if (voice.transcript) {
-      const aiMsg: MessageItem = {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: voice.transcript,
-        type: 'text',
+    if (voice.currentResponse) {
+      if (!streamingMsgId.current) {
+        // Create a new streaming message
+        const id = `ai-${Date.now()}`
+        streamingMsgId.current = id
+        setMessages((prev) => [...prev, { id, role: 'assistant', content: voice.currentResponse, type: 'text' }])
+      } else {
+        // Update existing streaming message
+        const id = streamingMsgId.current
+        setMessages((prev) =>
+          prev.map((m) => m.id === id ? { ...m, content: voice.currentResponse } : m)
+        )
       }
-      setMessages((prev) => [...prev, aiMsg])
     }
-  }, [voice.transcript])
+  }, [voice.currentResponse])
 
-  // Show error as system message
+  // When turn completes, finalize the message
+  useEffect(() => {
+    if (voice.turnComplete && streamingMsgId.current) {
+      streamingMsgId.current = null
+    }
+  }, [voice.turnComplete])
+
+  // Show errors
   useEffect(() => {
     if (voice.errorMessage) {
-      const errMsg: MessageItem = {
+      setMessages((prev) => [...prev, {
         id: `err-${Date.now()}`,
         role: 'assistant',
         content: voice.errorMessage,
         type: 'text',
-      }
-      setMessages((prev) => [...prev, errMsg])
+      }])
     }
   }, [voice.errorMessage])
 
   const handleSendText = (text: string) => {
-    const userMsg: MessageItem = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: text,
-      type: 'text',
-    }
-    setMessages((prev) => [...prev, userMsg])
+    setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'user', content: text, type: 'text' }])
+    streamingMsgId.current = null
     voice.sendText(text)
   }
 
   const handleVoiceToggle = async () => {
     if (voice.isListening) {
       voice.stopListening()
+      // Add a user message indicating voice was sent
+      setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'user', content: '🎤 Voice message', type: 'text' }])
+      streamingMsgId.current = null
     } else {
-      // This will request mic permission + connect to backend if not already
       await voice.startListening()
     }
   }
 
   const handleOptionSelect = (optionId: string) => {
-    const userMsg: MessageItem = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: optionId,
-      type: 'text',
-    }
-    setMessages((prev) => [...prev, userMsg])
+    setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'user', content: optionId, type: 'text' }])
+    streamingMsgId.current = null
     voice.sendText(optionId)
   }
 
   const handleConfirm = () => {
     setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'user', content: '✓ Confirmed', type: 'text' }])
+    streamingMsgId.current = null
     voice.sendText('confirmed')
   }
 
   const handleCancel = () => {
     setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'user', content: '✕ Cancelled', type: 'text' }])
+    streamingMsgId.current = null
     voice.sendText('cancelled')
   }
 
   return (
     <ConversationPage
       messages={messages}
-      isTyping={voice.isSpeaking || !!voice.transcriptBuffer}
+      isTyping={voice.isSpeaking && !voice.currentResponse}
       onSendText={handleSendText}
       onVoiceRecorded={() => {}}
       onVoiceToggle={handleVoiceToggle}

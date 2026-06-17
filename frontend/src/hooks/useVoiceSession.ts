@@ -7,10 +7,10 @@ const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/voice'
 
 export function useVoiceSession() {
   const [state, setState] = useState<VoiceSessionState>('disconnected')
-  const [transcript, setTranscript] = useState('')
-  const [transcriptBuffer, setTranscriptBuffer] = useState('')
+  const [currentResponse, setCurrentResponse] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [reconnectAttempt, setReconnectAttempt] = useState(0)
+  const [turnComplete, setTurnComplete] = useState(false)
   const clientRef = useRef<VoiceClient | null>(null)
 
   const connect = useCallback(async () => {
@@ -21,13 +21,12 @@ export function useVoiceSession() {
 
     const client = new VoiceClient({
       onTranscript: (text) => {
-        setTranscriptBuffer((prev) => prev + text)
+        // Stream text live as it arrives (word by word)
+        setCurrentResponse((prev) => prev + text)
+        setTurnComplete(false)
       },
       onTurnComplete: () => {
-        setTranscriptBuffer((prev) => {
-          setTranscript(prev)
-          return ''
-        })
+        setTurnComplete(true)
       },
       onError: (err) => {
         setErrorMessage(err)
@@ -60,13 +59,11 @@ export function useVoiceSession() {
     if (!clientRef.current) {
       await connect()
     }
-
     if (!clientRef.current) {
       setErrorMessage('Voice server not available')
       setState('error')
       return
     }
-
     try {
       await clientRef.current.startMic()
       setState('listening')
@@ -84,10 +81,16 @@ export function useVoiceSession() {
   const stopListening = useCallback(() => {
     if (!clientRef.current) return
     clientRef.current.stopMic()
+    // Clear current response for new turn
+    setCurrentResponse('')
+    setTurnComplete(false)
     setState('idle')
   }, [])
 
   const sendText = useCallback((text: string) => {
+    // Clear current response for new turn
+    setCurrentResponse('')
+    setTurnComplete(false)
     if (!clientRef.current) {
       connect().then(() => {
         clientRef.current?.sendText(text)
@@ -97,16 +100,21 @@ export function useVoiceSession() {
     clientRef.current.sendText(text)
   }, [connect])
 
+  const clearResponse = useCallback(() => {
+    setCurrentResponse('')
+    setTurnComplete(false)
+  }, [])
+
   const disconnect = useCallback(() => {
     if (clientRef.current) {
       clientRef.current.disconnect()
       clientRef.current = null
     }
     setState('disconnected')
-    setTranscript('')
-    setTranscriptBuffer('')
+    setCurrentResponse('')
     setErrorMessage('')
     setReconnectAttempt(0)
+    setTurnComplete(false)
   }, [])
 
   useEffect(() => {
@@ -120,14 +128,15 @@ export function useVoiceSession() {
 
   return {
     state,
-    transcript,
-    transcriptBuffer,
+    currentResponse,     // Live streaming text (updates word-by-word)
+    turnComplete,        // True when AI finishes speaking
     errorMessage,
     reconnectAttempt,
     connect,
     startListening,
     stopListening,
     sendText,
+    clearResponse,
     disconnect,
     isConnected: state === 'idle' || state === 'listening' || state === 'speaking',
     isSpeaking: state === 'speaking',
