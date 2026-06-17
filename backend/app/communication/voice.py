@@ -19,7 +19,6 @@ SPECS_DIR = Path(__file__).parent / "specs"
 
 
 def _load_instruction() -> str:
-    """Load system instruction from spec .md files (role → backstory → goal → skill)."""
     parts = []
     for name in ["role", "backstory", "goal", "skill"]:
         file = SPECS_DIR / f"{name}.md"
@@ -35,7 +34,6 @@ def _get_client():
 
 
 def _get_config() -> types.LiveConnectConfig:
-    """Build live config with instruction loaded from spec files."""
     instruction = _load_instruction()
 
     return types.LiveConnectConfig(
@@ -53,21 +51,23 @@ def _get_config() -> types.LiveConnectConfig:
 
 
 async def handle_session(websocket: WebSocket):
-    """Full-duplex voice session between browser and AI."""
+    """Full-duplex voice session."""
     await accept(websocket)
     logger.info("Voice WebSocket accepted")
 
     client = _get_client()
     config = _get_config()
-    logger.info("Instruction loaded, connecting to AI...")
+    logger.info(f"Connecting to model: {settings.google_voice_model}")
 
     try:
         async with client.aio.live.connect(
             model=settings.google_voice_model, config=config
         ) as session:
-            logger.info("AI session connected successfully")
-            receive_task = asyncio.create_task(_receive(websocket, session))
-            stream_task = asyncio.create_task(_stream(websocket, session))
+            logger.info("AI session connected")
+
+            # Two independent loops running concurrently
+            receive_task = asyncio.create_task(_receive_loop(websocket, session))
+            stream_task = asyncio.create_task(_stream_loop(websocket, session))
 
             done, pending = await asyncio.wait(
                 [receive_task, stream_task],
@@ -76,6 +76,10 @@ async def handle_session(websocket: WebSocket):
 
             for task in pending:
                 task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
             for task in done:
                 exc = task.exception()
@@ -85,28 +89,26 @@ async def handle_session(websocket: WebSocket):
     except WebSocketDisconnect:
         logger.info("Client disconnected")
     except Exception as e:
-        logger.error(f"Voice session error: {e}", exc_info=True)
+        logger.error(f"Session error: {e}", exc_info=True)
         await send_error(websocket, str(e))
     finally:
         await close(websocket)
-        logger.info("Voice WebSocket closed")
+        logger.info("WebSocket closed")
 
 
-async def _receive(websocket: WebSocket, session):
-    """Receive from browser, forward to AI."""
+async def _receive_loop(websocket: WebSocket, session):
+    """Continuously receive from browser and forward to AI session."""
     try:
         while True:
             message = await receive_json(websocket)
             if message is None:
-                logger.info("Browser disconnected (receive returned None)")
-                break
+                logger.info("Browser disconnected")
+                return
 
             kind = message.get("type")
-            logger.info(f"Received from browser: type={kind}")
 
             if kind == "audio":
                 raw = decode_audio(message["data"])
-                logger.debug(f"Audio chunk: {len(raw)} bytes")
                 await session.send(
                     input=types.LiveClientContent(
                         turns=[
@@ -126,7 +128,7 @@ async def _receive(websocket: WebSocket, session):
                 )
 
             elif kind == "text":
-                logger.info(f"Text input: {message.get('data', '')[:50]}")
+                logger.info(f"Text: {message.get('data', '')[:50]}")
                 await session.send(
                     input=types.LiveClientContent(
                         turns=[
@@ -140,52 +142,49 @@ async def _receive(websocket: WebSocket, session):
                 )
 
             elif kind == "end_turn":
-                logger.info("End turn signal received, signaling AI")
+                logger.info("End turn signal")
                 await session.send(
                     input=types.LiveClientContent(turn_complete=True)
                 )
 
     except (WebSocketDisconnect, asyncio.CancelledError):
-        logger.info("_receive task ended")
+        pass
     except Exception as e:
-        logger.error(f"_receive error: {e}", exc_info=True)
+        logger.error(f"receive_loop error: {e}", exc_info=True)
 
 
-async def _stream(websocket: WebSocket, session):
-    """Stream AI responses back to browser. Keeps listening for multiple turns."""
+async def _stream_loop(websocket: WebSocket, session):
+    """Continuously stream AI responses back to browser. Never exits on turn_complete."""
     try:
-        while True:
-            logger.info("Waiting for AI response...")
-            async for response in session.receive():
-                if response.data:
-                    logger.debug(f"AI audio chunk: {len(response.data)} bytes")
-                    await send_audio(websocket, response.data)
+        async for response in session.receive():
+            # Audio data
+            if response.data:
+                await send_audio(websocket, response.data)
 
-                if (
-                    response.server_content
-                    and response.server_content.output_transcription
-                ):
-                    text = response.server_content.output_transcription.text
-                    if text:
-                        logger.info(f"AI transcript: {text[:50]}")
-                        await send_transcript(websocket, text)
+            # Transcript text
+            if response.server_content and response.server_content.output_transcription:
+                text = response.server_content.output_transcription.text
+                if text:
+                    logger.info(f"AI: {text[:80]}")
+                    await send_transcript(websocket, text)
 
-                if response.server_content and response.server_content.turn_complete:
-                    logger.info("AI turn complete")
-                    await send_turn_complete(websocket)
-                    break
+            # Turn complete — notify browser but keep listening
+            if response.server_content and response.server_content.turn_complete:
+                logger.info("AI turn complete")
+                await send_turn_complete(websocket)
+                # Do NOT break — keep the iterator alive for next turn
 
     except (WebSocketDisconnect, asyncio.CancelledError):
-        logger.info("_stream task ended")
+        pass
     except Exception as e:
-        logger.error(f"_stream error: {e}", exc_info=True)
+        logger.error(f"stream_loop error: {e}", exc_info=True)
 
 
 async def transcribe(audio_bytes: bytes, timeout: float = 10.0) -> str:
     """Convert audio to text (one-shot)."""
-    raise NotImplementedError("One-shot transcription not yet implemented")
+    raise NotImplementedError("Not yet implemented")
 
 
 async def synthesize(text: str, timeout: float = 10.0) -> bytes:
     """Convert text to audio (one-shot)."""
-    raise NotImplementedError("One-shot synthesis not yet implemented")
+    raise NotImplementedError("Not yet implemented")
