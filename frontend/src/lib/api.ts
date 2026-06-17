@@ -39,3 +39,25 @@ export async function healthCheck(): Promise<{ status: string; service: string }
   const res = await fetch(`${BASE_URL}/health`)
   return res.json()
 }
+
+
+// Auth
+export type AuthUser = {
+  user_id: string
+  email: string
+  name: string
+}
+
+export async function getMe(): Promise<AuthUser | null> {
+  try {
+    const res = await fetch(`${BASE_URL}/auth/me`, { credentials: 'include' })
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
+}
+
+export async function logout(): Promise<void> {
+  await fetch(`${BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' })
+}

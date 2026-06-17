@@ -1,5 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Landing } from './pages/Landing'
+import { Login } from './pages/auth/Login'
+import { Register } from './pages/auth/Register'
 import { Onboarding } from './pages/Onboarding'
 import { Conversation } from './pages/Conversation'
 import { WorkspaceLayout } from './layout/WorkspaceLayout'
@@ -14,9 +16,11 @@ export default function App() {
     <Routes>
       {/* Public */}
       <Route path="/" element={<Landing />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
       <Route path="/onboarding" element={<Onboarding />} />
 
-      {/* Workspace — dashboard with icon rail */}
+      {/* Workspace */}
       <Route path="/app" element={<WorkspaceLayout />}>
         <Route index element={<WorkspaceHome />} />
         <Route path="conversation/new" element={<Conversation />} />
@@ -27,7 +31,6 @@ export default function App() {
         <Route path="analytics" element={<Analytics />} />
       </Route>
 
-      {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
