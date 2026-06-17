@@ -27,10 +27,10 @@ export function Landing() {
                 <span className="text-[15px] font-semibold text-zinc-200">Tendo</span>
               </div>
               <div className="flex items-center gap-2">
-                <Link to="/onboarding" className="rounded-md border border-zinc-700/90 bg-zinc-900/60 px-3 py-1.5 text-[13px] font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white">
+                <Link to="/login" className="rounded-md border border-zinc-700/90 bg-zinc-900/60 px-3 py-1.5 text-[13px] font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white">
                   Sign in
                 </Link>
-                <Link to="/onboarding" className="rounded-md bg-[#3ecf8e] px-3 py-1.5 text-[13px] font-semibold text-[#0a0a0a] transition hover:bg-[#5ee9b0]">
+                <Link to="/register" className="rounded-md bg-[#3ecf8e] px-3 py-1.5 text-[13px] font-semibold text-[#0a0a0a] transition hover:bg-[#5ee9b0]">
                   Get Started
                 </Link>
               </div>
@@ -57,7 +57,7 @@ export function Landing() {
             </div>
 
             <div className="mt-8 flex flex-wrap gap-2 sm:items-center">
-              <Link to="/onboarding" className="inline-flex items-center justify-center rounded-lg bg-[#3ecf8e] px-5 py-2.5 text-sm font-semibold text-[#0a0a0a] shadow-sm shadow-[#3ecf8e]/25 transition hover:bg-[#5ee9b0]">
+              <Link to="/register" className="inline-flex items-center justify-center rounded-lg bg-[#3ecf8e] px-5 py-2.5 text-sm font-semibold text-[#0a0a0a] shadow-sm shadow-[#3ecf8e]/25 transition hover:bg-[#5ee9b0]">
                 Start Free
               </Link>
               <a href="#how-it-works" className="rounded-md border border-zinc-700/90 bg-zinc-900/60 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white">
