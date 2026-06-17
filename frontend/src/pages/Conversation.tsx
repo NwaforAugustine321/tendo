@@ -13,11 +13,6 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
   const [messages, setMessages] = useState<MessageItem[]>(initialMessages ?? [])
   const voice = useVoiceSession()
 
-  useEffect(() => {
-    voice.connect()
-    return () => voice.disconnect()
-  }, [])
-
   // Add AI transcript as a message when turn completes
   useEffect(() => {
     if (voice.transcript) {
@@ -30,6 +25,19 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
       setMessages((prev) => [...prev, aiMsg])
     }
   }, [voice.transcript])
+
+  // Show error as system message
+  useEffect(() => {
+    if (voice.errorMessage) {
+      const errMsg: MessageItem = {
+        id: `err-${Date.now()}`,
+        role: 'assistant',
+        content: voice.errorMessage,
+        type: 'text',
+      }
+      setMessages((prev) => [...prev, errMsg])
+    }
+  }, [voice.errorMessage])
 
   const handleSendText = (text: string) => {
     const userMsg: MessageItem = {
@@ -46,6 +54,7 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
     if (voice.isListening) {
       voice.stopListening()
     } else {
+      // This will request mic permission + connect to backend if not already
       await voice.startListening()
     }
   }
