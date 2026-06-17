@@ -11,16 +11,10 @@ def get_client():
     from app.config.settings import settings
 
     if settings.llm_provider == "gemini":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        _client = ChatGoogleGenerativeAI(
-            model=settings.gemini_model,
-            google_api_key=settings.google_voice_api_key,
-        )
+        from app.llm.gemini import get_client as get_gemini
+        _client = get_gemini()
     else:
-        from langchain_anthropic import ChatAnthropic
-        _client = ChatAnthropic(
-            model=settings.anthropic_model,
-            api_key=settings.anthropic_api_key,
-        )
+        from app.llm.anthropic import get_client as get_anthropic
+        _client = get_anthropic()
 
     return _client
