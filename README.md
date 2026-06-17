@@ -8,19 +8,27 @@ AI Business Operating System — an adaptive intelligence platform that learns h
 
 ```bash
 cd backend
+
+# Create conda environment 
 conda env create -f environment.yml
+
+# Activate the environment
 conda activate tendo
+
+# Copy env file and fill in your API keys
 cp .env.example .env
-# Fill in your API keys in .env
+
+# Run the server
 uvicorn app.main:app --reload
+```
+
+To update the environment after changes to `environment.yml`:
+```bash
+conda env update -f environment.yml --prune
 ```
 
 The backend runs at `http://localhost:8000`.
 
-**Endpoints:**
-- `GET /health` — health check
-- `POST /events` — unified event ingress
-- `WS /ws/voice` — real-time voice-to-voice
 
 ### Frontend
 
@@ -31,34 +39,3 @@ npm run dev
 ```
 
 The frontend runs at `http://localhost:5173`.
-
-### Environment Variables (backend/.env)
-
-```
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-MEM0_API_KEY=
-REDIS_URL=redis://localhost:6379
-ANTHROPIC_API_KEY=
-GOOGLE_VOICE_API_KEY=
-SPEC_HOT_RELOAD=true
-```
-
-## Project Structure
-
-```
-tendo/
-├── frontend/          # React + TypeScript + Vite + Tailwind v4
-├── backend/           # Python + FastAPI + LangGraph
-│   ├── app/
-│   │   ├── ws/            # WebSocket service module
-│   │   ├── communication/ # Voice + delivery + layer
-│   │   ├── db/            # Database access layer
-│   │   ├── memory/        # Conversation memory
-│   │   ├── redis/         # Cache + checkpointer
-│   │   ├── llm/           # LLM client + spec loader
-│   │   ├── agents/        # Agent specs (.md files)
-│   │   └── graph/         # LangGraph workflow + nodes
-│   └── environment.yml
-└── README.md
-```
