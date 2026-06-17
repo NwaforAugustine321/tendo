@@ -156,6 +156,8 @@ export class VoiceClient {
       this.mediaStream.getTracks().forEach((t) => t.stop())
       this.mediaStream = null
     }
+    // Signal end of user turn so AI knows to respond
+    this.wsClient?.send({ type: 'end_turn' })
   }
 
   sendText(text: string) {

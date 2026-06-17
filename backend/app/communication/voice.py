@@ -106,7 +106,7 @@ async def _receive(websocket: WebSocket, session):
                                 ],
                             )
                         ],
-                        turn_complete=True,
+                        turn_complete=False,
                     )
                 )
 
@@ -121,6 +121,12 @@ async def _receive(websocket: WebSocket, session):
                         ],
                         turn_complete=True,
                     )
+                )
+
+            elif kind == "end_turn":
+                # User stopped speaking — signal turn complete to AI
+                await session.send(
+                    input=types.LiveClientContent(turn_complete=True)
                 )
 
     except (WebSocketDisconnect, asyncio.CancelledError):
