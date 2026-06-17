@@ -1,21 +1,27 @@
 import { useEffect, useRef } from 'react'
 import * as BABYLON from '@babylonjs/core'
 import '@babylonjs/loaders'
+import {
+  CHARACTER_PATH,
+  CHARACTER_MODEL,
+  ANIMATION_PATH,
+  CHARACTER_WIDTH,
+  CHARACTER_HEIGHT,
+  CAMERA_ALPHA,
+  CAMERA_BETA,
+  CAMERA_RADIUS,
+  CAMERA_TARGET_Y,
+} from '../../lib/character-config'
 
 type Props = {
-  /** Whether audio is currently playing (character should animate) */
   isSpeaking?: boolean
 }
-
-const CHARACTER_PATH = '/assets/characters/adult_female/cristine/'
-const ANIMATION_PATH = '/assets/animations/adult_female/'
 
 export function TalkingCharacter({ isSpeaking = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const engineRef = useRef<BABYLON.Engine | null>(null)
   const animGroupsRef = useRef<{ [key: string]: BABYLON.AnimationGroup }>({})
 
-  // Toggle talking animations based on whether audio is playing
   useEffect(() => {
     const groups = animGroupsRef.current
     if (isSpeaking) {
@@ -41,10 +47,10 @@ export function TalkingCharacter({ isSpeaking = false }: Props) {
 
     const camera = new BABYLON.ArcRotateCamera(
       'cam',
-      Math.PI / 2,
-      1.3,
-      2.2,
-      new BABYLON.Vector3(0, 1.5, 0),
+      CAMERA_ALPHA,
+      CAMERA_BETA,
+      CAMERA_RADIUS,
+      new BABYLON.Vector3(0, CAMERA_TARGET_Y, 0),
       scene
     )
     camera.attachControl(canvasRef.current, false)
@@ -62,7 +68,7 @@ export function TalkingCharacter({ isSpeaking = false }: Props) {
     BABYLON.SceneLoader.ImportMesh(
       '',
       CHARACTER_PATH,
-      'cristine.gltf',
+      CHARACTER_MODEL,
       scene,
       (_meshes, _ps, _sk, animationGroups) => {
         animationGroups.forEach((ag) => ag.stop())
@@ -108,7 +114,7 @@ export function TalkingCharacter({ isSpeaking = false }: Props) {
   return (
     <div
       className="pointer-events-none fixed bottom-0 right-0 z-50"
-      style={{ width: 380, height: 420 }}
+      style={{ width: CHARACTER_WIDTH, height: CHARACTER_HEIGHT }}
     >
       <canvas ref={canvasRef} className="h-full w-full" style={{ background: 'transparent' }} />
     </div>
