@@ -1,11 +1,15 @@
 """Application entrypoint."""
 
+import logging
+
 from fastapi import FastAPI, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
 from app.communication.voice import handle_session
 from app.models.event import UnifiedUserEvent
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 app = FastAPI(title="Tendo", version="0.1.0")
 

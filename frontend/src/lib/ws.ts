@@ -67,6 +67,7 @@ export class WSClient {
 
       this.ws.onmessage = (event) => {
         const msg = JSON.parse(event.data) as WSMessage
+        console.log('[WS] received:', msg.type, msg.data?.substring(0, 30))
         this.callbacks.onMessage(msg)
       }
 
@@ -115,6 +116,7 @@ export class WSClient {
 
   send(msg: WSMessage): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      console.log('[WS] sending:', msg.type)
       this.ws.send(JSON.stringify(msg))
     }
   }
