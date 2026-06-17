@@ -7,7 +7,7 @@ export function Onboarding() {
       <TopBar onMenuClick={() => {}} />
       <div className="min-h-0 flex-1">
         <Conversation
-          sessionTitle="Getting to Know Your Business"
+          sessionTitle="Let Tendo know about your business"
           fullScreen={false}
           showHeader={true}
         />

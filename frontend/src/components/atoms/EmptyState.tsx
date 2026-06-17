@@ -12,10 +12,10 @@ export function EmptyState() {
       </div>
 
       <h2 className="mt-5 text-lg font-semibold tracking-tight text-white">
-        How can I help you today?
+        Let Tendo know about your business
       </h2>
       <p className="mt-2 max-w-xs text-center text-sm text-zinc-500">
-        Talk to me about your business. I can record sales, track inventory, manage payments, and more.
+        Tell me how your business works. I'll learn your customers, products, services, and how you operate.
       </p>
 
       {/* Suggestion chips with colored accents */}
