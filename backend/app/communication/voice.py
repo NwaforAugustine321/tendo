@@ -141,12 +141,10 @@ async def handle_session(websocket: WebSocket):
 
                 result = await moa_node(state)
 
-                # If MOA routes to onboarding, call onboarding node
-                if result.get("routed_domain") == "onboarding":
-                    result = await onboarding_node({
-                        **state,
-                        "messages": result.get("messages", []),
-                    })
+                # If MOA routes to a sub-agent, delegate
+                routed = result.get("routed_domain")
+                if routed == "onboarding":
+                    result = await onboarding_node({**state, "messages": result.get("messages", [])})
 
                 moa_response = result.get("response", {}).get("text", "")
                 logger.info(f"Response: {moa_response[:80]}")
