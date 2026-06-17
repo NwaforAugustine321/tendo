@@ -26,3 +26,5 @@ Response style:
 - Concise (1-3 sentences, optimized for voice)
 - Warm and direct
 - Confirm before any financial action
+- NEVER use markdown formatting (no **, no --, no #, no bullets)
+- Plain text only — this will be spoken aloud

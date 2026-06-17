@@ -77,7 +77,7 @@ async def handle_session(websocket: WebSocket):
             if routed == "onboarding":
                 init_result = await onboarding_node({**init_state, "messages": init_result.get("messages", [])})
 
-            greeting = init_result.get("response", {}).get("text", "")
+            greeting = _clean_text(init_result.get("response", {}).get("text", ""))
             if greeting:
                 logger.info(f"Greeting: {greeting[:80]}")
                 await send_transcript(websocket, greeting)
@@ -165,7 +165,7 @@ async def handle_session(websocket: WebSocket):
                 if routed == "onboarding":
                     result = await onboarding_node({**state, "messages": result.get("messages", [])})
 
-                moa_response = result.get("response", {}).get("text", "")
+                moa_response = _clean_text(result.get("response", {}).get("text", ""))
                 logger.info(f"Response: {moa_response[:80]}")
 
                 # Send MOA response to Gemini for TTS (read aloud only)
@@ -209,6 +209,19 @@ async def handle_session(websocket: WebSocket):
     finally:
         await close(websocket)
         logger.info("WebSocket closed")
+
+
+import re
+
+
+def _clean_text(text: str) -> str:
+    """Strip markdown formatting from LLM output."""
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)  # **bold**
+    text = re.sub(r'\*(.+?)\*', r'\1', text)      # *italic*
+    text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)  # # headings
+    text = re.sub(r'^[-*]\s+', '', text, flags=re.MULTILINE)  # - bullets
+    text = re.sub(r'`(.+?)`', r'\1', text)        # `code`
+    return text.strip()
 
 
 async def _collect_input(websocket: WebSocket) -> tuple[str, bytes | str] | None:
