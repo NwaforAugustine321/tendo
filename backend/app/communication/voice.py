@@ -72,17 +72,23 @@ async def handle_session(websocket: WebSocket):
             logger.info("AI session connected")
 
             while True:
-                # 1. Collect input from browser (buffer audio until end_turn or text)
                 input_result = await _collect_input(websocket)
 
                 if input_result is None:
-                    break  # Client disconnected
+                    break
 
                 input_type, data = input_result
 
-                # 2. Send to AI as one complete turn
-                if input_type == "audio":
-                    logger.info(f"Sending audio: {len(data)} bytes")
+                # Get text from user (either directly or via Gemini STT)
+                user_text = ""
+
+                if input_type == "text":
+                    user_text = data
+                    logger.info(f"Text input: {user_text[:50]}")
+
+                elif input_type == "audio":
+                    # Send audio to Gemini for transcription only
+                    logger.info(f"Transcribing audio: {len(data)} bytes")
                     await session.send(
                         input=types.LiveClientContent(
                             turns=[
@@ -100,32 +106,53 @@ async def handle_session(websocket: WebSocket):
                             turn_complete=True,
                         )
                     )
-                elif input_type == "text":
-                    logger.info(f"Text input: {data[:50]}")
 
-                    from app.graph.nodes.moa import moa_node
-                    result = await moa_node({
-                        "event": {"text": data, "thread_id": "default", "business_id": "default"},
-                        "messages": [],
-                    })
-                    moa_response = result.get("response", {}).get("text", "")
-                    logger.info(f"MOA: {moa_response[:80]}")
+                    # Collect transcription from Gemini (ignore audio response)
+                    transcription_parts = []
+                    async for response in session.receive():
+                        if (
+                            response.server_content
+                            and response.server_content.output_transcription
+                        ):
+                            text = response.server_content.output_transcription.text
+                            if text:
+                                transcription_parts.append(text)
 
-                    # Send MOA response to Gemini for TTS
-                    await session.send(
-                        input=types.LiveClientContent(
-                            turns=[
-                                types.Content(
-                                    role="user",
-                                    parts=[types.Part.from_text(text=f"Read this aloud exactly: {moa_response}")],
-                                )
-                            ],
-                            turn_complete=True,
-                        )
+                        if response.server_content and response.server_content.turn_complete:
+                            break
+
+                    user_text = "".join(transcription_parts)
+                    logger.info(f"Transcribed: {user_text[:80]}")
+
+                if not user_text:
+                    continue
+
+                # Send transcription to frontend
+                await send_transcript(websocket, f"You: {user_text}")
+
+                # Pass to MOA for processing
+                from app.graph.nodes.moa import moa_node
+                result = await moa_node({
+                    "event": {"text": user_text, "thread_id": "default", "business_id": "default"},
+                    "messages": [],
+                })
+                moa_response = result.get("response", {}).get("text", "")
+                logger.info(f"MOA: {moa_response[:80]}")
+
+                # Send MOA response to Gemini for TTS (read aloud only)
+                await session.send(
+                    input=types.LiveClientContent(
+                        turns=[
+                            types.Content(
+                                role="user",
+                                parts=[types.Part.from_text(text=moa_response)],
+                            )
+                        ],
+                        turn_complete=True,
                     )
+                )
 
-                # 3. Stream back the AI response
-                logger.info("Waiting for AI response...")
+                # Stream TTS audio back to browser
                 async for response in session.receive():
                     if response.data:
                         await send_audio(websocket, response.data)
@@ -136,11 +163,9 @@ async def handle_session(websocket: WebSocket):
                     ):
                         text = response.server_content.output_transcription.text
                         if text:
-                            logger.info(f"AI: {text[:80]}")
                             await send_transcript(websocket, text)
 
                     if response.server_content and response.server_content.turn_complete:
-                        logger.info("AI turn complete")
                         await send_turn_complete(websocket)
                         break
 
