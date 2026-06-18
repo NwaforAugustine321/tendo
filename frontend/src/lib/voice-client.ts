@@ -14,6 +14,7 @@ type VoiceCallbacks = {
   onReconnected?: () => void
   onInput?: (inputSpec: any) => void
   onMessage?: (data: any) => void
+  onThinking?: (text: string) => void
 }
 
 export class VoiceClient {
@@ -130,6 +131,10 @@ export class VoiceClient {
 
       case 'turn_complete':
         this.callbacks.onTurnComplete()
+        break
+
+      case 'thinking':
+        if (msg.data) this.callbacks.onThinking?.(msg.data)
         break
 
       case 'error':

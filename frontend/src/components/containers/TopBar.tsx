@@ -1,10 +1,30 @@
+import { useState, useRef, useEffect } from 'react'
 import { Search, Bell, HelpCircle, Menu, ChevronDown, User } from 'lucide-react'
+import { useBusinessStore } from '../../store/business'
 
 type Props = {
   onMenuClick: () => void
 }
 
 export function TopBar({ onMenuClick }: Props) {
+  const { profiles, currentProfile, fetchProfiles, setCurrentProfileById } = useBusinessStore()
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (profiles.length === 0) fetchProfiles()
+  }, [])
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   return (
     <header className="sticky top-0 z-20 flex min-h-[48px] shrink-0 items-center gap-2 border-b border-zinc-800/90 bg-[#0a0a0a]/95 px-3 backdrop-blur-md sm:gap-3 sm:px-4">
       {/* Mobile menu */}
@@ -28,26 +48,60 @@ export function TopBar({ onMenuClick }: Props) {
 
         <span className="text-zinc-700">/</span>
 
-        <button type="button" className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[13px] text-zinc-300 transition-colors hover:bg-zinc-800/50">
-          <span className="font-medium">My Business</span>
+        <div className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[13px] text-zinc-300">
+          <span className="font-medium">{currentProfile?.name || 'No Profile'}</span>
           <span className="rounded border border-orange-500/35 bg-orange-950/40 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-orange-300">Free</span>
-          <ChevronDown size={12} className="text-zinc-600" />
-        </button>
+        </div>
 
         <span className="text-zinc-700">/</span>
 
-        <button type="button" className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[13px] text-zinc-300 transition-colors hover:bg-zinc-800/50">
+        <div className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[13px] text-zinc-300">
           <span className="font-medium">Tendo</span>
-          <ChevronDown size={12} className="text-zinc-600" />
-        </button>
+        </div>
 
         <span className="text-zinc-700">/</span>
 
-        <button type="button" className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[13px] text-zinc-300 transition-colors hover:bg-zinc-800/50">
-          <span className="font-medium">main</span>
-          <span className="rounded border border-red-500/35 bg-red-950/40 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-red-300">Production</span>
-          <ChevronDown size={12} className="text-zinc-600" />
-        </button>
+        <div className="relative" ref={dropdownRef}>
+          <button
+            type="button"
+            onClick={() => setDropdownOpen(!dropdownOpen)}
+            className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[13px] text-zinc-300 transition-colors hover:bg-zinc-800/50"
+          >
+            <span className="rounded border border-emerald-500/35 bg-emerald-950/40 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-300">Business Profile</span>
+            <span className="text-[12px] text-zinc-400">{currentProfile?.name || 'Select'}</span>
+            <ChevronDown size={12} className={`text-zinc-600 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {dropdownOpen && (
+            <div className="absolute left-0 top-full mt-1 min-w-[200px] rounded-lg border border-zinc-700/80 bg-[#1a1a1a] py-1.5 shadow-2xl">
+              <p className="px-3 pb-1.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">Switch profile</p>
+              {profiles.length > 0 ? (
+                profiles.map((profile) => (
+                  <button
+                    key={profile.id}
+                    type="button"
+                    onClick={() => {
+                      setCurrentProfileById(profile.id)
+                      setDropdownOpen(false)
+                    }}
+                    className={`flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-zinc-800 ${
+                      profile.id === currentProfile?.id ? 'text-emerald-400' : 'text-zinc-300'
+                    }`}
+                  >
+                    <span className={`flex h-5 w-5 items-center justify-center rounded-md text-[10px] font-bold ${
+                      profile.id === currentProfile?.id ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-500'
+                    }`}>
+                      {(profile.name || 'B')[0].toUpperCase()}
+                    </span>
+                    {profile.name || 'Untitled'}
+                  </button>
+                ))
+              ) : (
+                <span className="block px-3 py-2 text-[12px] text-zinc-600">No profiles yet</span>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Mobile brand */}

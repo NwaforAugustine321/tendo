@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { getProfiles, type BusinessProfile } from '../lib/services/business'
+import { useNavigate } from 'react-router-dom'
+import { getProfiles, createEmptyBusiness, resumeSession, deleteBusinessProfile, type BusinessProfile } from '../lib/services/business'
 import { Spinner } from '../components/atoms/Spinner'
 import { TalkingCharacter } from '../components/containers/TalkingCharacter'
 import { TopBar } from '../components/containers'
+import { useBusinessStore } from '../store/business'
 
 export function SelectBusiness() {
   const [profiles, setProfiles] = useState<BusinessProfile[]>([])
   const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [resumingId, setResumingId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<BusinessProfile | null>(null)
+  const { setCurrentProfile } = useBusinessStore()
+  const navigate = useNavigate()
 
   useEffect(() => {
     getProfiles().then((p) => {
@@ -15,6 +21,33 @@ export function SelectBusiness() {
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [])
+
+  const handleCreateNew = async () => {
+    setCreating(true)
+    try {
+      const { business_id, session_id } = await createEmptyBusiness()
+      navigate(`/onboarding?session_id=${session_id}&business_id=${business_id}`)
+    } catch (err) {
+      console.error('Failed to create business:', err)
+      setCreating(false)
+    }
+  }
+
+  const handleSelectBusiness = async (profile: BusinessProfile) => {
+    setResumingId(profile.id)
+    setCurrentProfile(profile)
+    if (profile.onboarding_completed) {
+      navigate('/app')
+    } else {
+      try {
+        const { session_id, business_id } = await resumeSession(profile.id)
+        navigate(`/onboarding?session_id=${session_id}&business_id=${business_id}`)
+      } catch (err) {
+        console.error('Failed to resume session:', err)
+        setResumingId(null)
+      }
+    }
+  }
 
   if (loading) {
     return (
@@ -49,36 +82,57 @@ export function SelectBusiness() {
         {profiles.length > 0 && (
           <div className="mt-8 space-y-3">
             {profiles.map((p) => (
-              <Link
+              <button
                 key={p.id}
-                to="/app"
-                className="flex items-center gap-3 rounded-xl border border-zinc-800/90 bg-[#141414] p-4 transition-colors hover:border-zinc-700/90 hover:bg-[#1a1a1a]"
+                onClick={() => handleSelectBusiness(p)}
+                disabled={resumingId === p.id}
+                className="flex w-full items-center gap-3 rounded-xl border border-zinc-800/90 bg-[#141414] p-4 text-left transition-colors hover:border-zinc-700/90 hover:bg-[#1a1a1a] cursor-pointer disabled:opacity-60"
               >
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#3ecf8e]/10 text-[#3ecf8e]">
-                  <span className="text-lg font-bold">{(p.name || 'B')[0].toUpperCase()}</span>
+                  {resumingId === p.id ? (
+                    <Spinner size="sm" />
+                  ) : (
+                    <span className="text-lg font-bold">{(p.name || 'B')[0].toUpperCase()}</span>
+                  )}
                 </div>
-                <div>
+                <div className="flex-1">
                   <p className="text-sm font-medium text-white">{p.name || 'Untitled business'}</p>
-                  <p className="text-xs text-zinc-500">Continue with this business</p>
+                  <p className="text-xs text-zinc-500">
+                    {p.onboarding_completed ? 'Continue with this business' : 'Onboarding in progress...'}
+                  </p>
                 </div>
-              </Link>
+                {!p.onboarding_completed && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setDeleteTarget(p)
+                    }}
+                    className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-medium text-red-400 hover:bg-red-500/20"
+                  >
+                    Delete
+                  </button>
+                )}
+              </button>
             ))}
           </div>
         )}
 
         {/* Create new business */}
-        <Link
-          to="/onboarding"
-          className="mt-6 flex items-center gap-3 rounded-xl border border-dashed border-[#3ecf8e]/40 bg-[#0a0a0a] p-4 transition-colors hover:border-[#3ecf8e]/70 hover:bg-[#141414]"
+        <button
+          onClick={handleCreateNew}
+          disabled={creating}
+          className="mt-6 flex w-full items-center gap-3 rounded-xl border border-dashed border-[#3ecf8e]/40 bg-[#0a0a0a] p-4 transition-colors hover:border-[#3ecf8e]/70 hover:bg-[#141414] disabled:opacity-50"
         >
           <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#3ecf8e]/30 text-[#3ecf8e]">
-            <span className="text-xl">+</span>
+            {creating ? <Spinner size="sm" /> : <span className="text-xl">+</span>}
           </div>
           <div>
-            <p className="text-sm font-medium text-[#3ecf8e]">Create new business</p>
+            <p className="text-sm font-medium text-[#3ecf8e]">
+              {creating ? 'Setting up new profile...' : 'Create new business profile'}
+            </p>
             <p className="text-xs text-zinc-500">Let Tendo learn about a new business</p>
           </div>
-        </Link>
+        </button>
 
         {profiles.length === 0 && (
           <p className="mt-6 text-center text-xs text-zinc-600">
@@ -89,6 +143,41 @@ export function SelectBusiness() {
       </div>
 
       <TalkingCharacter isSpeaking={false} />
+
+      {/* Delete confirmation modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75">
+          <div className="w-full max-w-lg rounded-xl border border-zinc-800/40 bg-[#141414] p-6">
+            <h3 className="text-base font-semibold text-white">Delete business profile?</h3>
+            <p className="mt-2 text-sm text-zinc-400">
+              This will permanently delete this incomplete profile. You can always create a new one.
+            </p>
+            <div className="mt-5 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setResumingId(deleteTarget.id)
+                  deleteBusinessProfile(deleteTarget.id).then(() => {
+                    setProfiles((prev) => prev.filter((x) => x.id !== deleteTarget.id))
+                    setDeleteTarget(null)
+                    setResumingId(null)
+                  }).catch(() => setResumingId(null))
+                }}
+                disabled={resumingId === deleteTarget.id}
+                className="flex items-center gap-2 rounded-lg bg-red-500/20 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-500/30 disabled:opacity-60"
+              >
+                {resumingId === deleteTarget.id ? <Spinner size="sm" /> : null}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

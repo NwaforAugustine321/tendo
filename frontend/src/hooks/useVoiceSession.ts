@@ -18,16 +18,26 @@ export function useVoiceSession() {
   const [state, setState] = useState<VoiceSessionState>('disconnected')
   const [lastMessage, setLastMessage] = useState<AgentMessage | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
+  const [thinkingText, setThinkingText] = useState('')
   const [reconnectAttempt, setReconnectAttempt] = useState(0)
   const [turnComplete, setTurnComplete] = useState(false)
   const clientRef = useRef<VoiceClient | null>(null)
   const msgCounter = useRef(0)
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (params?: { sessionId?: string; businessId?: string }) => {
     if (clientRef.current) return
 
     setState('connecting')
     setErrorMessage('')
+
+    // Build WS URL with optional session params
+    let wsUrl = WS_URL
+    const queryParts: string[] = []
+    if (params?.sessionId) queryParts.push(`session_id=${params.sessionId}`)
+    if (params?.businessId) queryParts.push(`business_id=${params.businessId}`)
+    if (queryParts.length > 0) {
+      wsUrl += (wsUrl.includes('?') ? '&' : '?') + queryParts.join('&')
+    }
 
     const client = new VoiceClient({
       onTranscript: (text) => {
@@ -50,6 +60,7 @@ export function useVoiceSession() {
       },
       onSpeakingStart: () => setState('speaking'),
       onSpeakingEnd: () => setState('idle'),
+      onThinking: (text) => setThinkingText(text),
       onReconnecting: (attempt) => {
         setReconnectAttempt(attempt)
         setState('reconnecting')
@@ -84,7 +95,7 @@ export function useVoiceSession() {
     })
 
     try {
-      await client.connect(WS_URL)
+      await client.connect(wsUrl)
       clientRef.current = client
       setState('idle')
     } catch {
@@ -157,6 +168,7 @@ export function useVoiceSession() {
     lastMessage,
     turnComplete,
     errorMessage,
+    thinkingText,
     reconnectAttempt,
     connect,
     startListening,

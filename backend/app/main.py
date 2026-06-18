@@ -10,6 +10,7 @@ from app.communication.voice import handle_session
 from app.models.event import UnifiedUserEvent
 from app.routes.auth import router as auth_router
 from app.routes.business import router as business_router
+from app.routes.upload import router as upload_router
 from app.lib.errors import register_error_handlers
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -27,6 +28,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(business_router)
+app.include_router(upload_router)
 register_error_handlers(app)
 
 

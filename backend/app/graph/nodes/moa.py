@@ -27,10 +27,22 @@ async def moa_node(state: GraphState) -> dict:
         logger.info(f"MOA: continuing loop, routing to {routed}")
         return {"routed_domain": routed}
     
-    # If sub-agent is done (routed_domain cleared), fall through to normal flow
+    # Sub-agent finished (routed_domain still set from previous state + response exists).
+    # MOA doesn't invoke LLM here — just passes through.
+    # If tool_requests exist: route_from_moa will send to tool_planner/db_oracle to save.
+    # If no tool_requests: route_from_moa will send to response node to show the message.
     if routed and state.get("response"):
+        if state.get("tool_requests"):
+            logger.info(f"MOA: sub-agent {routed} done with tool_requests, routing to tool_planner")
+            return {"routed_domain": None}
         logger.info(f"MOA: sub-agent {routed} done, proceeding to response")
         return {"routed_domain": None}
+
+    # If this is the first message in a session (no history), always start with onboarding
+    history = state.get("messages", [])
+    if not history and user_message.lower().strip() in ("hello", "hi", "hey", ""):
+        logger.info("MOA: first message in session, routing to onboarding")
+        return {"routed_domain": "onboarding"}
 
     # Normal flow — invoke LLM to decide
     config = load("moa")
@@ -41,7 +53,6 @@ async def moa_node(state: GraphState) -> dict:
     context_block = _build_context(business_context, session_context)
 
     memory_context = state.get("memory_context") or ""
-    history = state.get("messages", [])
 
     system_content = config.system_prompt + "\n\n" + context_block
     if memory_context:

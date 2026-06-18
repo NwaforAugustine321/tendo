@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { MessageSquare, Home, Package, Users, BarChart3, Settings } from 'lucide-react'
+import { useAuth } from '../../context/auth'
 import type { PrimarySection } from '../../lib/navigation'
 
 type Props = {
@@ -42,6 +43,7 @@ const NAV_ITEMS: { id: PrimarySection; to: string; label: string; icon: ReactNod
 ]
 
 export function IconRail({ orientation = 'vertical', onNavigate, activePrimary, onPrimaryClick }: Props) {
+  const { user } = useAuth()
   const fireClick = () => {
     onPrimaryClick?.()
     onNavigate?.()
@@ -85,6 +87,14 @@ export function IconRail({ orientation = 'vertical', onNavigate, activePrimary, 
       <div className="flex w-full flex-col overflow-visible py-2">{core}</div>
       <div className="min-h-0 flex-1" aria-hidden="true" />
       <div className="mt-auto flex w-full flex-col overflow-visible border-t border-zinc-800/90 py-2">
+        <div className="flex h-11 w-full shrink-0 items-center justify-center gap-2 group-hover/rail:justify-start group-hover/rail:px-2.5">
+          <div className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-zinc-700 bg-zinc-800 transition-colors hover:border-zinc-600 hover:bg-zinc-700">
+            <span className="text-[11px] font-bold text-zinc-400">{(user?.name || 'U')[0].toUpperCase()}</span>
+          </div>
+          <span className="pointer-events-none max-w-0 truncate whitespace-nowrap text-xs font-medium text-zinc-400 opacity-0 transition-[max-width,opacity] duration-200 ease-out group-hover/rail:max-w-[7.5rem] group-hover/rail:opacity-100">
+            {user?.name || 'User'}
+          </span>
+        </div>
         <div className="h-11 w-full shrink-0">
           <NavLink
             to="/app/settings"

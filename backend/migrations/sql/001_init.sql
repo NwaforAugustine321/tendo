@@ -1,6 +1,6 @@
--- User profiles
+-- User profiles (id = Supabase Auth user UUID)
 CREATE TABLE IF NOT EXISTS user_profiles (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY REFERENCES auth.users(id),
     email TEXT NOT NULL,
     name TEXT DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT now(),
@@ -11,7 +11,11 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 CREATE TABLE IF NOT EXISTS business_profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES user_profiles(id),
-    name TEXT NOT NULL,
+    name TEXT DEFAULT '',
+    logo_url TEXT DEFAULT '',
+    phone TEXT DEFAULT '',
+    location TEXT DEFAULT '',
+    onboarding_completed BOOLEAN DEFAULT false,
     category TEXT DEFAULT 'hybrid',
     description TEXT DEFAULT '',
     metadata JSONB DEFAULT '{}',

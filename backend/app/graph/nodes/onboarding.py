@@ -17,9 +17,33 @@ REQUIRED_FIELDS = ["business_name", "business_type", "description"]
 async def onboarding_node(state: GraphState) -> dict:
     event = state.get("event", {})
     user_message = event.get("text", "")
+    business_id = state.get("business_id") or event.get("business_id", "")
 
     config = load("onboarding")
     llm = get_llm()
+
+    # Fetch existing business profile to give context to the agent
+    profile_context = ""
+    if business_id and business_id != "default":
+        try:
+            from app.db.tools.profiles import get_business_profile
+            profile = await get_business_profile(business_id=business_id)
+            if profile and not isinstance(profile, dict) or (isinstance(profile, dict) and not profile.get("error")):
+                saved_name = profile.get("name", "")
+                if saved_name:  # Profile has data — inject as context
+                    profile_context = (
+                        f"\n\n## EXISTING PROFILE DATA (already saved):\n"
+                        f"- Business Name: {profile.get('name', '')}\n"
+                        f"- Type: {profile.get('category', '')}\n"
+                        f"- Description: {profile.get('description', '')}\n"
+                        f"- Phone: {profile.get('phone', '')}\n"
+                        f"- Location: {profile.get('location', '')}\n"
+                        f"- Logo: {'uploaded' if profile.get('logo_url') else 'none'}\n"
+                        f"- Onboarding Completed: {profile.get('onboarding_completed', False)}\n"
+                        f"\nThe user is updating their existing profile. Acknowledge what's already set and ask what they'd like to change."
+                    )
+        except Exception:
+            pass
 
     history = state.get("messages", [])
 
@@ -33,7 +57,8 @@ async def onboarding_node(state: GraphState) -> dict:
             if content.startswith("{"):
                 onboarding_history.append(msg)
 
-    prompt = [{"role": "system", "content": config.system_prompt}]
+    system_content = config.system_prompt + profile_context
+    prompt = [{"role": "system", "content": system_content}]
     prompt.extend(onboarding_history[-12:])
     prompt.append({"role": "user", "content": user_message})
 
@@ -61,11 +86,16 @@ async def onboarding_node(state: GraphState) -> dict:
 
     if parsed.get("status") == "complete":
         response_data["onboarding_complete"] = True
-        response_data["business_data"] = {
+        business_data = {
             "business_name": parsed.get("business_name", ""),
             "business_type": parsed.get("business_type", ""),
             "description": parsed.get("description", ""),
+            "phone_number": parsed.get("phone_number", ""),
+            "location": parsed.get("location", ""),
         }
+        response_data["business_data"] = business_data
+        # Override response text with a lively "saving" message so user isn't left waiting
+        response_data["text"] = text  # Keep the agent's completion message
 
     result = {
         "response": response_data,
@@ -76,6 +106,24 @@ async def onboarding_node(state: GraphState) -> dict:
             {"role": "assistant", "content": raw},
         ],
     }
+
+    # If onboarding complete, set tool_requests so MOA routes to tool_planner → db_oracle
+    if parsed.get("status") == "complete":
+        # Get logo URL from the agent's output (extracted during conversation)
+        logo_url = parsed.get("logo", "")
+        result["tool_requests"] = [{
+            "tool": "update_business_profile",
+            "params": {
+                "business_id": state.get("business_id") or event.get("business_id", ""),
+                "name": business_data["business_name"],
+                "category": business_data["business_type"],
+                "description": business_data["description"],
+                "phone": business_data["phone_number"],
+                "location": business_data["location"],
+                "logo_url": logo_url if logo_url.startswith("http") else "",
+                "onboarding_completed": True,
+            }
+        }]
 
     # If we need user input, interrupt the graph — it will pause here
     # and resume when user responds

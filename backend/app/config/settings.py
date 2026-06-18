@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     supabase_db_url: str = ""  
     max_message_token_size: int = 1024  # Range: 128–131072
 
+    # Storage
+    bucket_name: str = "business-assets"
+
     # Voice
     google_voice_api_key: str = ""
     google_voice_model: str = ""

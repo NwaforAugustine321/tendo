@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ConversationPage, type MessageItem, BusinessProfileSidebar, type BusinessProfileData } from '../components/containers'
 import type { InputSpec } from '../components/containers/ConversationPage'
 import { TopBar } from '../components/containers'
 import { useVoiceSession } from '../hooks/useVoiceSession'
+import { getProfile } from '../lib/services/business'
 
 const STEPS = [
   { label: 'Business Name' },
@@ -48,6 +50,10 @@ function StepProgress({ currentStep }: { currentStep: number }) {
 }
 
 export function Onboarding() {
+  const [searchParams] = useSearchParams()
+  const sessionId = searchParams.get('session_id') || ''
+  const businessId = searchParams.get('business_id') || ''
+
   const [messages, setMessages] = useState<MessageItem[]>([])
   const [thinking, setThinking] = useState(true)
   const [currentStep, setCurrentStep] = useState(0)
@@ -59,9 +65,27 @@ export function Onboarding() {
   useEffect(() => {
     if (!connected.current) {
       connected.current = true
-      voice.connect()
+      voice.connect({ sessionId, businessId })
     }
   }, [])
+
+  // Fetch existing profile data to prefill the sidebar
+  useEffect(() => {
+    if (businessId) {
+      getProfile(businessId).then((p) => {
+        if (p && p.name) {
+          setProfile({
+            businessName: p.name || undefined,
+            businessType: p.category || undefined,
+            description: p.description || undefined,
+            phone: p.phone || undefined,
+            location: p.location || undefined,
+            logo: p.logo_url || undefined,
+          })
+        }
+      })
+    }
+  }, [businessId])
 
   useEffect(() => {
     if (!voice.lastMessage) return
@@ -181,13 +205,33 @@ export function Onboarding() {
         <div className="hidden lg:block">
           <BusinessProfileSidebar
             profile={profile}
-            onLogoUpload={(dataUrl) => {
+            onLogoUpload={async (dataUrl) => {
               setProfile((prev) => ({ ...prev, logo: dataUrl }))
-              // Send to agent using same format as question responses (label + answer + description)
-              const sendText = 'label: Business Logo, answer: [LOGO_UPLOADED], description: User uploaded a business profile image'
-              setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: '📷 Logo uploaded', type: 'text' }])
-              setThinking(true)
-              voice.sendText(sendText)
+
+              // Upload to backend REST endpoint → get public URL → send URL to agent
+              try {
+                const res = await fetch(dataUrl)
+                const blob = await res.blob()
+                const formData = new FormData()
+                formData.append('file', blob, 'logo.png')
+
+                const uploadRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/upload/logo`, {
+                  method: 'POST',
+                  body: formData,
+                })
+                const data = await uploadRes.json()
+
+                if (data.url) {
+                  setProfile((prev) => ({ ...prev, logo: data.url }))
+                  // Send the actual public URL to the agent
+                  const sendText = `label: Business Logo, answer: ${data.url}, description: User uploaded business profile image`
+                  setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: '📷 Logo uploaded', type: 'text' }])
+                  setThinking(true)
+                  voice.sendText(sendText)
+                }
+              } catch (err) {
+                console.error('Logo upload failed:', err)
+              }
             }}
           />
         </div>
@@ -201,7 +245,7 @@ export function Onboarding() {
             <ConversationPage
               messages={messages}
               isTyping={thinking || voice.isSpeaking}
-              thinkingText={thinking ? `${import.meta.env.VITE_AGENT_NAME || 'Jay'} is processing your request` : undefined}
+              thinkingText={thinking ? (voice.thinkingText || `${import.meta.env.VITE_AGENT_NAME || 'Jay'} is processing your request`) : undefined}
               onSendText={handleSendText}
               onVoiceRecorded={() => {}}
               onVoiceToggle={handleVoiceToggle}

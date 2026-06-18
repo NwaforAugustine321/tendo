@@ -31,12 +31,24 @@ def route_from_moa(state: GraphState) -> str:
         return "onboarding"
     if state.get("output_mode") == "structured_options":
         return "option_generator"
-    if state.get("tool_requests"):
+    
+    # If tool_requests exist and db_result is already set, we're done with execution
+    # If tool_requests exist but no db_result yet, check if they've been planned
+    tool_requests = state.get("tool_requests")
+    if tool_requests:
+        # If tool_planner already structured them (has "tool" key), send to db_oracle
+        if isinstance(tool_requests, list) and len(tool_requests) > 0:
+            if isinstance(tool_requests[0], dict) and "tool" in tool_requests[0]:
+                return "db_oracle"
+        # Otherwise, needs planning first
         return "tool_planner"
+    
     if routed:
         return "domain_router"
     if state.get("confirmation_status") == "pending":
         return "confirmation"
+
+    return "response"
 
     return "response"
 
@@ -65,15 +77,15 @@ def build_graph() -> StateGraph:
     builder.add_conditional_edges(
         "moa",
         route_from_moa,
-        ["tool_planner", "option_generator", "domain_router", "confirmation", "onboarding", "response"],
+        ["tool_planner", "db_oracle", "option_generator", "domain_router", "confirmation", "onboarding", "response"],
     )
 
     # Sub-agents return to MOA (the loop)
     builder.add_edge("onboarding", "moa")
     builder.add_edge("domain_router", "moa")
+    builder.add_edge("tool_planner", "moa")
 
-    # Tool execution loop
-    builder.add_edge("tool_planner", "db_oracle")
+    # DB execution: MOA sends to db_oracle, results go to context_resolution, back to MOA
     builder.add_edge("db_oracle", "context_resolution")
     builder.add_edge("context_resolution", "moa")
 

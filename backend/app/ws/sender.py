@@ -51,6 +51,11 @@ async def send_turn_complete(websocket: WebSocket) -> None:
     await websocket.send_json({"type": "turn_complete"})
 
 
+async def send_thinking(websocket: WebSocket, text: str) -> None:
+    """Send a thinking/status update to keep the UI lively."""
+    await websocket.send_json({"type": "thinking", "data": text})
+
+
 async def send_error(websocket: WebSocket, error: str) -> None:
     """Send an error message."""
     await websocket.send_json({"type": "error", "data": error})

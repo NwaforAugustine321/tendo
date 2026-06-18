@@ -9,7 +9,7 @@ from google import genai
 from google.genai import types
 
 from app.ws.connection import accept, close
-from app.ws.sender import send_audio, send_message, send_turn_complete, send_error
+from app.ws.sender import send_audio, send_message, send_turn_complete, send_error, send_thinking
 from app.ws.receiver import receive_json
 from app.ws.encoding import decode_audio
 from app.config.settings import settings
@@ -45,12 +45,35 @@ def _clean_text(text: str) -> str:
     return text.strip()
 
 
-async def _run_graph(user_text: str, thread_id: str, business_id: str) -> dict:
+async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket=None, user_id: str = "anonymous") -> dict:
     from app.graph.workflow import get_graph
     from langgraph.types import Command
 
     graph = await get_graph()
     config = {"configurable": {"thread_id": thread_id}}
+
+    # Node-level thinking messages for the user
+    NODE_THINKING = {
+        "bsga": "Understanding your request...",
+    }
+    DEFAULT_THINKING = "Thinking..."
+
+    async def _stream_invoke(input_data):
+        """Stream graph execution and send thinking updates."""
+        result = {}
+        async for event in graph.astream(input_data, config=config, stream_mode="updates"):
+            for node_name, node_output in event.items():
+                # Send thinking message for this node
+                if websocket and node_name != "response":
+                    try:
+                        msg = NODE_THINKING.get(node_name, DEFAULT_THINKING)
+                        await send_thinking(websocket, msg)
+                    except Exception:
+                        pass
+                # Keep the last output as the result
+                if isinstance(node_output, dict):
+                    result.update(node_output)
+        return result
 
     # Check if the graph is interrupted (waiting for user input)
     state = await graph.aget_state(config)
@@ -59,7 +82,7 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str) -> dict:
         # Graph is paused at an interrupt — resume with user's answer
         logger.info(f"Resuming interrupted graph with: {user_text[:50]}")
         try:
-            result = await graph.ainvoke(Command(resume=user_text), config=config)
+            result = await _stream_invoke(Command(resume=user_text))
         except TypeError:
             # Stale checkpoint with incompatible node signatures — start fresh
             logger.warning("Stale checkpoint detected, starting fresh invocation")
@@ -67,16 +90,18 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str) -> dict:
                 "event": {"text": user_text, "thread_id": thread_id, "business_id": business_id},
                 "thread_id": thread_id,
                 "business_id": business_id,
+                "user_id": user_id,
             }
-            result = await graph.ainvoke(input_state, config=config)
+            result = await _stream_invoke(input_state)
     else:
         # Fresh invocation
         input_state = {
             "event": {"text": user_text, "thread_id": thread_id, "business_id": business_id},
             "thread_id": thread_id,
             "business_id": business_id,
+            "user_id": user_id,
         }
-        result = await graph.ainvoke(input_state, config=config)
+        result = await _stream_invoke(input_state)
 
     response = result.get("response") or {}
     response["text"] = _clean_text(response.get("text", ""))
@@ -147,12 +172,27 @@ async def handle_session(websocket: WebSocket):
     await accept(websocket)
     logger.info("Voice WebSocket accepted")
 
+    # Authenticate via cookie
+    from app.services.auth import handle_get_me, COOKIE_NAME
+    token = websocket.cookies.get(COOKIE_NAME)
+    user = None
+    user_id = "anonymous"
+    if token:
+        user = await handle_get_me(token)
+        if user:
+            user_id = user["user_id"]
+            logger.info(f"WebSocket authenticated: user_id={user_id}")
+        else:
+            logger.warning("WebSocket: invalid session token")
+    else:
+        logger.warning("WebSocket: no auth cookie, proceeding as anonymous")
+
     client = _get_client()
     config = _get_config()
     logger.info(f"Connecting to model: {settings.google_voice_model}")
 
-    thread_id = "default"
-    business_id = "default"
+    thread_id = websocket.query_params.get("session_id", "default")
+    business_id = websocket.query_params.get("business_id", "default")
 
     try:
         async with client.aio.live.connect(
@@ -160,7 +200,7 @@ async def handle_session(websocket: WebSocket):
         ) as session:
             logger.info("AI session connected")
 
-            result = await _run_graph("hello", thread_id, business_id)
+            result = await _run_graph("hello", thread_id, business_id, websocket, user_id)
             greeting = result.get("text", "")
 
             if greeting:
@@ -189,6 +229,16 @@ async def handle_session(websocket: WebSocket):
                     user_text = data
                     logger.info(f"Text input: {user_text[:50]}")
 
+                    # Detect logo upload — extract data URL and store separately
+                    if user_text.startswith("[LOGO_DATA]:"):
+                        logo_data_url = user_text[len("[LOGO_DATA]:"):]
+                        # Store in a variable accessible to _run_graph
+                        self_logo_data = logo_data_url
+                        user_text = "label: Business Logo, answer: [LOGO_UPLOADED], description: User uploaded a business profile image"
+                        logger.info(f"Logo data received: {len(logo_data_url)} chars")
+                    else:
+                        self_logo_data = None
+
                 elif input_type == "audio":
                     logger.info(f"Transcribing audio: {len(data)} bytes")
                     await _send_audio_for_transcription(session, data)
@@ -211,7 +261,7 @@ async def handle_session(websocket: WebSocket):
                 if not user_text:
                     continue
 
-                result = await _run_graph(user_text, thread_id, business_id)
+                result = await _run_graph(user_text, thread_id, business_id, websocket, user_id)
                 moa_response = result.get("text", "")
                 logger.info(f"Response: {moa_response[:80]}")
 
