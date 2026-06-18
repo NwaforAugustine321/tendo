@@ -54,6 +54,11 @@ async def onboarding_node(state: GraphState) -> dict:
     if questions:
         response_data["input"] = questions
 
+    # Pass extracted values for the frontend sidebar
+    extracted = parsed.get("extracted")
+    if extracted:
+        response_data["extracted"] = extracted
+
     if parsed.get("status") == "complete":
         response_data["onboarding_complete"] = True
         response_data["business_data"] = {
@@ -75,7 +80,7 @@ async def onboarding_node(state: GraphState) -> dict:
     # If we need user input, interrupt the graph — it will pause here
     # and resume when user responds
     if output_type == "question" and questions:
-        user_answer = interrupt({"text": text, "questions": questions})
+        user_answer = interrupt({"text": text, "questions": questions, "extracted": extracted})
         # Graph resumes here with user's answer
         formatted_answer = _format_user_answer(str(user_answer), questions)
         logger.info(f"Onboarding resumed with: {formatted_answer[:100]}")

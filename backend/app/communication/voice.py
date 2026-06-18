@@ -95,6 +95,8 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str) -> dict:
                             response["text"] = _clean_text(interrupt_data["text"])
                         if interrupt_data.get("questions"):
                             response["input"] = interrupt_data["questions"]
+                        if interrupt_data.get("extracted"):
+                            response["extracted"] = interrupt_data["extracted"]
                         break
 
     return response
@@ -163,7 +165,7 @@ async def handle_session(websocket: WebSocket):
 
             if greeting:
                 logger.info(f"Initial: {greeting[:80]}")
-                await send_message(websocket, greeting, result.get("input"))
+                await send_message(websocket, greeting, result.get("input"), result.get("extracted"))
 
                 if await _send_text_for_tts(session, greeting):
                     async for response in session.receive():
@@ -213,7 +215,7 @@ async def handle_session(websocket: WebSocket):
                 moa_response = result.get("text", "")
                 logger.info(f"Response: {moa_response[:80]}")
 
-                await send_message(websocket, moa_response, result.get("input"))
+                await send_message(websocket, moa_response, result.get("input"), result.get("extracted"))
 
                 if await _send_text_for_tts(session, moa_response):
                     await _stream_tts_response(session, websocket)

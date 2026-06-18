@@ -3,7 +3,6 @@ import { ConversationPage, type MessageItem, BusinessProfileSidebar, type Busine
 import type { InputSpec } from '../components/containers/ConversationPage'
 import { TopBar } from '../components/containers'
 import { useVoiceSession } from '../hooks/useVoiceSession'
-import { Check } from 'lucide-react'
 
 const STEPS = [
   { label: 'Business Name' },
@@ -15,35 +14,31 @@ const STEPS = [
 ]
 
 function StepProgress({ currentStep }: { currentStep: number }) {
+  // Only show steps that are not yet completed (current + remaining)
+  const remainingSteps = STEPS.filter((_, idx) => idx >= currentStep)
+
   return (
     <div className="flex items-center justify-center gap-3 py-2">
-      {STEPS.map((step, idx) => {
-        const done = idx < currentStep
-        const active = idx === currentStep
+      {remainingSteps.map((step, displayIdx) => {
+        const isActive = displayIdx === 0
         return (
-          <div key={idx} className="flex items-center gap-3">
+          <div key={step.label} className="flex items-center gap-3">
             <div className="flex items-center gap-1.5">
               <div
                 className={`flex h-5 w-5 items-center justify-center rounded-full border transition-all ${
-                  done
-                    ? 'border-emerald-500 bg-emerald-500/20'
-                    : active
-                      ? 'border-orange-500 bg-orange-500/10'
-                      : 'border-zinc-700 bg-zinc-900'
+                  isActive
+                    ? 'border-orange-500 bg-orange-500/10'
+                    : 'border-zinc-700 bg-zinc-900'
                 }`}
               >
-                {done ? (
-                  <Check size={10} className="text-emerald-400" />
-                ) : (
-                  <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-orange-500' : 'bg-zinc-600'}`} />
-                )}
+                <span className={`h-1.5 w-1.5 rounded-full ${isActive ? 'bg-orange-500' : 'bg-zinc-600'}`} />
               </div>
-              <span className={`text-[10px] ${done ? 'text-emerald-500' : active ? 'text-orange-400' : 'text-zinc-600'}`}>
+              <span className={`text-[10px] ${isActive ? 'text-orange-400' : 'text-zinc-600'}`}>
                 {step.label}
               </span>
             </div>
-            {idx < STEPS.length - 1 && (
-              <div className={`h-px w-4 ${done ? 'bg-emerald-500/50' : 'bg-zinc-700'}`} />
+            {displayIdx < remainingSteps.length - 1 && (
+              <div className="h-px w-4 bg-zinc-700" />
             )}
           </div>
         )
@@ -85,6 +80,19 @@ export function Onboarding() {
       }])
     }
 
+    // Update profile from agent's extracted values
+    const extracted = voice.lastMessage.extracted
+    if (extracted) {
+      setProfile((prev) => ({
+        ...prev,
+        ...(extracted.business_name && { businessName: extracted.business_name }),
+        ...(extracted.business_type && { businessType: extracted.business_type }),
+        ...(extracted.description && { description: extracted.description }),
+        ...(extracted.phone_number && { phone: extracted.phone_number }),
+        ...(extracted.location && { location: extracted.location }),
+      }))
+    }
+
     if (msgType === 'question' && questions) {
       setMessages((prev) => [...prev, {
         id: `input-${voice.lastMessage!.id}`,
@@ -101,12 +109,14 @@ export function Onboarding() {
         if (field.type === 'text' && field.name === 'business_name') setCurrentStep(0)
         else if (field.type === 'radio' && field.options?.[0]?.name === 'business_type') setCurrentStep(1)
         else if (field.type === 'text' && field.name === 'description') setCurrentStep(2)
-        else if (field.type === 'radio' && field.options?.[0]?.name === 'confirm') setCurrentStep(3)
+        else if (field.type === 'text' && field.name === 'phone_number') setCurrentStep(3)
+        else if (field.type === 'text' && field.name === 'location') setCurrentStep(4)
+        else if (field.type === 'radio' && field.options?.[0]?.name === 'confirm') setCurrentStep(5)
       }
     }
 
     if (msgType === 'answer') {
-      setCurrentStep(4)
+      setCurrentStep(6)
     }
   }, [voice.lastMessage])
 
@@ -131,15 +141,6 @@ export function Onboarding() {
     setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: displayText, type: 'text' }])
     setThinking(true)
     voice.sendText(sendText)
-
-    // Update profile based on current step
-    if (currentStep === 0 && !optionContext) {
-      setProfile((prev) => ({ ...prev, businessName: text }))
-    } else if (currentStep === 1 && optionContext) {
-      setProfile((prev) => ({ ...prev, businessType: optionContext.label }))
-    } else if (currentStep === 2 && !optionContext) {
-      setProfile((prev) => ({ ...prev, description: text }))
-    }
   }
 
   const handleVoiceToggle = async () => {

@@ -30,12 +30,19 @@ async def send_input(websocket: WebSocket, input_spec: dict) -> None:
     await websocket.send_json({"type": "input", "data": input_spec})
 
 
-async def send_message(websocket: WebSocket, text: str, questions: dict | None = None) -> None:
-    """Send a complete agent message — text + optional questions."""
+async def send_message(
+    websocket: WebSocket,
+    text: str,
+    questions: dict | None = None,
+    extracted: dict | None = None,
+) -> None:
+    """Send a complete agent message — text + optional questions + extracted data."""
     msg: dict = {"type": "message", "data": {"response": text, "msg_type": "answer"}}
     if questions:
         msg["data"]["msg_type"] = "question"
         msg["data"]["questions"] = questions
+    if extracted:
+        msg["data"]["extracted"] = extracted
     await websocket.send_json(msg)
 
 

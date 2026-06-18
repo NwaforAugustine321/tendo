@@ -11,6 +11,7 @@ export type AgentMessage = {
   response: string
   msgType: 'question' | 'answer'
   questions?: InputSpec
+  extracted?: Record<string, string>
 }
 
 export function useVoiceSession() {
@@ -69,13 +70,14 @@ export function useVoiceSession() {
       },
       onMessage: (data) => {
         console.log('[VoiceSession] message received:', JSON.stringify(data))
-        const { response, msg_type, questions } = data
+        const { response, msg_type, questions, extracted } = data
         msgCounter.current++
         setLastMessage({
           id: `msg-${msgCounter.current}`,
           response: response || '',
           msgType: msg_type || 'answer',
           questions: questions || undefined,
+          extracted: extracted || undefined,
         })
         setTurnComplete(false)
       },

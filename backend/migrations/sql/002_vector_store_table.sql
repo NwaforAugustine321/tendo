@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS checkpoint_writes (
     checkpoint_ns text NOT NULL DEFAULT '',
     checkpoint_id text NOT NULL,
     task_id text NOT NULL,
+    task_path text NOT NULL DEFAULT '',
     idx integer NOT NULL,
     channel text NOT NULL,
     type text,

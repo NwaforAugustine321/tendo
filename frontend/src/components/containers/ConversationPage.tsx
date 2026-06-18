@@ -117,7 +117,7 @@ export function ConversationPage({
         {messages.length === 0 && !isTyping ? (
           <EmptyState />
         ) : (
-          <div className="mx-auto max-w-lg space-y-4">
+          <div className="mx-auto max-w-2xl space-y-4">
             {messages.map((msg, idx) => {
               if (msg.type === 'understanding' && msg.understanding) {
                 return (
@@ -179,8 +179,8 @@ export function ConversationPage({
         )}
       </div>
 
-      <div className="relative z-10 border-t border-zinc-800/90 bg-[#0a0a0a] px-3 py-3 sm:px-5">
-        <div className="mx-auto flex max-w-lg items-center gap-3">
+      <div className="relative z-10 border-t border-zinc-800/40 bg-[#0a0a0a] px-3 py-3 sm:px-5">
+        <div className="mx-auto flex max-w-2xl items-center gap-3">
           <VoiceButton
             onRecorded={onVoiceRecorded}
             onToggle={onVoiceToggle}
