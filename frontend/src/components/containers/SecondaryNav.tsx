@@ -113,7 +113,7 @@ export function SecondaryNav({ primary, onNavigate, fullWidth, onPanelEnter }: P
 
   return (
     <aside
-      className={`relative z-0 flex h-full min-h-0 flex-col border-zinc-800/60 bg-[#0f0f0f] ${fullWidth ? 'w-full border-r-0' : 'w-64 shrink-0 border-r'}`}
+      className={`relative z-0 flex h-full min-h-0 flex-col border-zinc-800/60 bg-[#0f0f0f] ${fullWidth ? 'w-full border-r-0' : 'w-48 shrink-0 border-r'}`}
       aria-label="Explorer"
       onMouseEnter={onPanelEnter}
     >

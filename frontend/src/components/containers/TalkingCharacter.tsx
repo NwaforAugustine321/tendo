@@ -15,9 +15,11 @@ import {
 
 type Props = {
   isSpeaking?: boolean
+  flipX?: boolean
+  rightOffset?: number
 }
 
-export function TalkingCharacter({ isSpeaking = false }: Props) {
+export function TalkingCharacter({ isSpeaking = false, flipX = false, rightOffset = 0 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const engineRef = useRef<BABYLON.Engine | null>(null)
   const animGroupsRef = useRef<{ [key: string]: BABYLON.AnimationGroup }>({})
@@ -113,8 +115,14 @@ export function TalkingCharacter({ isSpeaking = false }: Props) {
 
   return (
     <div
-      className="pointer-events-none fixed bottom-0 right-0 z-50"
-      style={{ width: CHARACTER_WIDTH, height: CHARACTER_HEIGHT }}
+      className="pointer-events-none fixed z-50"
+      style={{
+        width: CHARACTER_WIDTH,
+        height: CHARACTER_HEIGHT,
+        bottom: '5px',
+        right: `${rightOffset}px`,
+        transform: flipX ? 'scaleX(-1)' : undefined,
+      }}
     >
       <canvas ref={canvasRef} className="h-full w-full" style={{ background: 'transparent' }} />
     </div>

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { MessageSquare, Home, Package, Users, BarChart3, Settings } from 'lucide-react'
+import { MessageSquare, Home, Package, Users, BarChart3, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useAuth } from '../../context/auth'
 import type { PrimarySection } from '../../lib/navigation'
 
@@ -9,6 +9,8 @@ type Props = {
   onNavigate?: () => void
   activePrimary: PrimarySection
   onPrimaryClick?: () => void
+  onToggleSecondary?: () => void
+  secondaryVisible?: boolean
 }
 
 function railItemClass(active: boolean, orientation: 'vertical' | 'horizontal') {
@@ -42,7 +44,7 @@ const NAV_ITEMS: { id: PrimarySection; to: string; label: string; icon: ReactNod
   { id: 'analytics', to: '/app/analytics', label: 'Analytics', icon: <BarChart3 size={20} /> },
 ]
 
-export function IconRail({ orientation = 'vertical', onNavigate, activePrimary, onPrimaryClick }: Props) {
+export function IconRail({ orientation = 'vertical', onNavigate, activePrimary, onPrimaryClick, onToggleSecondary, secondaryVisible }: Props) {
   const { user } = useAuth()
   const fireClick = () => {
     onPrimaryClick?.()
@@ -84,7 +86,9 @@ export function IconRail({ orientation = 'vertical', onNavigate, activePrimary, 
       className="group/rail pointer-events-auto absolute inset-y-0 left-0 z-30 flex w-[52px] flex-col overflow-visible border-r border-zinc-800/90 bg-[#0f0f0f] shadow-none transition-[width,box-shadow] duration-200 ease-out hover:w-44 hover:shadow-2xl"
       aria-label="Primary navigation"
     >
-      <div className="flex w-full flex-col overflow-visible py-2">{core}</div>
+      <div className="flex w-full flex-col overflow-visible py-2">
+        {core}
+      </div>
       <div className="min-h-0 flex-1" aria-hidden="true" />
       <div className="mt-auto flex w-full flex-col overflow-visible border-t border-zinc-800/90 py-2">
         <div className="flex h-11 w-full shrink-0 items-center justify-center gap-2 group-hover/rail:justify-start group-hover/rail:px-2.5">
@@ -95,6 +99,22 @@ export function IconRail({ orientation = 'vertical', onNavigate, activePrimary, 
             {user?.name || 'User'}
           </span>
         </div>
+        {onToggleSecondary && (
+          <div className="h-11 w-full shrink-0">
+            <button
+              type="button"
+              onClick={onToggleSecondary}
+              className={railItemClass(false, orientation)}
+              aria-label="Toggle sidebar"
+              title={secondaryVisible ? 'Collapse sidebar' : 'Expand sidebar'}
+            >
+              <span className="flex shrink-0 items-center justify-center">
+                {secondaryVisible ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
+              </span>
+              <span className={railItemLabelClass}>{secondaryVisible ? 'Collapse' : 'Expand'}</span>
+            </button>
+          </div>
+        )}
         <div className="h-11 w-full shrink-0">
           <NavLink
             to="/app/settings"

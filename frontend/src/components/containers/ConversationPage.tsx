@@ -69,6 +69,8 @@ type Props = {
   headerSubtitle?: string
   fullScreen?: boolean
   transparentBg?: boolean
+  flipCharacter?: boolean
+  characterRightOffset?: number
 }
 
 export function ConversationPage({
@@ -89,6 +91,9 @@ export function ConversationPage({
   headerSubtitle = 'Your AI Business Assistant',
   fullScreen = true,
   thinkingText,
+  transparentBg = false,
+  flipCharacter = false,
+  characterRightOffset = 0,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -190,7 +195,7 @@ export function ConversationPage({
         </div>
       </div>
 
-      <TalkingCharacter isSpeaking={isTyping} />
+      <TalkingCharacter isSpeaking={isTyping} flipX={flipCharacter} rightOffset={characterRightOffset} />
     </div>
   )
 }

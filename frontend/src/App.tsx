@@ -32,8 +32,6 @@ export default function App() {
         {/* Protected workspace */}
         <Route path="/app" element={<ProtectedRoute><WorkspaceLayout /></ProtectedRoute>}>
           <Route index element={<WorkspaceHome />} />
-          <Route path="conversation/new" element={<Conversation />} />
-          <Route path="conversation/:sessionId" element={<Conversation />} />
           <Route path="business" element={<Business />} />
           <Route path="inventory" element={<Inventory />} />
           <Route path="customers" element={<Customers />} />

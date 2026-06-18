@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { IconRail } from '../components/containers'
 import { SecondaryNav } from '../components/containers'
 import { TopBar } from '../components/containers'
+import { ChatPanel } from '../components/containers/ChatPanel'
 import { primaryFromPathname, type PrimarySection } from '../lib/navigation'
 
 export function WorkspaceLayout() {
@@ -32,12 +33,13 @@ export function WorkspaceLayout() {
     }, 220)
   }, [cancelHoverClear])
 
-  const secondaryVisible = secondaryPinned || secondaryHover
+  const secondaryVisible = secondaryPinned
 
   const handleExplorerColumnEnter = useCallback(() => {
+    if (!secondaryPinned) return
     cancelHoverClear()
     setSecondaryHover(true)
-  }, [cancelHoverClear])
+  }, [cancelHoverClear, secondaryPinned])
 
   const onPrimaryClick = useCallback(() => {
     setSecondaryPinned(true)
@@ -59,27 +61,29 @@ export function WorkspaceLayout() {
           onMouseLeave={scheduleHoverClear}
         >
           <div className="relative w-[52px] shrink-0 self-stretch min-h-0">
-            <IconRail activePrimary={routePrimary} onPrimaryClick={onPrimaryClick} />
-          </div>
-          {secondaryVisible ? (
-            <SecondaryNav primary={routePrimary} onPanelEnter={handleExplorerColumnEnter} />
-          ) : (
-            <button
-              type="button"
-              className="h-full w-2 shrink-0 cursor-pointer border-r border-zinc-800/90 bg-zinc-900/40 transition-colors hover:bg-zinc-800/80"
-              onMouseEnter={handleExplorerColumnEnter}
-              aria-label="Show explorer"
-              title="Show explorer"
+            <IconRail
+              activePrimary={routePrimary}
+              onPrimaryClick={onPrimaryClick}
+              onToggleSecondary={() => setSecondaryPinned(!secondaryPinned)}
+              secondaryVisible={secondaryVisible}
             />
+          </div>
+          {secondaryVisible && (
+            <SecondaryNav primary={routePrimary} onPanelEnter={handleExplorerColumnEnter} />
           )}
         </div>
 
-        {/* Main content — bg-[#0a0a0a], matching sigmoid */}
+        {/* Main content */}
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto border-l border-zinc-800/60 bg-[#0a0a0a] px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
           <div className="flex min-h-0 w-full min-w-0 max-w-4xl flex-col justify-start">
             <Outlet />
           </div>
         </main>
+
+        {/* Chat panel — right side */}
+        <div className="hidden min-h-0 lg:flex">
+          <ChatPanel />
+        </div>
       </div>
 
       {/* Mobile nav overlay */}

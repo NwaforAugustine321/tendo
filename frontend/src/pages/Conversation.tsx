@@ -9,9 +9,11 @@ type Props = {
   fullScreen?: boolean
   showHeader?: boolean
   transparentBg?: boolean
+  flipCharacter?: boolean
+  characterRightOffset?: number
 }
 
-export function Conversation({ initialMessages, sessionTitle, fullScreen = false, showHeader = false, transparentBg = false }: Props) {
+export function Conversation({ initialMessages, sessionTitle, fullScreen = false, showHeader = false, transparentBg = false, flipCharacter = false, characterRightOffset = 0 }: Props) {
   const [messages, setMessages] = useState<MessageItem[]>(initialMessages ?? [])
   const [thinking, setThinking] = useState(true)
   const voice = useVoiceSession()
@@ -135,6 +137,8 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
       headerSubtitle={sessionTitle ?? 'Your AI Business Assistant'}
       fullScreen={fullScreen}
       transparentBg={transparentBg}
+      flipCharacter={flipCharacter}
+      characterRightOffset={characterRightOffset}
     />
   )
 }
