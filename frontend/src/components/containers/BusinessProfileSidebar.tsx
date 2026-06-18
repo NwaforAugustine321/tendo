@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { Building2, Camera } from 'lucide-react'
 
 export type BusinessProfileData = {
@@ -11,7 +12,10 @@ export type BusinessProfileData = {
 
 type Props = {
   profile: BusinessProfileData
+  onLogoUpload?: (dataUrl: string) => void
 }
+
+const MAX_FILE_SIZE = 20 * 1024 * 1024 // 20MB
 
 function ProfileField({ label, value, placeholder }: { label: string; value?: string; placeholder: string }) {
   return (
@@ -30,12 +34,56 @@ function ProfileField({ label, value, placeholder }: { label: string; value?: st
   )
 }
 
-export function BusinessProfileSidebar({ profile }: Props) {
+export function BusinessProfileSidebar({ profile, onLogoUpload }: Props) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleLogoClick = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.size > MAX_FILE_SIZE) {
+      alert('Image must be 20MB or less')
+      return
+    }
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      onLogoUpload?.(dataUrl)
+    }
+    reader.readAsDataURL(file)
+
+    // Reset input so same file can be re-selected
+    e.target.value = ''
+  }
+
   return (
     <aside className="flex h-full w-72 flex-col border-r border-zinc-800/40 bg-[#0a0a0a] p-4">
-      {/* Logo Section */}
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+
+      {/* Logo Section — clickable */}
       <div className="mb-6 flex flex-col items-center">
-        <div className="relative mb-3">
+        <button
+          onClick={handleLogoClick}
+          className="relative mb-3 cursor-pointer transition-opacity hover:opacity-80"
+          title="Upload business logo (max 20MB)"
+        >
           {profile.logo ? (
             <img
               src={profile.logo}
@@ -50,7 +98,7 @@ export function BusinessProfileSidebar({ profile }: Props) {
           <div className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700/40 bg-zinc-800">
             <Camera size={12} className="text-zinc-400" />
           </div>
-        </div>
+        </button>
         <h3 className="text-sm font-semibold text-zinc-200">
           {profile.businessName || 'Your Business'}
         </h3>

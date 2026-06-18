@@ -179,7 +179,17 @@ export function Onboarding() {
       <div className="flex min-h-0 flex-1">
         {/* Sidebar — below top nav, left side */}
         <div className="hidden lg:block">
-          <BusinessProfileSidebar profile={profile} />
+          <BusinessProfileSidebar
+            profile={profile}
+            onLogoUpload={(dataUrl) => {
+              setProfile((prev) => ({ ...prev, logo: dataUrl }))
+              // Send to agent using same format as question responses (label + answer + description)
+              const sendText = 'label: Business Logo, answer: [LOGO_UPLOADED], description: User uploaded a business profile image'
+              setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: '📷 Logo uploaded', type: 'text' }])
+              setThinking(true)
+              voice.sendText(sendText)
+            }}
+          />
         </div>
 
         {/* Main content — step progress + chat */}

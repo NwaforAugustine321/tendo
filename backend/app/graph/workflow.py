@@ -88,8 +88,23 @@ def build_graph() -> StateGraph:
 async def get_graph():
     """Build and compile the graph with Supabase checkpointer + store."""
     from app.memory import ensure_checkpointer, ensure_store
+    from app.memory.short_term_mem import _checkpointer as _cp
 
-    checkpointer = await ensure_checkpointer()
-    store = await ensure_store()
-    builder = build_graph()
-    return builder.compile(checkpointer=checkpointer, store=store)
+    try:
+        checkpointer = await ensure_checkpointer()
+        store = await ensure_store()
+        builder = build_graph()
+        return builder.compile(checkpointer=checkpointer, store=store)
+    except Exception as e:
+        # If connection is closed, reset singletons and retry once
+        import app.memory.short_term_mem as stm
+        import app.memory.long_term_mem as ltm
+        stm._checkpointer = None
+        stm._conn = None
+        ltm._store = None
+        ltm._conn = None
+
+        checkpointer = await ensure_checkpointer()
+        store = await ensure_store()
+        builder = build_graph()
+        return builder.compile(checkpointer=checkpointer, store=store)
