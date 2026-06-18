@@ -43,6 +43,10 @@ def load(agent_name: str) -> AgentConfig:
         raise ValueError(f"Agent spec '{agent_name}' has no content in any .md file")
 
     system_prompt = "\n\n".join(parts)
+
+    # Inject agent name from env
+    system_prompt = system_prompt.replace("{AGENT_NAME}", settings.agent_name)
+
     config = AgentConfig(system_prompt=system_prompt, agent_name=agent_name, has_tools=has_tools)
 
     if not settings.spec_hot_reload:

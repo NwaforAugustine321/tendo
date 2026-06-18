@@ -13,6 +13,7 @@ from app.routes.business import router as business_router
 from app.lib.errors import register_error_handlers
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Tendo", version="0.1.0")
 
@@ -27,6 +28,18 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(business_router)
 register_error_handlers(app)
+
+
+@app.on_event("startup")
+async def startup_memory_system():
+    """Initialize memory system tables on startup."""
+    try:
+        from app.memory import ensure_checkpointer, ensure_store
+        await ensure_checkpointer()
+        await ensure_store()
+        logger.info("Memory system initialized successfully")
+    except Exception as e:
+        logger.error("Failed to initialize memory system: %s", e)
 
 
 @app.get("/health")

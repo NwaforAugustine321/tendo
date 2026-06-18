@@ -3,8 +3,12 @@
 import json
 import logging
 
+from app.config.settings import settings
 from app.llm.client import get_client as get_llm
 from app.llm.specs import load
+from app.memory.archiver import archive_messages
+from app.memory.long_term_mem import ensure_store
+from app.memory.trimmer import count_tokens, trim_messages_to_limit
 from app.models.state import GraphState
 from app.redis.sessions import get_business_context, get_session_context
 
@@ -14,9 +18,21 @@ logger = logging.getLogger(__name__)
 async def moa_node(state: GraphState) -> dict:
     event = state.get("event", {})
     user_message = event.get("text", "")
-    thread_id = event.get("thread_id", "default")
-    business_id = event.get("business_id", "default")
+    thread_id = state.get("thread_id") or event.get("thread_id", "default")
+    business_id = state.get("business_id") or event.get("business_id", "default")
 
+    # If a sub-agent set routed_domain and cleared response, keep routing
+    routed = state.get("routed_domain")
+    if routed and not state.get("response"):
+        logger.info(f"MOA: continuing loop, routing to {routed}")
+        return {"routed_domain": routed}
+    
+    # If sub-agent is done (routed_domain cleared), fall through to normal flow
+    if routed and state.get("response"):
+        logger.info(f"MOA: sub-agent {routed} done, proceeding to response")
+        return {"routed_domain": None}
+
+    # Normal flow — invoke LLM to decide
     config = load("moa")
     llm = get_llm()
 
@@ -24,44 +40,82 @@ async def moa_node(state: GraphState) -> dict:
     session_context = get_session_context(business_id, thread_id)
     context_block = _build_context(business_context, session_context)
 
+    memory_context = state.get("memory_context") or ""
     history = state.get("messages", [])
 
-    messages = [
-        {"role": "system", "content": config.system_prompt + "\n\n" + context_block},
-    ]
-    messages.extend(history[-10:])
-    messages.append({"role": "user", "content": user_message})
+    system_content = config.system_prompt + "\n\n" + context_block
+    if memory_context:
+        system_content += "\n" + memory_context
 
-    response = await llm.ainvoke(messages)
-    raw = response.content.strip()
+    prompt = [{"role": "system", "content": system_content}]
+    prompt.extend(history[-10:])
+    prompt.append({"role": "user", "content": user_message})
 
-    # Parse LLM routing decision
+    # Trim messages if token count exceeds the configured limit
+    token_limit = settings.max_message_token_size
+    if count_tokens(prompt) > token_limit:
+        trim_result = trim_messages_to_limit(prompt, token_limit)
+        if trim_result.trimmed_messages:
+            # Archive trimmed messages to long-term store
+            try:
+                store = await ensure_store()
+                archived = await archive_messages(
+                    store=store,
+                    messages=trim_result.trimmed_messages,
+                    business_id=business_id,
+                    thread_id=thread_id,
+                )
+            except Exception as e:
+                logger.warning("Failed to get store for archival: %s", e)
+                archived = False
+
+            if archived:
+                prompt = trim_result.retained_messages
+                logger.info(
+                    "Trimmed %d messages before LLM call for %s:%s",
+                    len(trim_result.trimmed_messages),
+                    business_id,
+                    thread_id,
+                )
+            else:
+                # Archival failed — retain all messages (don't trim)
+                logger.warning("Archival failed, retaining all messages")
+
+    llm_response = await llm.ainvoke(prompt)
+    raw = llm_response.content.strip()
+
+    logger.info(f"MOA raw LLM output: {raw[:200]}")
+
     decision = _parse_decision(raw)
-    action = decision.get("action", "respond")
-    text = decision.get("text", raw)
+    output_type = decision.get("type", "answer")
+    text = decision.get("response", raw)
     target = decision.get("target")
+    questions = decision.get("questions")
 
-    logger.info(f"MOA decision: action={action}, target={target}")
+    logger.info(f"MOA decision: type={output_type}, target={target}")
 
-    if action == "route" and target:
+    new_messages = [
+        {"role": "user", "content": user_message},
+        {"role": "assistant", "content": text},
+    ]
+
+    if output_type == "route" and target:
         return {
             "routed_domain": target,
             "response": {"mode": "conversation", "text": text},
             "output_mode": "conversation",
-            "event": event,
-            "messages": history + [
-                {"role": "user", "content": user_message},
-                {"role": "assistant", "content": text},
-            ],
+            "messages": new_messages,
         }
 
+    response_data = {"mode": "conversation", "text": text}
+    if questions:
+        response_data["input"] = questions
+
     return {
-        "response": {"mode": "conversation", "text": text},
+        "routed_domain": None,
+        "response": response_data,
         "output_mode": "conversation",
-        "messages": history + [
-            {"role": "user", "content": user_message},
-            {"role": "assistant", "content": text},
-        ],
+        "messages": new_messages,
     }
 
 
@@ -70,9 +124,18 @@ def _parse_decision(raw: str) -> dict:
         clean = raw.strip()
         if clean.startswith("```"):
             clean = clean.split("\n", 1)[1].rsplit("```", 1)[0]
+        if clean.startswith("{"):
+            depth = 0
+            for i, ch in enumerate(clean):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return json.loads(clean[: i + 1])
         return json.loads(clean)
-    except (json.JSONDecodeError, IndexError):
-        return {"action": "respond", "text": raw}
+    except (json.JSONDecodeError, IndexError, ValueError):
+        return {"response": raw, "type": "answer"}
 
 
 def _build_context(business_context: dict | None, session_context: dict | None) -> str:

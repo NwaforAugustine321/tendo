@@ -11,8 +11,12 @@ dependencies:
     - uvicorn[standard]
     - langgraph
     - langgraph-checkpoint-redis
+    - langgraph-checkpoint-postgres
+    - langgraph-store-postgres
+    - "psycopg[binary]"
     - langchain-anthropic
     - langchain-google-genai
+    - langchain-openai
     - langchain-core
     - supabase
     - pydantic
@@ -22,7 +26,9 @@ dependencies:
     - httpx
     - python-dotenv
     - google-genai
+    - tiktoken
     - websockets
     - pytest
     - pytest-asyncio
+    - hypothesis
     - ruff

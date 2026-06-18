@@ -25,21 +25,23 @@ def route_from_bsga(state: GraphState) -> str:
 def route_from_moa(state: GraphState) -> str:
     if state.get("error"):
         return "response"
-    if state.get("routed_domain") == "onboarding":
+
+    routed = state.get("routed_domain")
+    if routed == "onboarding":
         return "onboarding"
     if state.get("output_mode") == "structured_options":
         return "option_generator"
     if state.get("tool_requests"):
         return "tool_planner"
-    if state.get("routed_domain"):
+    if routed:
         return "domain_router"
     if state.get("confirmation_status") == "pending":
         return "confirmation"
+
     return "response"
 
 
 def build_graph() -> StateGraph:
-    """Build the state graph with all nodes and edges."""
     builder = StateGraph(GraphState)
 
     builder.add_node("bsga", bsga_node)
@@ -54,19 +56,28 @@ def build_graph() -> StateGraph:
     builder.add_node("confirmation", confirmation_node)
     builder.add_node("response", response_node)
 
+    # Entry
     builder.add_edge(START, "bsga")
     builder.add_conditional_edges("bsga", route_from_bsga, ["memory", "response"])
     builder.add_edge("memory", "moa")
+
+    # MOA routes to sub-agents or responds directly
     builder.add_conditional_edges(
         "moa",
         route_from_moa,
         ["tool_planner", "option_generator", "domain_router", "confirmation", "onboarding", "response"],
     )
+
+    # Sub-agents return to MOA (the loop)
+    builder.add_edge("onboarding", "moa")
+    builder.add_edge("domain_router", "moa")
+
+    # Tool execution loop
     builder.add_edge("tool_planner", "db_oracle")
     builder.add_edge("db_oracle", "context_resolution")
     builder.add_edge("context_resolution", "moa")
-    builder.add_edge("domain_router", "moa")
-    builder.add_edge("onboarding", "response")
+
+    # Other
     builder.add_edge("option_generator", "response")
     builder.add_edge("confirmation", "moa")
     builder.add_edge("response", END)
@@ -74,13 +85,11 @@ def build_graph() -> StateGraph:
     return builder
 
 
-def compile_graph():
-    """Compile the graph with checkpointer and interrupts."""
-    from app.redis.checkpointer import get_checkpointer
+async def get_graph():
+    """Build and compile the graph with Supabase checkpointer + store."""
+    from app.memory import ensure_checkpointer, ensure_store
 
+    checkpointer = await ensure_checkpointer()
+    store = await ensure_store()
     builder = build_graph()
-    checkpointer = get_checkpointer()
-    return builder.compile(
-        checkpointer=checkpointer,
-        interrupt_before=["confirmation", "option_generator"],
-    )
+    return builder.compile(checkpointer=checkpointer, store=store)

@@ -4,5 +4,4 @@ from app.models.state import GraphState
 
 
 def tool_planner_node(state: GraphState) -> dict:
-    # TODO: convert intent → tool requests
     return {"tool_requests": []}

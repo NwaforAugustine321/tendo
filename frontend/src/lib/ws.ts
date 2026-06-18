@@ -4,7 +4,7 @@
 
 export type WSMessage = {
   type: string
-  data?: string
+  data?: any
 }
 
 export type WSCallbacks = {
@@ -66,7 +66,7 @@ export class WSClient {
 
       this.ws.onmessage = (event) => {
         const msg = JSON.parse(event.data) as WSMessage
-        console.log('[WS] received:', msg.type, msg.data?.substring(0, 30))
+        console.log('[WS] received:', msg.type)
         this.callbacks.onMessage(msg)
       }
 

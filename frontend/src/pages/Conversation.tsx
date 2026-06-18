@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { ConversationPage, type MessageItem } from '../components/containers'
+import type { InputSpec } from '../components/containers/ConversationPage'
 import { useVoiceSession } from '../hooks/useVoiceSession'
 
 type Props = {
@@ -7,33 +8,55 @@ type Props = {
   sessionTitle?: string
   fullScreen?: boolean
   showHeader?: boolean
+  transparentBg?: boolean
 }
 
-export function Conversation({ initialMessages, sessionTitle, fullScreen = false, showHeader = false }: Props) {
+export function Conversation({ initialMessages, sessionTitle, fullScreen = false, showHeader = false, transparentBg = false }: Props) {
   const [messages, setMessages] = useState<MessageItem[]>(initialMessages ?? [])
+  const [thinking, setThinking] = useState(true)
   const voice = useVoiceSession()
-  const streamingMsgId = useRef<string | null>(null)
+  const connected = useRef(false)
+  const lastMsgId = useRef('')
 
   useEffect(() => {
-    if (voice.currentResponse) {
-      if (!streamingMsgId.current) {
-        const id = `ai-${Date.now()}`
-        streamingMsgId.current = id
-        setMessages((prev) => [...prev, { id, role: 'assistant', content: voice.currentResponse, type: 'text' }])
-      } else {
-        const id = streamingMsgId.current
-        setMessages((prev) =>
-          prev.map((m) => m.id === id ? { ...m, content: voice.currentResponse } : m)
-        )
-      }
+    if (!connected.current) {
+      connected.current = true
+      voice.connect()
     }
-  }, [voice.currentResponse])
+  }, [])
 
+  // Display agent messages when they arrive
   useEffect(() => {
-    if (voice.turnComplete && streamingMsgId.current) {
-      streamingMsgId.current = null
+    if (!voice.lastMessage) return
+    if (voice.lastMessage.id === lastMsgId.current) return
+    lastMsgId.current = voice.lastMessage.id
+    setThinking(false)
+
+    console.log('[Conversation] lastMessage:', voice.lastMessage)
+
+    const { response, msgType, questions } = voice.lastMessage
+
+    // Add the text response as a message bubble
+    if (response) {
+      setMessages((prev) => [...prev, {
+        id: `text-${voice.lastMessage!.id}`,
+        role: 'assistant',
+        content: response,
+        type: 'text',
+      }])
     }
-  }, [voice.turnComplete])
+
+    // If type is "question", add the input card below the text
+    if (msgType === 'question' && questions) {
+      setMessages((prev) => [...prev, {
+        id: `input-${voice.lastMessage!.id}`,
+        role: 'assistant',
+        content: '',
+        type: 'input',
+        inputSpec: questions as InputSpec,
+      }])
+    }
+  }, [voice.lastMessage])
 
   useEffect(() => {
     if (voice.errorMessage) {
@@ -47,62 +70,71 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
   }, [voice.errorMessage])
 
   const handleSendText = (text: string) => {
-    setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'user', content: text, type: 'text' }])
-    streamingMsgId.current = null
-    voice.sendText(text)
+    // Find option context if this was a radio select
+    const optionContext = findOptionContext(text)
+    const displayText = optionContext?.label || text
+    const sendText = optionContext
+      ? `label: ${optionContext.label}, answer: ${optionContext.id}, description: ${optionContext.description || ''}`
+      : text
+
+    setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: displayText, type: 'text' }])
+    setThinking(true)
+    voice.sendText(sendText)
   }
 
   const handleVoiceToggle = async () => {
     if (voice.isListening) {
       const audioUrl = await voice.stopListening()
       setMessages((prev) => [...prev, {
-        id: Date.now().toString(),
+        id: `user-${Date.now()}`,
         role: 'user',
         content: '🎤 Voice message',
         type: 'text',
         audioUrl: audioUrl ?? undefined,
       }])
-      streamingMsgId.current = null
     } else {
       await voice.startListening()
     }
   }
 
   const handleOptionSelect = (optionId: string) => {
-    setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'user', content: optionId, type: 'text' }])
-    streamingMsgId.current = null
-    voice.sendText(optionId)
+    handleSendText(optionId)
   }
 
-  const handleConfirm = () => {
-    setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'user', content: '✓ Confirmed', type: 'text' }])
-    streamingMsgId.current = null
-    voice.sendText('confirmed')
-  }
-
-  const handleCancel = () => {
-    setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'user', content: '✕ Cancelled', type: 'text' }])
-    streamingMsgId.current = null
-    voice.sendText('cancelled')
+  const findOptionContext = (optionId: string): { id: string; name: string; label: string; description?: string } | null => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]
+      if (msg.type === 'input' && msg.inputSpec?.fields) {
+        for (const field of msg.inputSpec.fields) {
+          if (field.type === 'radio' && field.options) {
+            const found = field.options.find((o) => o.id === optionId)
+            if (found) return found
+          }
+        }
+      }
+    }
+    return null
   }
 
   return (
     <ConversationPage
       messages={messages}
-      isTyping={voice.isSpeaking}
+      isTyping={thinking || voice.isSpeaking}
+      thinkingText={thinking ? `${import.meta.env.VITE_AGENT_NAME || 'Jay'} is processing your request` : undefined}
       onSendText={handleSendText}
       onVoiceRecorded={() => {}}
       onVoiceToggle={handleVoiceToggle}
       isListening={voice.isListening}
       onOptionSelect={handleOptionSelect}
-      onConfirm={handleConfirm}
+      onConfirm={() => handleOptionSelect('confirm')}
       onModify={() => {}}
-      onCancel={handleCancel}
+      onCancel={() => handleOptionSelect('cancel')}
       onRevert={() => {}}
       onContinueFromHere={() => {}}
       showHeader={showHeader}
       headerSubtitle={sessionTitle ?? 'Your AI Business Assistant'}
       fullScreen={fullScreen}
+      transparentBg={transparentBg}
     />
   )
 }

@@ -1,17 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { VoiceClient } from '../lib/voice-client'
+import type { InputSpec } from '../components/containers/ConversationPage'
 
 type VoiceSessionState = 'disconnected' | 'connecting' | 'reconnecting' | 'idle' | 'listening' | 'speaking' | 'error'
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/voice'
 
+export type AgentMessage = {
+  id: string
+  response: string
+  msgType: 'question' | 'answer'
+  questions?: InputSpec
+}
+
 export function useVoiceSession() {
   const [state, setState] = useState<VoiceSessionState>('disconnected')
-  const [currentResponse, setCurrentResponse] = useState('')
+  const [lastMessage, setLastMessage] = useState<AgentMessage | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   const [reconnectAttempt, setReconnectAttempt] = useState(0)
   const [turnComplete, setTurnComplete] = useState(false)
   const clientRef = useRef<VoiceClient | null>(null)
+  const msgCounter = useRef(0)
 
   const connect = useCallback(async () => {
     if (clientRef.current) return
@@ -21,8 +30,14 @@ export function useVoiceSession() {
 
     const client = new VoiceClient({
       onTranscript: (text) => {
-        // Stream text live as it arrives (word by word)
-        setCurrentResponse((prev) => prev + text)
+        // This fires from the 'message' event with the full response text
+        msgCounter.current++
+        setLastMessage((prev) => ({
+          id: `msg-${msgCounter.current}`,
+          response: text,
+          msgType: prev?.msgType || 'answer',
+          questions: prev?.questions,
+        }))
         setTurnComplete(false)
       },
       onTurnComplete: () => {
@@ -43,6 +58,27 @@ export function useVoiceSession() {
         setState('idle')
         setErrorMessage('')
       },
+      onInput: (inputSpec) => {
+        msgCounter.current++
+        setLastMessage({
+          id: `msg-${msgCounter.current}`,
+          response: '',
+          msgType: 'question',
+          questions: inputSpec,
+        })
+      },
+      onMessage: (data) => {
+        console.log('[VoiceSession] message received:', JSON.stringify(data))
+        const { response, msg_type, questions } = data
+        msgCounter.current++
+        setLastMessage({
+          id: `msg-${msgCounter.current}`,
+          response: response || '',
+          msgType: msg_type || 'answer',
+          questions: questions || undefined,
+        })
+        setTurnComplete(false)
+      },
     })
 
     try {
@@ -56,9 +92,7 @@ export function useVoiceSession() {
   }, [])
 
   const startListening = useCallback(async () => {
-    if (!clientRef.current) {
-      await connect()
-    }
+    if (!clientRef.current) await connect()
     if (!clientRef.current) {
       setErrorMessage('Voice server not available')
       setState('error')
@@ -70,9 +104,9 @@ export function useVoiceSession() {
       setErrorMessage('')
     } catch (err: any) {
       if (err?.name === 'NotAllowedError' || err?.message?.includes('Permission')) {
-        setErrorMessage('Microphone permission denied. Please allow mic access and try again.')
+        setErrorMessage('Microphone permission denied.')
       } else {
-        setErrorMessage('Could not access microphone. Check your browser settings.')
+        setErrorMessage('Could not access microphone.')
       }
       setState('error')
     }
@@ -81,29 +115,19 @@ export function useVoiceSession() {
   const stopListening = useCallback(async (): Promise<string | null> => {
     if (!clientRef.current) return null
     const audioUrl = await clientRef.current.stopMic()
-    setCurrentResponse('')
-    setTurnComplete(false)
     setState('idle')
     return audioUrl
   }, [])
 
   const sendText = useCallback((text: string) => {
-    // Clear current response for new turn
-    setCurrentResponse('')
+    setLastMessage(null)
     setTurnComplete(false)
     if (!clientRef.current) {
-      connect().then(() => {
-        clientRef.current?.sendText(text)
-      })
+      connect().then(() => clientRef.current?.sendText(text))
       return
     }
     clientRef.current.sendText(text)
   }, [connect])
-
-  const clearResponse = useCallback(() => {
-    setCurrentResponse('')
-    setTurnComplete(false)
-  }, [])
 
   const disconnect = useCallback(() => {
     if (clientRef.current) {
@@ -111,7 +135,7 @@ export function useVoiceSession() {
       clientRef.current = null
     }
     setState('disconnected')
-    setCurrentResponse('')
+    setLastMessage(null)
     setErrorMessage('')
     setReconnectAttempt(0)
     setTurnComplete(false)
@@ -128,15 +152,14 @@ export function useVoiceSession() {
 
   return {
     state,
-    currentResponse,     // Live streaming text (updates word-by-word)
-    turnComplete,        // True when AI finishes speaking
+    lastMessage,
+    turnComplete,
     errorMessage,
     reconnectAttempt,
     connect,
     startListening,
     stopListening,
     sendText,
-    clearResponse,
     disconnect,
     isConnected: state === 'idle' || state === 'listening' || state === 'speaking',
     isSpeaking: state === 'speaking',

@@ -1,26 +1,49 @@
 """Application settings."""
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     supabase_url: str
     supabase_service_role_key: str
-    mem0_api_key: str
-    redis_url: str = "redis://localhost:6379"
+    mem0_api_key: str = ""
+    redis_url: str = ""
 
     # LLM
-    llm_provider: str = "anthropic"  # "anthropic" or "gemini"
+    llm_provider: str = ""
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-20250514"
-    gemini_model: str = "gemini-2.0-flash"
+    anthropic_model: str = ""
+    gemini_model: str = ""
+
+    # Embeddings
+    embedding_provider: str = ""
+    gemini_embedding_model: str = ""
+    openai_embedding_model: str = ""
+    openai_api_key: str = ""
+
+    # Memory system
+    supabase_db_url: str = ""  
+    max_message_token_size: int = 1024  # Range: 128–131072
 
     # Voice
     google_voice_api_key: str = ""
-    google_voice_model: str = "gemini-2.0-flash-live-001"
+    google_voice_model: str = ""
 
     # Dev
     spec_hot_reload: bool = True
+
+    # Agent
+    agent_name: str = ""
+
+    @field_validator("max_message_token_size")
+    @classmethod
+    def validate_token_size(cls, v: int) -> int:
+        if v < 128 or v > 131072:
+            raise ValueError(
+                f"MAX_MESSAGE_TOKEN_SIZE must be between 128 and 131072, got {v}"
+            )
+        return v
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

@@ -2,24 +2,19 @@
 
 import asyncio
 import logging
-from pathlib import Path
+import re
 
 from fastapi import WebSocket, WebSocketDisconnect
 from google import genai
 from google.genai import types
 
 from app.ws.connection import accept, close
-from app.ws.sender import send_audio, send_transcript, send_turn_complete, send_error
+from app.ws.sender import send_audio, send_message, send_turn_complete, send_error
 from app.ws.receiver import receive_json
 from app.ws.encoding import decode_audio
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
-SPECS_DIR = Path(__file__).parent / "specs"
-
-
-def _load_instruction() -> str:
-    return "Repeat exactly what the user says. Do not add anything."
 
 
 def _get_client():
@@ -27,39 +22,135 @@ def _get_client():
 
 
 def _get_config() -> types.LiveConnectConfig:
-    instruction = _load_instruction()
-
     return types.LiveConnectConfig(
         response_modalities=["AUDIO"],
         output_audio_transcription=types.AudioTranscriptionConfig(),
         system_instruction=types.Content(
-            parts=[types.Part.from_text(text=instruction)]
+            parts=[types.Part.from_text(text="Repeat exactly what the user says. Do not add anything.")]
         ),
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
-                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Puck")
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Charon")
             )
         ),
     )
 
 
+def _clean_text(text: str) -> str:
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'\*(.+?)\*', r'\1', text)
+    text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^[-*]\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'`(.+?)`', r'\1', text)
+    return text.strip()
+
+
+async def _run_graph(user_text: str, thread_id: str, business_id: str) -> dict:
+    from app.graph.workflow import get_graph
+    from langgraph.types import Command
+
+    graph = await get_graph()
+    config = {"configurable": {"thread_id": thread_id}}
+
+    # Check if the graph is interrupted (waiting for user input)
+    state = await graph.aget_state(config)
+
+    if state.tasks:
+        # Graph is paused at an interrupt — resume with user's answer
+        logger.info(f"Resuming interrupted graph with: {user_text[:50]}")
+        try:
+            result = await graph.ainvoke(Command(resume=user_text), config=config)
+        except TypeError:
+            # Stale checkpoint with incompatible node signatures — start fresh
+            logger.warning("Stale checkpoint detected, starting fresh invocation")
+            input_state = {
+                "event": {"text": user_text, "thread_id": thread_id, "business_id": business_id},
+                "thread_id": thread_id,
+                "business_id": business_id,
+            }
+            result = await graph.ainvoke(input_state, config=config)
+    else:
+        # Fresh invocation
+        input_state = {
+            "event": {"text": user_text, "thread_id": thread_id, "business_id": business_id},
+            "thread_id": thread_id,
+            "business_id": business_id,
+        }
+        result = await graph.ainvoke(input_state, config=config)
+
+    response = result.get("response") or {}
+    response["text"] = _clean_text(response.get("text", ""))
+
+    # Check if graph is now interrupted (needs user input)
+    new_state = await graph.aget_state(config)
+    if new_state.tasks:
+        # Graph paused — extract the interrupt value (the actual question to show)
+        for task in new_state.tasks:
+            if hasattr(task, 'interrupts') and task.interrupts:
+                for intr in task.interrupts:
+                    interrupt_data = intr.value if hasattr(intr, 'value') else intr
+                    if isinstance(interrupt_data, dict):
+                        # Use interrupt text as the response (this is the current step's text)
+                        if interrupt_data.get("text"):
+                            response["text"] = _clean_text(interrupt_data["text"])
+                        if interrupt_data.get("questions"):
+                            response["input"] = interrupt_data["questions"]
+                        break
+
+    return response
+
+
+async def _send_text_for_tts(session, text: str) -> bool:
+    """Send text to Gemini Live for TTS playback. Returns False if session is dead."""
+    try:
+        await session.send_client_content(
+            turns=[types.Content(role="user", parts=[types.Part.from_text(text=text)])],
+            turn_complete=True,
+        )
+        return True
+    except Exception as e:
+        logger.warning(f"TTS send failed: {e}")
+        return False
+
+
+async def _send_audio_for_transcription(session, audio_data: bytes):
+    """Send audio to Gemini Live for transcription."""
+    await session.send_client_content(
+        turns=[
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part(
+                        inline_data=types.Blob(data=audio_data, mime_type="audio/pcm")
+                    )
+                ],
+            )
+        ],
+        turn_complete=True,
+    )
+
+
+async def _stream_tts_response(session, websocket: WebSocket):
+    """Read TTS audio from Gemini and stream to browser."""
+    async for response in session.receive():
+        if response.data:
+            await send_audio(websocket, response.data)
+
+        if response.server_content and response.server_content.turn_complete:
+            await send_turn_complete(websocket)
+            break
+
+
 async def handle_session(websocket: WebSocket):
-    """
-    Voice session using the same pattern as the working snippet:
-    - Collect all audio until end_turn
-    - Send as one blob with turn_complete=True
-    - Then read response stream
-    - Repeat
-    """
     await accept(websocket)
     logger.info("Voice WebSocket accepted")
-
-    from app.graph.nodes.moa import moa_node
-    from app.graph.nodes.onboarding import onboarding_node
 
     client = _get_client()
     config = _get_config()
     logger.info(f"Connecting to model: {settings.google_voice_model}")
+
+    thread_id = "default"
+    business_id = "default"
 
     try:
         async with client.aio.live.connect(
@@ -67,14 +158,29 @@ async def handle_session(websocket: WebSocket):
         ) as session:
             logger.info("AI session connected")
 
+            result = await _run_graph("hello", thread_id, business_id)
+            greeting = result.get("text", "")
+
+            if greeting:
+                logger.info(f"Initial: {greeting[:80]}")
+                await send_message(websocket, greeting, result.get("input"))
+
+                if await _send_text_for_tts(session, greeting):
+                    async for response in session.receive():
+                        if response.data:
+                            await send_audio(websocket, response.data)
+                        if response.server_content and response.server_content.turn_complete:
+                            await send_turn_complete(websocket)
+                            break
+                else:
+                    await send_turn_complete(websocket)
+
             while True:
                 input_result = await _collect_input(websocket)
-
                 if input_result is None:
                     break
 
                 input_type, data = input_result
-
                 user_text = ""
 
                 if input_type == "text":
@@ -82,27 +188,9 @@ async def handle_session(websocket: WebSocket):
                     logger.info(f"Text input: {user_text[:50]}")
 
                 elif input_type == "audio":
-                    # Send audio to Gemini for transcription only
                     logger.info(f"Transcribing audio: {len(data)} bytes")
-                    await session.send(
-                        input=types.LiveClientContent(
-                            turns=[
-                                types.Content(
-                                    role="user",
-                                    parts=[
-                                        types.Part(
-                                            inline_data=types.Blob(
-                                                data=data, mime_type="audio/pcm"
-                                            )
-                                        )
-                                    ],
-                                )
-                            ],
-                            turn_complete=True,
-                        )
-                    )
+                    await _send_audio_for_transcription(session, data)
 
-                    # Collect transcription from Gemini (ignore audio response)
                     transcription_parts = []
                     async for response in session.receive():
                         if (
@@ -112,7 +200,6 @@ async def handle_session(websocket: WebSocket):
                             text = response.server_content.output_transcription.text
                             if text:
                                 transcription_parts.append(text)
-
                         if response.server_content and response.server_content.turn_complete:
                             break
 
@@ -122,83 +209,30 @@ async def handle_session(websocket: WebSocket):
                 if not user_text:
                     continue
 
-                state = {
-                    "event": {"text": user_text, "thread_id": "default", "business_id": "default"},
-                    "messages": [],
-                }
-
-                result = await moa_node(state)
-
-                routed = result.get("routed_domain")
-                if routed == "onboarding":
-                    result = await onboarding_node({**state, "messages": result.get("messages", [])})
-
-                moa_response = _clean_text(result.get("response", {}).get("text", ""))
+                result = await _run_graph(user_text, thread_id, business_id)
+                moa_response = result.get("text", "")
                 logger.info(f"Response: {moa_response[:80]}")
 
-                # Send MOA response to Gemini for TTS (read aloud only)
-                await session.send(
-                    input=types.LiveClientContent(
-                        turns=[
-                            types.Content(
-                                role="user",
-                                parts=[types.Part.from_text(text=moa_response)],
-                            )
-                        ],
-                        turn_complete=True,
-                    )
-                )
+                await send_message(websocket, moa_response, result.get("input"))
 
-                # Stream TTS audio back to browser
-                async for response in session.receive():
-                    if response.data:
-                        await send_audio(websocket, response.data)
+                if await _send_text_for_tts(session, moa_response):
+                    await _stream_tts_response(session, websocket)
+                else:
+                    await send_turn_complete(websocket)
 
-                    if (
-                        response.server_content
-                        and response.server_content.output_transcription
-                    ):
-                        text = response.server_content.output_transcription.text
-                        if text:
-                            await send_transcript(websocket, text)
-
-                    if response.server_content and response.server_content.turn_complete:
-                        await send_turn_complete(websocket)
-                        break
-
-                # Small pause between turns (matches working snippet)
                 await asyncio.sleep(0.3)
 
     except WebSocketDisconnect:
         logger.info("Client disconnected")
     except Exception as e:
         logger.error(f"Session error: {e}", exc_info=True)
-        await send_error(websocket, str(e))
+        await send_error(websocket, "Something went wrong. Please try again.")
     finally:
         await close(websocket)
         logger.info("WebSocket closed")
 
 
-import re
-
-
-def _clean_text(text: str) -> str:
-    """Strip markdown formatting from LLM output."""
-    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)  # **bold**
-    text = re.sub(r'\*(.+?)\*', r'\1', text)      # *italic*
-    text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)  # # headings
-    text = re.sub(r'^[-*]\s+', '', text, flags=re.MULTILINE)  # - bullets
-    text = re.sub(r'`(.+?)`', r'\1', text)        # `code`
-    return text.strip()
-
-
 async def _collect_input(websocket: WebSocket) -> tuple[str, bytes | str] | None:
-    """
-    Collect user input from browser.
-    For audio: buffers all chunks until end_turn, returns concatenated bytes.
-    For text: returns immediately.
-    Returns None if client disconnects.
-    """
     audio_buffer: list[bytes] = []
 
     while True:
@@ -214,22 +248,10 @@ async def _collect_input(websocket: WebSocket) -> tuple[str, bytes | str] | None
 
         elif kind == "end_turn":
             if audio_buffer:
-                # Concatenate all audio chunks into one blob
                 full_audio = b"".join(audio_buffer)
                 logger.info(f"Audio collected: {len(full_audio)} bytes from {len(audio_buffer)} chunks")
                 return ("audio", full_audio)
-            # end_turn with no audio — ignore
             continue
 
         elif kind == "text":
             return ("text", message.get("data", ""))
-
-
-async def transcribe(audio_bytes: bytes, timeout: float = 10.0) -> str:
-    """Convert audio to text (one-shot)."""
-    raise NotImplementedError("Not yet implemented")
-
-
-async def synthesize(text: str, timeout: float = 10.0) -> bytes:
-    """Convert text to audio (one-shot)."""
-    raise NotImplementedError("Not yet implemented")

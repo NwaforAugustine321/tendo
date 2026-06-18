@@ -2,7 +2,7 @@ import { useRef, useEffect } from 'react'
 import {
   MessageBubble,
   UnderstandingCard,
-  OptionCard,
+  InputCard,
   ConfirmationCard,
   OperationCard,
   TypingIndicator,
@@ -12,12 +12,22 @@ import {
 } from '../atoms'
 import { TalkingCharacter } from './TalkingCharacter'
 
+export type InputSpec = {
+  fields: Array<{
+    type: 'radio' | 'text'
+    name?: string
+    placeholder?: string
+    description?: string
+    options?: Array<{ id: string; name: string; label: string; description?: string }>
+  }>
+}
+
 export type MessageItem = {
   id: string
   role: 'user' | 'assistant'
   content: string
-  type: 'text' | 'understanding' | 'options' | 'confirmation' | 'operation'
-  audioUrl?: string  // For voice messages — blob URL to play back
+  type: 'text' | 'understanding' | 'options' | 'confirmation' | 'operation' | 'input'
+  audioUrl?: string
   understanding?: {
     title?: string
     businessName?: string
@@ -37,11 +47,13 @@ export type MessageItem = {
     operationType: string
     changes: { label: string; before: string; after: string }[]
   }
+  inputSpec?: InputSpec
 }
 
 type Props = {
   messages: MessageItem[]
   isTyping: boolean
+  thinkingText?: string
   onSendText: (text: string) => void
   onVoiceRecorded: (blob: Blob) => void
   onVoiceToggle?: () => void
@@ -56,6 +68,7 @@ type Props = {
   headerTitle?: string
   headerSubtitle?: string
   fullScreen?: boolean
+  transparentBg?: boolean
 }
 
 export function ConversationPage({
@@ -75,6 +88,7 @@ export function ConversationPage({
   headerTitle = 'Tendo',
   headerSubtitle = 'Your AI Business Assistant',
   fullScreen = true,
+  thinkingText,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -89,24 +103,22 @@ export function ConversationPage({
 
   return (
     <div className={`relative flex flex-col overflow-hidden bg-[#0a0a0a] ${fullScreen ? 'h-dvh' : 'h-full'}`}>
-      {/* Header */}
-      {showHeader && (
-        <header className="relative z-10 flex flex-col items-center pt-4 pb-2">
+      {/* {showHeader && (
+        <header className="relative z-10 flex flex-col items-center pt-4 pb-2 mb-4">
           <h1 className="text-lg font-bold tracking-[-0.03em] text-white">{headerTitle}</h1>
           <p className="mt-0.5 text-xs text-zinc-500">{headerSubtitle}</p>
         </header>
-      )}
+      )} */}
 
-      {/* Messages */}
       <div
         ref={scrollRef}
-        className="relative z-10 flex-1 overflow-y-auto px-3 pb-4 sm:px-5"
+        className="relative z-10 flex-1 overflow-y-auto px-3 pt-4 pb-4 sm:px-5"
       >
         {messages.length === 0 && !isTyping ? (
           <EmptyState />
         ) : (
           <div className="mx-auto max-w-lg space-y-4">
-            {messages.map((msg) => {
+            {messages.map((msg, idx) => {
               if (msg.type === 'understanding' && msg.understanding) {
                 return (
                   <UnderstandingCard
@@ -119,13 +131,14 @@ export function ConversationPage({
                   />
                 )
               }
-              if (msg.type === 'options' && msg.options) {
+              if (msg.type === 'input' && msg.inputSpec) {
+                const isLast = idx === messages.length - 1
                 return (
-                  <OptionCard
+                  <InputCard
                     key={msg.id}
-                    prompt={msg.options.prompt}
-                    choices={msg.options.choices}
-                    onSelect={onOptionSelect}
+                    fields={msg.inputSpec.fields || []}
+                    onSubmit={isLast ? onSendText : () => {}}
+                    disabled={!isLast}
                   />
                 )
               }
@@ -161,12 +174,11 @@ export function ConversationPage({
                 />
               )
             })}
-            {isTyping && <TypingIndicator />}
+            {isTyping && <TypingIndicator text={thinkingText} />}
           </div>
         )}
       </div>
 
-      {/* Input area */}
       <div className="relative z-10 border-t border-zinc-800/90 bg-[#0a0a0a] px-3 py-3 sm:px-5">
         <div className="mx-auto flex max-w-lg items-center gap-3">
           <VoiceButton
@@ -178,7 +190,6 @@ export function ConversationPage({
         </div>
       </div>
 
-      {/* Talking character */}
       <TalkingCharacter isSpeaking={isTyping} />
     </div>
   )

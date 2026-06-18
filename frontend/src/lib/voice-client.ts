@@ -12,6 +12,8 @@ type VoiceCallbacks = {
   onSpeakingEnd: () => void
   onReconnecting?: (attempt: number) => void
   onReconnected?: () => void
+  onInput?: (inputSpec: any) => void
+  onMessage?: (data: any) => void
 }
 
 export class VoiceClient {
@@ -25,6 +27,8 @@ export class VoiceClient {
   private playbackQueue: ArrayBuffer[] = []
   private isPlaying = false
   private callbacks: VoiceCallbacks
+  private gestureUnlocked = false
+  private gestureHandler: (() => void) | null = null
 
   constructor(callbacks: VoiceCallbacks) {
     this.callbacks = callbacks
@@ -32,6 +36,22 @@ export class VoiceClient {
 
   async connect(url: string) {
     this.audioContext = new AudioContext({ sampleRate: 24000 })
+
+    // If AudioContext is suspended, set up a one-time gesture listener
+    if (this.audioContext.state === 'suspended') {
+      this.setupGestureUnlock()
+    } else {
+      this.gestureUnlocked = true
+    }
+
+    // Listen for state changes (context may resume later via gesture)
+    this.audioContext.onstatechange = () => {
+      if (this.audioContext?.state === 'running' && !this.gestureUnlocked) {
+        this.gestureUnlocked = true
+        this.removeGestureListener()
+        this.drainQueue()
+      }
+    }
 
     this.wsClient = new WSClient({
       onMessage: (msg) => this.handleMessage(msg),
@@ -44,21 +64,68 @@ export class VoiceClient {
     await this.wsClient.connect(url)
   }
 
-  private handleMessage(msg: { type: string; data?: string }) {
+  private setupGestureUnlock() {
+    this.gestureHandler = () => {
+      if (this.audioContext && this.audioContext.state === 'suspended') {
+        this.audioContext.resume().then(() => {
+          this.gestureUnlocked = true
+          this.removeGestureListener()
+          this.drainQueue()
+        })
+      } else {
+        this.gestureUnlocked = true
+        this.removeGestureListener()
+        this.drainQueue()
+      }
+    }
+
+    const events = ['click', 'touchstart', 'keydown'] as const
+    events.forEach((evt) => document.addEventListener(evt, this.gestureHandler!, { once: true }))
+  }
+
+  private removeGestureListener() {
+    if (!this.gestureHandler) return
+    const events = ['click', 'touchstart', 'keydown'] as const
+    events.forEach((evt) => document.removeEventListener(evt, this.gestureHandler!))
+    this.gestureHandler = null
+  }
+
+  private drainQueue() {
+    if (this.playbackQueue.length > 0 && !this.isPlaying) {
+      this.callbacks.onSpeakingStart()
+      this.playNextChunk()
+    }
+  }
+
+  private handleMessage(msg: { type: string; data?: any }) {
     switch (msg.type) {
+      case 'message':
+        if (msg.data) {
+          console.log('[VoiceClient] message type received:', msg.data)
+          this.callbacks.onMessage?.(msg.data)
+        }
+        break
+
       case 'audio':
         if (msg.data) {
           const pcmBytes = base64ToArrayBuffer(msg.data)
           this.playbackQueue.push(pcmBytes)
-          if (!this.isPlaying) {
-            this.callbacks.onSpeakingStart()
-            this.playNextChunk()
+
+          if (this.gestureUnlocked && this.audioContext?.state === 'running') {
+            if (!this.isPlaying) {
+              this.callbacks.onSpeakingStart()
+              this.playNextChunk()
+            }
           }
         }
         break
 
       case 'transcript':
         if (msg.data) this.callbacks.onTranscript(msg.data)
+        break
+
+      case 'input':
+        if (msg.data) this.callbacks.onInput?.(msg.data)
         break
 
       case 'turn_complete':
@@ -75,6 +142,12 @@ export class VoiceClient {
     if (!this.audioContext || this.playbackQueue.length === 0) {
       this.isPlaying = false
       this.callbacks.onSpeakingEnd()
+      return
+    }
+
+    if (this.audioContext.state === 'suspended') {
+      // Can't play yet — wait for gesture
+      this.isPlaying = false
       return
     }
 
@@ -199,6 +272,7 @@ export class VoiceClient {
   }
 
   disconnect() {
+    this.removeGestureListener()
     this.stopMic()
     this.wsClient?.close()
     this.wsClient = null
@@ -208,6 +282,7 @@ export class VoiceClient {
     }
     this.playbackQueue = []
     this.isPlaying = false
+    this.gestureUnlocked = false
   }
 }
 
