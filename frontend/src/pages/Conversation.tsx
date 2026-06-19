@@ -107,6 +107,10 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
         audioUrl: audioUrl ?? undefined,
       }])
     } else {
+      // Connect Gemini if not already connected
+      if (!voice.isConnected) {
+        await voice.connect()
+      }
       await voice.startListening()
     }
   }
