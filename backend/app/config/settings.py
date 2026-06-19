@@ -30,8 +30,11 @@ class Settings(BaseSettings):
     bucket_name: str = "business-assets"
 
     # Voice
+    voice_provider: str = "gemini"
     google_voice_api_key: str = ""
     google_voice_model: str = ""
+    wake_phrase: str = "hi tendo"
+    silence_timeout_seconds: int = 120
 
     # Dev
     spec_hot_reload: bool = True

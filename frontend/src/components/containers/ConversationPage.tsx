@@ -71,6 +71,8 @@ type Props = {
   transparentBg?: boolean
   flipCharacter?: boolean
   characterRightOffset?: number
+  onWakeToggle?: () => void
+  wakeActive?: boolean
 }
 
 export function ConversationPage({
@@ -94,6 +96,8 @@ export function ConversationPage({
   transparentBg = false,
   flipCharacter = false,
   characterRightOffset = 0,
+  onWakeToggle,
+  wakeActive = false,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -141,7 +145,7 @@ export function ConversationPage({
                 return (
                   <InputCard
                     key={msg.id}
-                    fields={msg.inputSpec.fields || []}
+                    fields={msg.inputSpec.fields as any[] || []}
                     onSubmit={isLast ? onSendText : () => {}}
                     disabled={!isLast}
                   />
@@ -184,14 +188,34 @@ export function ConversationPage({
         )}
       </div>
 
-      <div className="relative z-10 border-t border-zinc-800/40 bg-[#0a0a0a] px-3 py-3 sm:px-5">
-        <div className="mx-auto flex max-w-2xl items-center gap-3">
-          <VoiceButton
-            onRecorded={onVoiceRecorded}
-            onToggle={onVoiceToggle}
-            isListening={isListening}
-          />
-          <TextInput onSend={onSendText} />
+      <div className={`relative z-10 border-t border-zinc-800/40 ${transparentBg ? 'bg-transparent' : 'bg-[#0a0a0a]'} px-3 py-3 sm:px-5`}>
+        <div className="mx-auto max-w-2xl">
+          {onWakeToggle && (
+            <div className="mb-2 flex justify-end">
+              <button
+                type="button"
+                onClick={onWakeToggle}
+                className={`rounded-full cursor-pointer px-3 py-1 text-[10px] font-medium transition-all ${
+                  wakeActive
+                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                    : 'bg-orange-500/10 text-orange-400 border border-orange-500/30 hover:bg-orange-500/20'
+                }`}
+              >
+                {wakeActive
+                  ? `${import.meta.env.VITE_AGENT_NAME || 'Jay'} is active`
+                  : `Toggle me to wake ${import.meta.env.VITE_AGENT_NAME || 'Jay'} up`
+                }
+              </button>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <VoiceButton
+              onRecorded={onVoiceRecorded}
+              onToggle={onVoiceToggle}
+              isListening={isListening}
+            />
+            <TextInput onSend={onSendText} />
+          </div>
         </div>
       </div>
 

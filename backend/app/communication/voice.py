@@ -176,7 +176,7 @@ async def handle_session(websocket: WebSocket):
     from app.services.auth import handle_get_me, COOKIE_NAME
     token = websocket.cookies.get(COOKIE_NAME)
     user = None
-    user_id = "anonymous"
+    user_id = None
     if token:
         user = await handle_get_me(token)
         if user:
@@ -228,6 +228,17 @@ async def handle_session(websocket: WebSocket):
                 if input_type == "text":
                     user_text = data
                     logger.info(f"Text input: {user_text[:50]}")
+
+                elif input_type == "context":
+                    # Wake word context frame — process intent without TTS response
+                    context_data = data if isinstance(data, dict) else {}
+                    intent = context_data.get("intent", "")
+                    wake_phrase = context_data.get("wake_phrase", "")
+                    logger.info(f"Context frame: wake={wake_phrase}, intent={intent[:50]}")
+                    if intent:
+                        user_text = intent
+                    else:
+                        continue
 
                     # Detect logo upload — extract data URL and store separately
                     if user_text.startswith("[LOGO_DATA]:"):
@@ -284,7 +295,7 @@ async def handle_session(websocket: WebSocket):
         logger.info("WebSocket closed")
 
 
-async def _collect_input(websocket: WebSocket) -> tuple[str, bytes | str] | None:
+async def _collect_input(websocket: WebSocket) -> tuple[str, bytes | str | dict] | None:
     audio_buffer: list[bytes] = []
 
     while True:
@@ -307,3 +318,6 @@ async def _collect_input(websocket: WebSocket) -> tuple[str, bytes | str] | None
 
         elif kind == "text":
             return ("text", message.get("data", ""))
+
+        elif kind == "context":
+            return ("context", message.get("data", {}))

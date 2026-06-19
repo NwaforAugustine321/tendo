@@ -276,6 +276,10 @@ export class VoiceClient {
     this.wsClient?.send({ type: 'text', data: text })
   }
 
+  sendContext(context: { wake_phrase: string; intent: string; business_id: string; thread_id: string }) {
+    this.wsClient?.send({ type: 'context', data: context })
+  }
+
   disconnect() {
     this.removeGestureListener()
     this.stopMic()

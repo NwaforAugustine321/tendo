@@ -16,6 +16,7 @@ type Props = {
 export function Conversation({ initialMessages, sessionTitle, fullScreen = false, showHeader = false, transparentBg = false, flipCharacter = false, characterRightOffset = 0 }: Props) {
   const [messages, setMessages] = useState<MessageItem[]>(initialMessages ?? [])
   const [thinking, setThinking] = useState(true)
+  const [wakeActive, setWakeActive] = useState(false)
   const voice = useVoiceSession()
   const connected = useRef(false)
   const lastMsgId = useRef('')
@@ -24,8 +25,19 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
     if (!connected.current) {
       connected.current = true
       voice.connect()
+      // Request mic permission on mount so audio is ready
+      navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {})
     }
   }, [])
+
+  // When voice connects successfully, mark as active
+  useEffect(() => {
+    if (voice.isConnected) {
+      setWakeActive(true)
+    } else if (!voice.isSpeaking && !voice.isListening) {
+      setWakeActive(false)
+    }
+  }, [voice.isConnected, voice.isSpeaking, voice.isListening])
 
   // Display agent messages when they arrive
   useEffect(() => {
@@ -139,6 +151,20 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
       transparentBg={transparentBg}
       flipCharacter={flipCharacter}
       characterRightOffset={characterRightOffset}
+      wakeActive={wakeActive}
+      onWakeToggle={async () => {
+        if (wakeActive) {
+          // Turn off: stop mic + disconnect Gemini
+          await voice.stopListening()
+          voice.disconnect()
+          setWakeActive(false)
+        } else {
+          // Turn on: connect Gemini + start mic (continuous listening)
+          await voice.connect()
+          await voice.startListening()
+          setWakeActive(true)
+        }
+      }}
     />
   )
 }

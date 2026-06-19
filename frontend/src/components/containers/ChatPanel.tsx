@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Plus, History, X } from 'lucide-react'
 import { Conversation } from '../../pages/Conversation'
+import { useBusinessStore } from '../../store/business'
 
 type ChatSession = {
   id: string
@@ -14,6 +15,7 @@ export function ChatPanel() {
   const [activeSession, setActiveSession] = useState('default')
   const [showHistory, setShowHistory] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const { currentProfile } = useBusinessStore()
 
   const handleNewSession = () => {
     const id = `session-${Date.now()}`
