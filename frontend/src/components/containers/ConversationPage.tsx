@@ -190,8 +190,17 @@ export function ConversationPage({
 
       <div className={`relative z-10 border-t border-zinc-800/40 ${transparentBg ? 'bg-transparent' : 'bg-[#0a0a0a]'} px-3 py-3 sm:px-5`}>
         <div className="mx-auto max-w-2xl">
+          
+          <div className="mb-2 flex items-center gap-2">
+            <VoiceButton
+              onRecorded={onVoiceRecorded}
+              onToggle={onVoiceToggle}
+              isListening={isListening}
+            />
+            <TextInput onSend={onSendText} />
+          </div>
           {onWakeToggle && (
-            <div className="mb-2 flex justify-end">
+            <div className="flex justify-center">
               <button
                 type="button"
                 onClick={onWakeToggle}
@@ -202,20 +211,12 @@ export function ConversationPage({
                 }`}
               >
                 {wakeActive
-                  ? `Hey! ${import.meta.env.VITE_AGENT_NAME || 'Jay'} is here, pls use the mic or text me`
-                  : `Toggle me to wake ${import.meta.env.VITE_AGENT_NAME || 'Jay'} up`
+                  ? `Hey! ${import.meta.env.VITE_AGENT_NAME || 'Jay'} is here, use the mic or text me`
+                  : `Hey! ${import.meta.env.VITE_AGENT_NAME || 'Jay'} is relaxing, use the mic or touch me`
                 }
               </button>
             </div>
           )}
-          <div className="flex items-center gap-2">
-            <VoiceButton
-              onRecorded={onVoiceRecorded}
-              onToggle={onVoiceToggle}
-              isListening={isListening}
-            />
-            <TextInput onSend={onSendText} />
-          </div>
         </div>
       </div>
 

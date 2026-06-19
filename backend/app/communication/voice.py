@@ -200,7 +200,7 @@ async def handle_session(websocket: WebSocket):
         ) as session:
             logger.info("AI session connected")
 
-            result = await _run_graph("hello", thread_id, business_id, websocket, user_id)
+            result = await _run_graph(settings.wake_phrase, thread_id, business_id, websocket, user_id)
             greeting = result.get("text", "")
 
             if greeting:

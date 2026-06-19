@@ -58,6 +58,7 @@ export function Onboarding() {
   const [thinking, setThinking] = useState(true)
   const [currentStep, setCurrentStep] = useState(0)
   const [profile, setProfile] = useState<BusinessProfileData>({})
+  const [wakeActive, setWakeActive] = useState(false)
   const voice = useVoiceSession()
   const connected = useRef(false)
   const lastMsgId = useRef('')
@@ -66,8 +67,16 @@ export function Onboarding() {
     if (!connected.current) {
       connected.current = true
       voice.connect({ sessionId, businessId })
+      // Request mic permission immediately
+      navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {})
     }
   }, [])
+
+  // Track wake state from voice connection
+  useEffect(() => {
+    if (voice.isConnected) setWakeActive(true)
+    else setWakeActive(false)
+  }, [voice.isConnected])
 
   // Fetch existing profile data to prefill the sidebar
   useEffect(() => {
@@ -178,6 +187,9 @@ export function Onboarding() {
         audioUrl: audioUrl ?? undefined,
       }])
     } else {
+      if (!voice.isConnected) {
+        await voice.connect({ sessionId, businessId })
+      }
       await voice.startListening()
     }
   }
@@ -260,6 +272,18 @@ export function Onboarding() {
               headerSubtitle="Let Jay know about your business"
               fullScreen={false}
               transparentBg
+              wakeActive={wakeActive}
+              onWakeToggle={async () => {
+                if (wakeActive) {
+                  await voice.stopListening()
+                  voice.disconnect()
+                  setWakeActive(false)
+                } else {
+                  await voice.connect({ sessionId, businessId })
+                  await voice.startListening()
+                  setWakeActive(true)
+                }
+              }}
             />
           </div>
         </div>

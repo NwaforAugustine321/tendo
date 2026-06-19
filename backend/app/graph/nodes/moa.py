@@ -37,12 +37,12 @@ async def moa_node(state: GraphState) -> dict:
             return {"routed_domain": None}
         logger.info(f"MOA: sub-agent {routed} done, proceeding to response")
         return {"routed_domain": None}
-
-    # If this is the first message in a session (no history), always start with onboarding
-    history = state.get("messages", [])
-    if not history and user_message.lower().strip() in ("hello", "hi", "hey", ""):
-        logger.info("MOA: first message in session, routing to onboarding")
-        return {"routed_domain": "onboarding"}
+    
+    # do not uncomment this logic
+    # history = state.get("messages", [])
+    # if not history and user_message.lower().strip() in ("hello", "hi", "hey", ""):
+    #   logger.info("MOA: first message in session, routing to onboarding")
+    # return {"routed_domain": "onboarding"}
 
     # Normal flow — invoke LLM to decide
     config = load("moa")

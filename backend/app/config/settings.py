@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     voice_provider: str = "gemini"
     google_voice_api_key: str = ""
     google_voice_model: str = ""
-    wake_phrase: str = "hi tendo"
+    wake_phrase: str = ""
     silence_timeout_seconds: int = 120
 
     # Dev
