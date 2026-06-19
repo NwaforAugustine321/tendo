@@ -202,7 +202,7 @@ export function ConversationPage({
                 }`}
               >
                 {wakeActive
-                  ? `${import.meta.env.VITE_AGENT_NAME || 'Jay'} is active`
+                  ? `Hey! ${import.meta.env.VITE_AGENT_NAME || 'Jay'} is here, pls use the mic or text me`
                   : `Toggle me to wake ${import.meta.env.VITE_AGENT_NAME || 'Jay'} up`
                 }
               </button>
