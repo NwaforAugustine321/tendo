@@ -42,32 +42,42 @@ def _clean_text(text: str) -> str:
     return text.strip()
 
 
-async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket=None, user_id: str = "anonymous") -> dict:
+async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket=None, user_id: str = "anonymous", send_fn=None) -> dict:
     from app.graph.workflow import get_graph
     from langgraph.types import Command
 
     graph = get_graph()
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 25}
 
-    # Node-level thinking messages for the user
     NODE_THINKING = {
-        "bsga": "Understanding your request...",
+        "bsga": "Understanding...",
+        "moa": "Thinking...",
+        "tool_planner": "Planning...",
+        "db_oracle": "Fetching data...",
+        "db_translator": "Processing results...",
+        "domain_router": "Deciding...",
     }
-    DEFAULT_THINKING = "Thinking..."
+
+    async def _send_thinking_msg(msg: str):
+        if send_fn:
+            try:
+                await send_fn({"type": "thinking", "data": msg})
+            except Exception:
+                pass
+        elif websocket:
+            try:
+                await send_thinking(websocket, msg)
+            except Exception:
+                pass
 
     async def _stream_invoke(input_data):
         """Stream graph execution and send thinking updates."""
         result = {}
         async for event in graph.astream(input_data, config=config, stream_mode="updates"):
             for node_name, node_output in event.items():
-                # Send thinking message for this node
-                if websocket and node_name != "response":
-                    try:
-                        msg = NODE_THINKING.get(node_name, DEFAULT_THINKING)
-                        await send_thinking(websocket, msg)
-                    except Exception:
-                        pass
-                # Keep the last output as the result
+                if node_name != "response":
+                    msg = NODE_THINKING.get(node_name, "Thinking...")
+                    await _send_thinking_msg(msg)
                 if isinstance(node_output, dict):
                     result.update(node_output)
         return result
@@ -212,35 +222,15 @@ async def handle_session(websocket: WebSocket):
     business_id = websocket.query_params.get("business_id", "")
 
     try:
-        # Boot Gemini Live and run the graph in parallel for fast startup
-        
-
         async def _connect_gemini():
             return await client.aio.live.connect(
                 model=settings.google_voice_model, config=config
             ).__aenter__()
 
-        session, result = await asyncio.gather(
-            _connect_gemini(),
-            _run_graph(settings.wake_phrase, thread_id, business_id, websocket, user_id),
-        )
-        logger.info("AI session connected + graph result ready")
+        session = await _connect_gemini()
+        logger.info("AI session connected")
 
-        response = result.get("text", "")
-
-        if response:
-            logger.info(f"Initial: {response[:80]}")
-            await send_message(websocket, response, result.get("input"), result.get("extracted"))
-
-            if await _send_text_for_tts(session, response):
-                async for response in session.receive():
-                    if response.data:
-                        await send_audio(websocket, response.data)
-                    if response.server_content and response.server_content.turn_complete:
-                        await send_turn_complete(websocket)
-                        break
-            else:
-                await send_turn_complete(websocket)
+        await send_turn_complete(websocket)
 
         while True:
             input_result = await _collect_input(websocket)
@@ -367,30 +357,10 @@ async def run_voice_session(
             ).__aenter__()
 
         import asyncio
-        session, result = await asyncio.gather(
-            _connect_gemini(),
-            _run_graph(settings.wake_phrase, thread_id, business_id, None, user_id),
-        )
-        logger.info("Socket.IO: AI session + graph ready")
+        session = await _connect_gemini()
+        logger.info("Socket.IO: Gemini session ready")
 
-        greeting = result.get("text", "")
-        if greeting:
-            logger.info(f"Socket.IO Initial: {greeting[:80]}")
-            await _send_msg("message", greeting, result.get("input"), result.get("extracted"))
-
-            try:
-                await session.send_client_content(
-                    turns=[types.Content(role="user", parts=[types.Part.from_text(text=greeting)])],
-                    turn_complete=True,
-                )
-                async for response in session.receive():
-                    if response.data:
-                        await send({"type": "audio", "data": encode_audio(response.data)})
-                    if response.server_content and response.server_content.turn_complete:
-                        await send({"type": "turn_complete"})
-                        break
-            except Exception:
-                await send({"type": "turn_complete"})
+        await send({"type": "turn_complete"})
 
         while True:
             message = await receive()
@@ -403,7 +373,7 @@ async def run_voice_session(
                 user_text = message.get("data", "")
                 logger.info(f"Socket.IO text: {user_text[:50]}")
 
-                result = await _run_graph(user_text, thread_id, business_id, None, user_id)
+                result = await _run_graph(user_text, thread_id, business_id, None, user_id, send_fn=send)
                 moa_response = result.get("text", "")
                 logger.info(f"Socket.IO response: {moa_response[:80]}")
 
@@ -489,7 +459,7 @@ async def run_voice_session(
                             break
                     user_text = "".join(transcription_parts)
                     if user_text:
-                        result = await _run_graph(user_text, thread_id, business_id, None, user_id)
+                        result = await _run_graph(user_text, thread_id, business_id, None, user_id, send_fn=send)
                         moa_response = result.get("text", "")
                         await _send_msg("message", moa_response, result.get("input"), result.get("extracted"))
                         if session:

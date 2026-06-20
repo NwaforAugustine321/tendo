@@ -56,7 +56,7 @@ export function Onboarding() {
   const businessId = searchParams.get('business_id') || ''
 
   const [messages, setMessages] = useState<MessageItem[]>([])
-  const [thinking, setThinking] = useState(true)
+  const [thinking, setThinking] = useState(false)
   const [profile, setProfile] = useState<BusinessProfileData>({})
   const [wakeActive, setWakeActive] = useState(false)
 
@@ -279,7 +279,7 @@ export function Onboarding() {
             <ConversationPage
               messages={messages}
               isTyping={thinking || voice.isSpeaking}
-              thinkingText={thinking ? (voice.thinkingText || `${import.meta.env.VITE_AGENT_NAME || 'Jay'} is processing your request`) : undefined}
+              thinkingText={thinking ? (voice.thinkingText || ``) : undefined}
               onSendText={handleSendText}
               onVoiceRecorded={() => {}}
               onVoiceToggle={handleVoiceToggle}

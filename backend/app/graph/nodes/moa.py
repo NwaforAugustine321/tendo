@@ -7,7 +7,7 @@ import logging
 from app.config.settings import settings
 from app.db.tools.profiles import get_business_profile
 from app.lib.prompt_trimmer import trim_and_archive
-from app.lib.tool_schema import registry_tool_names, tools_to_prompt
+from app.lib.tool_schema import registry_tool_names
 from app.llm.client import get_client as get_llm
 from app.llm.specs import load
 from app.memory.tools import MEMORY_TOOLS
@@ -41,16 +41,23 @@ async def moa_node(state: GraphState) -> dict:
         logger.info(f"MOA: sub-agent {routed} done, proceeding to response")
         return {"routed_domain": None}
 
+    # db_translator just ran — domain_result has summary AND response is already set
+    domain_result = state.get("domain_result")
+    existing_response = state.get("response")
+    if domain_result and domain_result.get("summary") and existing_response and existing_response.get("text"):
+        logger.info("MOA: db_translator response ready, proceeding to response node")
+        return {"routed_domain": None, "domain_result": None}
+
     # Normal flow — invoke LLM with tool-calling
-    config = load("moa")
+    config = load("moa", tools=MEMORY_TOOLS)
     llm = get_llm()
 
     # Bind memory tools to the LLM
     llm_with_tools = llm.bind_tools(MEMORY_TOOLS)
 
     system_content = config.system_prompt
-    system_content += f"\n\n## Available Memory Tools\n{tools_to_prompt(MEMORY_TOOLS)}"
     db_tools = registry_tool_names()
+    system_content += f"\n\n## Available DB Tools (routed via tool_planner)\n{', '.join(db_tools)}"
     system_content += f"\n\n## Available DB Tools (routed via tool_planner)\n{', '.join(db_tools)}"
     system_content += f"\n\n## Current Context\n- business_id: {business_id}\n- thread_id: {thread_id}"
 
@@ -95,11 +102,17 @@ async def moa_node(state: GraphState) -> dict:
             continue
 
         # No tool calls — LLM is ready to respond
-        raw = response.content.strip()
+        content = response.content
+        if isinstance(content, list):
+            content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
+        raw = content.strip() if content else ""
         break
     else:
         # Exceeded max iterations — use last response
-        raw = response.content.strip() if response.content else '{"response": "Let me help you with that.", "type": "answer"}'
+        content = response.content if response.content else ""
+        if isinstance(content, list):
+            content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
+        raw = content.strip() if content else '{"response": "Let me help you with that.", "type": "answer"}'
 
     logger.info(f"MOA raw LLM output: {raw[:200]}")
 
@@ -111,7 +124,10 @@ async def moa_node(state: GraphState) -> dict:
         prompt.append({"role": "assistant", "content": raw})
         prompt.append({"role": "user", "content": "Respond ONLY with a valid JSON object."})
         retry_response = await llm_with_tools.ainvoke(prompt)
-        raw = retry_response.content.strip()
+        retry_content = retry_response.content
+        if isinstance(retry_content, list):
+            retry_content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in retry_content)
+        raw = retry_content.strip() if retry_content else raw
         logger.info(f"MOA retry output: {raw[:200]}")
         decision = _parse_decision(raw)
         if decision.get("_retry"):

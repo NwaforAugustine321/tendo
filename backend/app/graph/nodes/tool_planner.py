@@ -3,7 +3,7 @@
 import json
 import logging
 
-from app.lib.tool_schema import registry_tools_to_prompt, tools_to_prompt
+from app.lib.tool_schema import registry_tools_to_prompt
 from app.llm.client import get_client as get_llm
 from app.llm.specs import load
 from app.memory.tools import MEMORY_TOOLS
@@ -30,17 +30,14 @@ async def tool_planner_node(state: GraphState) -> dict:
     business_id = state.get("business_id") or event.get("business_id", "")
     domain_result = state.get("domain_result")
 
-    config = load("tool_planner")
+    config = load("tool_planner", tools=MEMORY_TOOLS)
     llm = get_llm()
 
-    # Bind memory tools so tool_planner can fetch context if needed
     llm_with_tools = llm.bind_tools(MEMORY_TOOLS)
 
-    # Dynamically inject all registered DB tool schemas
     dynamic_tools = registry_tools_to_prompt()
     system_content = config.system_prompt
     system_content += f"\n\n## Available DB Tools (auto-generated)\n\n{dynamic_tools}"
-    system_content += f"\n\n## Available Memory Tools\n{tools_to_prompt(MEMORY_TOOLS)}"
     system_content += f"\n\nNOTE: business_id is auto-injected as '{business_id}' — only include it if different."
 
     prompt = [

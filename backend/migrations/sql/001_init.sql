@@ -88,10 +88,11 @@ CREATE TABLE IF NOT EXISTS transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     business_id UUID NOT NULL REFERENCES business_profiles(id),
     customer_id UUID REFERENCES customers(id),
-    type TEXT NOT NULL DEFAULT 'sale',
-    payment_type TEXT DEFAULT 'cash',
+    type TEXT NOT NULL DEFAULT '',
+    payment_type TEXT DEFAULT '',
     total NUMERIC(12,2) NOT NULL DEFAULT 0,
-    status TEXT DEFAULT 'completed',
+    status TEXT DEFAULT '',
+    narration TEXT DEFAULT '',
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now()
 );

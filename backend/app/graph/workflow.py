@@ -86,8 +86,11 @@ async def init_graph():
     checkpointer = await ensure_checkpointer()
     store = await ensure_store()
     builder = build_graph()
-    _compiled_graph = builder.compile(checkpointer=checkpointer, store=store)
-    logger.info("Graph compiled and ready")
+    _compiled_graph = builder.compile(
+        checkpointer=checkpointer,
+        store=store,
+    )
+    logger.info("Graph compiled and ready (recursion_limit applied per invocation)")
     return _compiled_graph
 
 

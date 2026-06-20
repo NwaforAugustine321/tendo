@@ -49,4 +49,11 @@ async def db_translator_node(state: GraphState) -> dict:
         logger.warning(f"DB translator LLM failed: {e}")
         summary = f"Operation completed: {len(results)} action(s) performed."
 
-    return {"domain_result": {"summary": summary}}
+    return {
+        "domain_result": {"summary": summary},
+        "response": {"mode": "conversation", "text": summary},
+        "db_result": None,
+        "messages": [
+            {"role": "assistant", "content": summary},
+        ],
+    }

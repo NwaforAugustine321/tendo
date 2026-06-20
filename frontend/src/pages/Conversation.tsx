@@ -17,7 +17,7 @@ type Props = {
 
 export function Conversation({ initialMessages, sessionTitle, fullScreen = false, showHeader = false, transparentBg = false, flipCharacter = false, characterRightOffset = 0 }: Props) {
   const [messages, setMessages] = useState<MessageItem[]>(initialMessages ?? [])
-  const [thinking, setThinking] = useState(true)
+  const [thinking, setThinking] = useState(false)
   const [wakeActive, setWakeActive] = useState(false)
   const { currentProfile } = useBusinessStore()
   const voice = useVoiceSession()
@@ -39,7 +39,7 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
     if (connected.current) {
       voice.disconnect()
       setMessages([])
-      setThinking(true)
+      setThinking(false)
       connected.current = false
     }
 
@@ -114,13 +114,40 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
     // Find option context if this was a radio select
     const optionContext = findOptionContext(text)
     const displayText = optionContext?.label || text
-    const sendText = optionContext
-      ? `label: ${optionContext.label}, answer: ${optionContext.id}, description: ${optionContext.description || ''}`
-      : text
+
+    let sendText: string
+    if (optionContext) {
+      sendText = `label: ${optionContext.label}, answer: ${optionContext.id}, description: ${optionContext.description || ''}`
+    } else {
+      // Check if there's a pending question — format as reply to that question
+      const pendingQuestion = findPendingQuestion()
+      if (pendingQuestion) {
+        sendText = `${pendingQuestion}: ${text}`
+      } else {
+        sendText = text
+      }
+    }
 
     setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: displayText, type: 'text' }])
     setThinking(true)
     voice.sendText(sendText)
+  }
+
+  const findPendingQuestion = (): string | null => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]
+      if (msg.role === 'user') break
+      if (msg.type === 'input' && msg.inputSpec?.fields) {
+        const field = msg.inputSpec.fields[0]
+        if (field.type === 'text') {
+          return field.description || field.name || null
+        }
+        if (field.type === 'radio') {
+          return field.options?.[0]?.name || null
+        }
+      }
+    }
+    return null
   }
 
   const handleVoiceToggle = async () => {
@@ -165,7 +192,7 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
     <ConversationPage
       messages={messages}
       isTyping={thinking || voice.isSpeaking}
-      thinkingText={thinking ? `${import.meta.env.VITE_AGENT_NAME || 'Jay'} is processing your request` : undefined}
+      thinkingText={thinking ? (voice.thinkingText || 'Thinking...') : undefined}
       onSendText={handleSendText}
       onVoiceRecorded={() => {}}
       onVoiceToggle={handleVoiceToggle}

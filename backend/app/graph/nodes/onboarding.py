@@ -5,7 +5,6 @@ import logging
 
 from langgraph.types import interrupt, Command
 
-from app.lib.tool_schema import tools_to_prompt
 from app.llm.client import get_client as get_llm
 from app.llm.specs import load
 from app.lib.prompt_trimmer import trim_and_archive
@@ -24,17 +23,15 @@ async def onboarding_node(state: GraphState) -> dict:
     business_id = state.get("business_id") or event.get("business_id", "")
     thread_id = state.get("thread_id") or event.get("thread_id", "")
 
-    config = load("onboarding")
+    config = load("onboarding", tools=ONBOARDING_TOOLS)
     llm = get_llm()
 
     history = state.get("messages", [])
     logger.info(f"Onboarding: history has {len(history)} messages, business_id={business_id}")
 
-    # Bind tools so onboarding can call get_profile
     llm_with_tools = llm.bind_tools(ONBOARDING_TOOLS)
 
     system_content = config.system_prompt
-    system_content += f"\n\n## Available Tools\n{tools_to_prompt(ONBOARDING_TOOLS)}"
     system_content += f"\n\n## Context\n- business_id: {business_id}\n- thread_id: {thread_id}"
 
     prompt = [{"role": "system", "content": system_content}]

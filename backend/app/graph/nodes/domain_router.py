@@ -3,6 +3,7 @@
 import logging
 
 from app.graph.nodes.onboarding import onboarding_node
+from app.graph.nodes.transactions import transactions_node
 from app.models.state import GraphState
 
 logger = logging.getLogger(__name__)
@@ -10,6 +11,8 @@ logger = logging.getLogger(__name__)
 # Handler registry — add new sub-agents here
 HANDLERS = {
     "onboarding": onboarding_node,
+    "transactions": transactions_node,
+    "sales": transactions_node,
 }
 
 

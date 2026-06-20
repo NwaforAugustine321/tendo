@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SPECS_DIR = Path(__file__).parent.parent / "agents" / "specs"
-ASSEMBLY_ORDER = ["role", "backstory", "goal", "skill", "tools"]
+ASSEMBLY_ORDER = ["role", "backstory", "goal", "skill", "tools", "output"]
 
 _cache: dict[str, "AgentConfig"] = {}
 
@@ -16,12 +16,18 @@ class AgentConfig:
     has_tools: bool
 
 
-def load(agent_name: str) -> AgentConfig:
-    """Load agent spec from .md files. Assembly order: role → backstory → goal → skill → tools."""
+def load(agent_name: str, tools: list = None) -> AgentConfig:
+    """Load agent spec from .md files.
+    
+    Args:
+        agent_name: Name/path of the agent spec directory.
+        tools: Optional list of LangChain tools to inject via {TOOLS} placeholder.
+    """
     from app.config.settings import settings
 
-    if not settings.spec_hot_reload and agent_name in _cache:
-        return _cache[agent_name]
+    cache_key = agent_name if not tools else None
+    if not settings.spec_hot_reload and cache_key and cache_key in _cache:
+        return _cache[cache_key]
 
     spec_dir = SPECS_DIR / agent_name
     if not spec_dir.is_dir():
@@ -44,12 +50,17 @@ def load(agent_name: str) -> AgentConfig:
 
     system_prompt = "\n\n".join(parts)
 
-    # Inject agent name from env
+    # Inject agent name
     system_prompt = system_prompt.replace("{AGENT_NAME}", settings.agent_name)
+
+    # Inject tools passed from the node
+    if tools and "{TOOLS}" in system_prompt:
+        from app.lib.tool_schema import tools_to_prompt
+        system_prompt = system_prompt.replace("{TOOLS}", tools_to_prompt(tools))
 
     config = AgentConfig(system_prompt=system_prompt, agent_name=agent_name, has_tools=has_tools)
 
-    if not settings.spec_hot_reload:
-        _cache[agent_name] = config
+    if not settings.spec_hot_reload and cache_key:
+        _cache[cache_key] = config
 
     return config

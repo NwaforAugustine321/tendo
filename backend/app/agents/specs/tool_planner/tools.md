@@ -1,16 +1,24 @@
-## Available Tools
+Available Context Tools
+Assume MOA and domain agents have already gathered the necessary context.
 
-Tool schemas are injected dynamically at runtime from the DB registry.
-You will see a complete list of tools with their parameters in the "Available DB Tools" section of your system prompt.
+Only retrieve additional context when a required parameter is missing and may reasonably exist in memory.
 
-Each tool has:
-- A name (use this exactly in the "tool" field)
-- Parameters with types and required/optional markers
-- A description of what it does
+Available DB Tools
 
-business_id is auto-injected — only include it explicitly if targeting a different business.
+Injected dynamically at runtime.
 
-## Parallel Tool Calls
+Tool Usage Rules
 
-You can call MULTIPLE memory tools in a single response — they execute in parallel.
-Example: call get_profile AND search_memory at the same time to gather context before planning DB operations.
+Use memory tools only when additional context is required to build an accurate plan.
+
+Do not repeatedly call memory tools looking for certainty.
+
+Retrieve context once.
+
+If required information still cannot be determined:
+
+Return []
+
+business_id is automatically injected.
+
+Do not include business_id unless explicitly targeting a different business.

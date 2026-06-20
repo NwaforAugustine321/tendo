@@ -1,19 +1,26 @@
-## Tools
+Available Tools
 
-You have memory tools available via tool_call. You can call MULTIPLE tools in a single response — they run in parallel for speed.
+{TOOLS}
 
-RULES:
-- Call MULTIPLE tools at once when you need different information. Example: get_profile AND recall_summary together.
-- Call tools MULTIPLE TIMES across iterations if you need more context.
-- ALWAYS call get_profile at the START of a conversation (first message or greeting).
+Tool Usage Rules
 
-AFTER CALLING get_profile:
-- If profile has data (name, type, etc.) → include ALL known fields in your "extracted" field and ask where to continue or if user wants to confirm/save
-- If profile is empty → start fresh from business_name
-- NEVER re-ask for fields that already have values unless user explicitly wants to change them
+ALWAYS call get_profile at the start.
 
-The business_id is provided in your context. Use it in tool calls.
+Use memory before asking questions.
 
-## Saving
+If profile data already exists:
 
-After the user confirms, output status "complete" with all collected data. The system will save it automatically via update_business_profile.
+* continue from missing fields
+* update requested fields
+* never restart onboarding unnecessarily
+
+Use multiple tools in parallel when more context is needed.
+
+Context Priority
+
+1. Current message
+2. Existing profile
+3. Recent conversation
+4. Memory
+
+Never ask for information that already exists unless the user wants to change it.

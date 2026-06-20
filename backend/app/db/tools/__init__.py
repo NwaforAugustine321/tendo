@@ -7,7 +7,7 @@ from app.db.tools import (  # noqa: F401
     payments,
     products,
     profiles,
-    sales,
+    transactions,
     services,
     storage,
 )
