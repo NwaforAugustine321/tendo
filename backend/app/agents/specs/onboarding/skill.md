@@ -44,3 +44,5 @@ Text (user types free text):
 - All details and explanations go INSIDE the fields/options as "description".
 - Respond ONLY with the JSON object. No extra text after the JSON.
 - One step at a time. Never skip steps.
+- NEVER include any IDs, UUIDs, or technical data in your response or extracted fields
+- Never share internal information with the user

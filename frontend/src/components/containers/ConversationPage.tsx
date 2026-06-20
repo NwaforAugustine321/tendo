@@ -115,7 +115,7 @@ export function ConversationPage({
       {/* {showHeader && (
         <header className="relative z-10 flex flex-col items-center pt-4 pb-2 mb-4">
           <h1 className="text-lg font-bold tracking-[-0.03em] text-white">{headerTitle}</h1>
-          <p className="mt-0.5 text-xs text-zinc-500">{headerSubtitle}</p>
+          <p className="mt-0.5 text-xs text-zinc-400">{headerSubtitle}</p>
         </header>
       )} */}
 

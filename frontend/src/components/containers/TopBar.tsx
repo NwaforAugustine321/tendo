@@ -72,12 +72,12 @@ export function TopBar({ onMenuClick }: Props) {
           >
             <span className="rounded border border-emerald-500/35 bg-emerald-950/40 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-300">Business Profile</span>
             <span className="text-[12px] text-zinc-400">{currentProfile?.name || 'Select'}</span>
-            <ChevronDown size={12} className={`text-zinc-600 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown size={12} className={`text-zinc-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
           </button>
 
           {dropdownOpen && (
             <div className="absolute left-0 top-full mt-1 min-w-[200px] rounded-lg border border-zinc-700/80 bg-[#1a1a1a] py-1.5 shadow-2xl">
-              <p className="px-3 pb-1.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">Switch profile</p>
+              <p className="px-3 pb-1.5 text-[10px] font-medium uppercase tracking-wide text-zinc-400">Switch profile</p>
               {profiles.length > 0 ? (
                 profiles.map((profile) => (
                   <button
@@ -102,7 +102,7 @@ export function TopBar({ onMenuClick }: Props) {
                     }`}
                   >
                     <span className={`flex h-5 w-5 items-center justify-center rounded-md text-[10px] font-bold ${
-                      profile.id === currentProfile?.id ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-500'
+                      profile.id === currentProfile?.id ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-400'
                     }`}>
                       {(profile.name || 'B')[0].toUpperCase()}
                     </span>
@@ -110,7 +110,7 @@ export function TopBar({ onMenuClick }: Props) {
                   </button>
                 ))
               ) : (
-                <span className="block px-3 py-2 text-[12px] text-zinc-600">No profiles yet</span>
+                <span className="block px-3 py-2 text-[12px] text-zinc-400">No profiles yet</span>
               )}
             </div>
           )}
@@ -132,23 +132,23 @@ export function TopBar({ onMenuClick }: Props) {
 
       {/* Right */}
       <div className="flex items-center gap-1">
-        <button type="button" className="hidden rounded px-2 py-1 text-[13px] text-zinc-500 transition-colors hover:text-zinc-300 sm:block">
+        <button type="button" className="hidden rounded px-2 py-1 text-[13px] text-zinc-400 transition-colors hover:text-zinc-300 sm:block">
           Feedback
         </button>
 
         <button
           type="button"
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900/40 px-2 text-[12px] text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-300"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900/40 px-2 text-[12px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-300"
           aria-label="Search"
         >
           <Search size={14} />
           <span className="hidden sm:inline">Search...</span>
-          <kbd className="hidden rounded border border-zinc-700/60 bg-zinc-800/50 px-1 py-0.5 text-[10px] font-medium text-zinc-500 sm:inline">⌘K</kbd>
+          <kbd className="hidden rounded border border-zinc-700/60 bg-zinc-800/50 px-1 py-0.5 text-[10px] font-medium text-zinc-400 sm:inline">⌘K</kbd>
         </button>
 
         <button
           type="button"
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-300"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-300"
           aria-label="Notifications"
         >
           <Bell size={16} />
@@ -156,7 +156,7 @@ export function TopBar({ onMenuClick }: Props) {
 
         <button
           type="button"
-          className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-300 sm:inline-flex"
+          className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-300 sm:inline-flex"
           aria-label="Help"
         >
           <HelpCircle size={16} />

@@ -62,3 +62,6 @@ Respond ONLY with the JSON object. No markdown, no explanation.
 - Concise (1-3 sentences)
 - Warm and direct
 - No markdown in "response" field
+- NEVER include any IDs (business_id, user_id, customer_id, session_id, etc.) in your response
+- NEVER include timestamps, UUIDs, or internal technical data in your response
+- Never share internal information with the user

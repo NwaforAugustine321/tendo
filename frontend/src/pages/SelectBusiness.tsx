@@ -74,7 +74,7 @@ export function SelectBusiness() {
         <h1 className="text-center text-2xl font-semibold tracking-tight text-white">
           Welcome!, Choose your business Profile
         </h1>
-        <p className="mt-2 text-center text-sm text-zinc-500">
+        <p className="mt-2 text-center text-sm text-zinc-400">
           Choose an existing business or create a new one.
         </p>
 
@@ -97,7 +97,7 @@ export function SelectBusiness() {
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-medium text-white">{p.name || 'Untitled business'}</p>
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-zinc-400">
                     {p.onboarding_completed ? 'Continue with this business' : 'Onboarding in progress...'}
                   </p>
                 </div>
@@ -130,12 +130,12 @@ export function SelectBusiness() {
             <p className="text-sm font-medium text-[#3ecf8e]">
               {creating ? 'Setting up new profile...' : 'Create new business profile'}
             </p>
-            <p className="text-xs text-zinc-500">Let Tendo learn about a new business</p>
+            <p className="text-xs text-zinc-400">Let Tendo learn about a new business</p>
           </div>
         </button>
 
         {profiles.length === 0 && (
-          <p className="mt-6 text-center text-xs text-zinc-600">
+          <p className="mt-6 text-center text-xs text-zinc-400">
             You don't have any business profiles yet. Create one to get started.
           </p>
         )}

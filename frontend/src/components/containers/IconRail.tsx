@@ -21,7 +21,7 @@ function railItemClass(active: boolean, orientation: 'vertical' | 'horizontal') 
       'transition-[background-color,color,box-shadow,gap,padding] duration-200 ease-out',
       'group-hover/rail:justify-start group-hover/rail:gap-2 group-hover/rail:bg-[#141414] group-hover/rail:px-2.5 group-hover/rail:shadow-lg',
       edge,
-      active ? 'border-[#3ecf8e] bg-white/[0.06] text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300',
+      active ? 'border-[#3ecf8e] bg-white/[0.06] text-white' : 'border-transparent text-zinc-400 hover:text-zinc-300',
     ].join(' ')
   }
   return [
@@ -29,7 +29,7 @@ function railItemClass(active: boolean, orientation: 'vertical' | 'horizontal') 
     'transition-[min-width,background-color,color,box-shadow,gap,padding] duration-200 ease-out',
     'group-hover/rail:min-w-[8.25rem] group-hover/rail:justify-start group-hover/rail:bg-[#141414] group-hover/rail:px-2 group-hover/rail:shadow-md',
     edge,
-    active ? 'border-[#3ecf8e] bg-white/[0.06] text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300',
+    active ? 'border-[#3ecf8e] bg-white/[0.06] text-white' : 'border-transparent text-zinc-400 hover:text-zinc-300',
   ].join(' ')
 }
 

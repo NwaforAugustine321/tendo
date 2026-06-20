@@ -35,7 +35,7 @@ export function ChatPanel() {
     return (
       <button
         onClick={() => setCollapsed(false)}
-        className="flex h-full w-10 items-center justify-center border-l border-zinc-800/60 bg-[#0f0f0f] text-zinc-500 hover:text-zinc-300"
+        className="flex h-full w-10 items-center justify-center border-l border-zinc-800/60 bg-[#0f0f0f] text-zinc-400 hover:text-zinc-300"
         title="Open chat"
       >
         <span className="rotate-90 whitespace-nowrap text-[10px] font-medium tracking-wide">Chat</span>
@@ -54,7 +54,7 @@ export function ChatPanel() {
             className={`flex cursor-pointer items-center gap-1 rounded-t-md px-2.5 py-1.5 text-[11px] transition-colors ${
               activeSession === session.id
                 ? 'bg-[#0f0f0f] text-zinc-200 border border-zinc-800/60 border-b-transparent'
-                : 'text-zinc-500 hover:text-zinc-300'
+                : 'text-zinc-400 hover:text-zinc-300'
             }`}
           >
             <span className="max-w-[100px] truncate">{session.title}</span>
@@ -63,7 +63,7 @@ export function ChatPanel() {
                 e.stopPropagation()
                 handleCloseSession(session.id)
               }}
-              className="ml-0.5 rounded p-0.5 text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300"
+              className="ml-0.5 rounded p-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
             >
               <X size={10} />
             </button>
@@ -72,7 +72,7 @@ export function ChatPanel() {
 
         <button
           onClick={handleNewSession}
-          className="flex items-center gap-1 px-2 py-1.5 text-[11px] text-zinc-500 hover:text-zinc-300"
+          className="flex items-center gap-1 px-2 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-300"
           title="New session"
         >
           New S <Plus size={12} />
@@ -82,7 +82,7 @@ export function ChatPanel() {
 
         <button
           onClick={() => setShowHistory(!showHistory)}
-          className={`rounded p-1 transition-colors ${showHistory ? 'bg-zinc-800 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}`}
+          className={`rounded p-1 transition-colors ${showHistory ? 'bg-zinc-800 text-zinc-200' : 'text-zinc-400 hover:text-zinc-300'}`}
           title="Session history"
         >
           <History size={14} />
@@ -90,7 +90,7 @@ export function ChatPanel() {
 
         <button
           onClick={() => setCollapsed(true)}
-          className="rounded p-1 text-zinc-500 hover:text-zinc-300"
+          className="rounded p-1 text-zinc-400 hover:text-zinc-300"
           title="Close panel"
         >
           <X size={14} />
@@ -100,7 +100,7 @@ export function ChatPanel() {
       {/* History dropdown */}
       {showHistory && (
         <div className="border-b border-zinc-800/60 bg-[#141414] px-3 py-2">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500 mb-1.5">Recent sessions</p>
+          <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 mb-1.5">Recent sessions</p>
           {sessions.length > 0 ? (
             sessions.map((s) => (
               <button
@@ -114,7 +114,7 @@ export function ChatPanel() {
               </button>
             ))
           ) : (
-            <p className="text-[11px] text-zinc-600">No sessions yet</p>
+            <p className="text-[11px] text-zinc-400">No sessions yet</p>
           )}
         </div>
       )}

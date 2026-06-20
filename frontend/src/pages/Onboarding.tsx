@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { ConversationPage, type MessageItem, BusinessProfileSidebar, type BusinessProfileData } from '../components/containers'
 import type { InputSpec } from '../components/containers/ConversationPage'
 import { TopBar } from '../components/containers'
@@ -35,7 +35,7 @@ function StepProgress({ currentStep }: { currentStep: number }) {
               >
                 <span className={`h-1.5 w-1.5 rounded-full ${isActive ? 'bg-orange-500' : 'bg-zinc-600'}`} />
               </div>
-              <span className={`text-[10px] ${isActive ? 'text-orange-400' : 'text-zinc-600'}`}>
+              <span className={`text-[10px] ${isActive ? 'text-orange-400' : 'text-zinc-400'}`}>
                 {step.label}
               </span>
             </div>
@@ -51,14 +51,25 @@ function StepProgress({ currentStep }: { currentStep: number }) {
 
 export function Onboarding() {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const sessionId = searchParams.get('session_id') || ''
   const businessId = searchParams.get('business_id') || ''
 
   const [messages, setMessages] = useState<MessageItem[]>([])
   const [thinking, setThinking] = useState(true)
-  const [currentStep, setCurrentStep] = useState(0)
   const [profile, setProfile] = useState<BusinessProfileData>({})
   const [wakeActive, setWakeActive] = useState(false)
+
+  // Derive step from profile state (works for both agent and manual fills)
+  const derivedStep = (() => {
+    if (!profile.businessName) return 0
+    if (!profile.businessType) return 1
+    if (!profile.description) return 2
+    if (!profile.phone) return 3
+    if (!profile.location) return 4
+    return 5
+  })()
+  const [currentStep, setCurrentStep] = useState(derivedStep)
   const voice = useVoiceSession()
   const connected = useRef(false)
   const lastMsgId = useRef('')
@@ -82,7 +93,7 @@ export function Onboarding() {
   useEffect(() => {
     if (businessId) {
       getProfile(businessId).then((p) => {
-        if (p && p.name) {
+        if (p) {
           setProfile({
             businessName: p.name || undefined,
             businessType: p.category || undefined,
@@ -90,11 +101,22 @@ export function Onboarding() {
             phone: p.phone || undefined,
             location: p.location || undefined,
             logo: p.logo_url || undefined,
+            metadata: (p as any).metadata || undefined,
           })
         }
       })
     }
   }, [businessId])
+
+  // Update progress bar when profile changes (manual or agent)
+  useEffect(() => {
+    if (!profile.businessName) { setCurrentStep(0); return }
+    if (!profile.businessType) { setCurrentStep(1); return }
+    if (!profile.description) { setCurrentStep(2); return }
+    if (!profile.phone) { setCurrentStep(3); return }
+    if (!profile.location) { setCurrentStep(4); return }
+    setCurrentStep(5)
+  }, [profile])
 
   useEffect(() => {
     if (!voice.lastMessage) return
@@ -217,10 +239,14 @@ export function Onboarding() {
         <div className="hidden lg:block">
           <BusinessProfileSidebar
             profile={profile}
+            businessId={businessId}
+            onProfileUpdate={(data) => {
+              setProfile((prev) => ({ ...prev, ...data }))
+            }}
+            onComplete={() => navigate('/app')}
             onLogoUpload={async (dataUrl) => {
               setProfile((prev) => ({ ...prev, logo: dataUrl }))
 
-              // Upload to backend — saves directly to profile, no need to tell agent
               try {
                 const res = await fetch(dataUrl)
                 const blob = await res.blob()

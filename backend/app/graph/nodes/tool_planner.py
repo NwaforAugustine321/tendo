@@ -56,15 +56,22 @@ async def tool_planner_node(state: GraphState) -> dict:
             logger.info(f"Tool planner: calling {len(llm_response.tool_calls)} tool(s): {[tc['name'] for tc in llm_response.tool_calls]}")
             prompt.append({"role": "assistant", "content": llm_response.content or "", "tool_calls": llm_response.tool_calls})
 
-            for tool_call in llm_response.tool_calls:
-                tool_name = tool_call["name"]
-                tool_args = tool_call["args"]
-                if "business_id" in tool_args and not tool_args["business_id"]:
-                    tool_args["business_id"] = business_id
+            # Execute tools in parallel
+            import asyncio
 
-                result = await _execute_tool(tool_name, tool_args)
-                logger.info(f"Tool planner: tool {tool_name} returned {len(result)} chars")
-                prompt.append({"role": "tool", "tool_call_id": tool_call["id"], "content": result})
+            async def _run_tool(tc):
+                name = tc["name"]
+                args = dict(tc["args"])
+                if "business_id" in args and not args["business_id"]:
+                    args["business_id"] = business_id
+                res = await _execute_tool(name, args)
+                logger.info(f"Tool planner: tool {name} returned {len(res)} chars")
+                return tc["id"], res
+
+            tool_results = await asyncio.gather(*[_run_tool(tc) for tc in llm_response.tool_calls])
+
+            for call_id, result in tool_results:
+                prompt.append({"role": "tool", "tool_call_id": call_id, "content": result})
             continue
 
         raw = llm_response.content.strip()

@@ -21,7 +21,7 @@ export function EmptyState() {
         <Chip icon={<Mic size={14} />} label="Use voice" color="green" />
       </div>
 
-      <p className="mt-4 max-w-xs text-center text-sm text-zinc-500">
+      <p className="mt-4 max-w-xs text-center text-sm text-zinc-400">
         Tell me how your business works. I'll learn your customers, products, services or any type of bussiness, and how you operate.
       </p>
     </div>

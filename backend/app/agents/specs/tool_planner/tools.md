@@ -9,3 +9,8 @@ Each tool has:
 - A description of what it does
 
 business_id is auto-injected — only include it explicitly if targeting a different business.
+
+## Parallel Tool Calls
+
+You can call MULTIPLE memory tools in a single response — they execute in parallel.
+Example: call get_profile AND search_memory at the same time to gather context before planning DB operations.

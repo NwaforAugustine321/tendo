@@ -74,7 +74,7 @@ export function InputCard({ fields, onSubmit, disabled = false }: Props) {
                     {selected === opt.id ? (
                       <CheckCircle2 size={16} className="text-orange-500" />
                     ) : (
-                      <Circle size={16} className="text-zinc-600" />
+                      <Circle size={16} className="text-zinc-400" />
                     )}
                   </span>
                   <span className="flex flex-col">
@@ -82,7 +82,7 @@ export function InputCard({ fields, onSubmit, disabled = false }: Props) {
                       {opt.label}
                     </span>
                     {opt.description && (
-                      <span className="text-xs text-zinc-500">{opt.description}</span>
+                      <span className="text-xs text-zinc-400">{opt.description}</span>
                     )}
                   </span>
                 </button>
@@ -102,7 +102,7 @@ export function InputCard({ fields, onSubmit, disabled = false }: Props) {
                   type="text"
                   disabled
                   placeholder="••••••"
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none pointer-events-none"
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none pointer-events-none"
                 />
               ) : (
                 <textarea
@@ -111,7 +111,7 @@ export function InputCard({ fields, onSubmit, disabled = false }: Props) {
                   onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleContinue())}
                   placeholder={field.placeholder || 'Type here...'}
                   rows={3}
-                  className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-zinc-500"
+                  className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-500"
                 />
               )}
             </div>

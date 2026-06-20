@@ -54,7 +54,7 @@ export function UnderstandingCard({
         )}
 
         {note && (
-          <p className="mt-2 text-xs italic text-zinc-500">{note}</p>
+          <p className="mt-2 text-xs italic text-zinc-400">{note}</p>
         )}
       </div>
     </div>

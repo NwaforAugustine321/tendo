@@ -28,6 +28,25 @@
   --color-brand-border-subtle: rgb(39 39 42 / 0.6);
 }
 
+/* Thin overlay scrollbar for dark UI */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(63 63 70 / 0.5) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgb(63 63 70 / 0.5);
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(82 82 91 / 0.7);
+}
+
 html {
   color-scheme: dark;
 }

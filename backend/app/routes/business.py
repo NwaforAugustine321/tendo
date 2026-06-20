@@ -89,6 +89,55 @@ async def get_profile(business_id: str, request: Request):
     return {"profile": profile}
 
 
+class UpdateProfileRequest(BaseModel):
+    name: str = ""
+    category: str = ""
+    description: str = ""
+    phone: str = ""
+    location: str = ""
+    metadata: dict | None = None
+    onboarding_completed: bool = False
+
+
+@router.put("/profile/{business_id}")
+async def update_profile(business_id: str, body: UpdateProfileRequest, request: Request):
+    """Update a business profile directly (from sidebar form)."""
+    token = request.cookies.get(COOKIE_NAME)
+    if not token:
+        raise AuthError("Not authenticated")
+
+    user = await handle_get_me(token)
+    if not user:
+        raise AuthError("Session expired")
+
+    from app.db.tools.profiles import update_business_profile
+    from app.db.client import get_client
+
+    # For direct sidebar updates, replace metadata entirely (not merge)
+    result_data = {}
+    valid_fields = ("name", "category", "description", "phone", "location", "onboarding_completed")
+    updates = {}
+    for field in valid_fields:
+        val = getattr(body, field, None)
+        if val is None:
+            continue
+        if isinstance(val, bool):
+            updates[field] = val
+        elif val:
+            updates[field] = val
+
+    # Replace metadata entirely if provided
+    if body.metadata is not None:
+        updates["metadata"] = body.metadata
+
+    if not updates:
+        return {"profile": {"error": "No valid fields to update"}}
+
+    client = get_client()
+    result = client.table("business_profiles").update(updates).eq("id", business_id).execute()
+    return {"profile": result.data[0] if result.data else {"error": "Update failed"}}
+
+
 @router.delete("/profile/{business_id}")
 async def delete_profile(business_id: str, request: Request):
     """Delete an incomplete business profile. Cannot delete completed profiles."""

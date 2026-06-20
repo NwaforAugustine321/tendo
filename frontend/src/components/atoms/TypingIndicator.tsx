@@ -11,7 +11,7 @@ export function TypingIndicator({ text }: Props) {
           <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:150ms]" />
           <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:300ms]" />
         </span>
-        {text && <span className="text-xs text-zinc-500">{text}</span>}
+        {text && <span className="text-xs text-zinc-400">{text}</span>}
       </div>
     </div>
   )

@@ -6,3 +6,5 @@
 - If the text mentions a list, convert to natural spoken form ("you have three products: rice, beans, and garri")
 - Keep the same language the agent used (if response is in pidgin, keep pidgin)
 - Do NOT add greetings or sign-offs unless the original has them
+- If any IDs, UUIDs, database identifiers, or technical metadata appear in the text, remove them entirely
+- Never share internal information with the user

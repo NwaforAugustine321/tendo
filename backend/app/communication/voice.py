@@ -90,6 +90,27 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
                 "user_id": user_id,
             }
             result = await _stream_invoke(input_state)
+
+        # If the resumed graph completed (no more interrupts), check if we should
+        # also run a fresh invocation for the actual user question
+        post_resume_state = await graph.aget_state(config)
+        if not post_resume_state.tasks:
+            # Graph finished after resume — the user's message was consumed as an interrupt answer
+            # but they might be asking something new. Run fresh for the new message.
+            response = result.get("response") or {}
+            # Only re-run if the response looks like a completion/confirmation, not an answer to their question
+            resp_text = response.get("text", "")
+            if resp_text and user_text.lower() not in resp_text.lower() and not any(
+                kw in user_text.lower() for kw in ["confirm", "yes", "save", "done", "ok", "cancel", "no"]
+            ):
+                logger.info("Post-resume: user asked a new question, running fresh graph")
+                input_state = {
+                    "event": {"text": user_text, "thread_id": thread_id, "business_id": business_id},
+                    "thread_id": thread_id,
+                    "business_id": business_id,
+                    "user_id": user_id,
+                }
+                result = await _stream_invoke(input_state)
     else:
         # Fresh invocation
         input_state = {
@@ -388,6 +409,42 @@ async def run_voice_session(
 
                 await _send_msg("message", moa_response, result.get("input"), result.get("extracted"))
 
+                # TTS is optional — skip if Gemini session is dead
+                if session and moa_response:
+                    try:
+                        await session.send_client_content(
+                            turns=[types.Content(role="user", parts=[types.Part.from_text(text=moa_response)])],
+                            turn_complete=True,
+                        )
+                        async for response in session.receive():
+                            if response.data:
+                                await send({"type": "audio", "data": encode_audio(response.data)})
+                            if response.server_content and response.server_content.turn_complete:
+                                await send({"type": "turn_complete"})
+                                break
+                    except Exception as e:
+                        logger.warning(f"Socket.IO TTS failed: {e}")
+                        await send({"type": "turn_complete"})
+                        try:
+                            await session.__aexit__(None, None, None)
+                        except Exception:
+                            pass
+                        session = None
+                elif not session and moa_response:
+                    # Try to reconnect Gemini for TTS
+                    await send({"type": "turn_complete"})
+                    try:
+                        session = await client.aio.live.connect(
+                            model=settings.google_voice_model, config=config
+                        ).__aenter__()
+                        logger.info("Socket.IO: Gemini session reconnected on text")
+                    except Exception:
+                        pass
+                else:
+                    await send({"type": "turn_complete"})
+
+                await asyncio.sleep(0.3)
+
                 try:
                     await session.send_client_content(
                         turns=[types.Content(role="user", parts=[types.Part.from_text(text=moa_response)])],
@@ -399,15 +456,24 @@ async def run_voice_session(
                         if response.server_content and response.server_content.turn_complete:
                             await send({"type": "turn_complete"})
                             break
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"Socket.IO TTS failed: {e}")
                     await send({"type": "turn_complete"})
+                    # Mark session as dead, will try to reconnect on next message
+                    try:
+                        await session.__aexit__(None, None, None)
+                    except Exception:
+                        pass
+                    session = None
 
                 await asyncio.sleep(0.3)
 
             elif kind == "audio":
+                # If Gemini session is dead, skip audio silently
+                if session is None:
+                    continue
+
                 audio_data = decode_audio(message.get("data", ""))
-                logger.info(f"Socket.IO audio: {len(audio_data)} bytes")
-                # Send to Gemini for transcription
                 try:
                     await session.send_client_content(
                         turns=[types.Content(role="user", parts=[types.Part(inline_data=types.Blob(data=audio_data, mime_type="audio/pcm"))])],
@@ -426,21 +492,32 @@ async def run_voice_session(
                         result = await _run_graph(user_text, thread_id, business_id, None, user_id)
                         moa_response = result.get("text", "")
                         await _send_msg("message", moa_response, result.get("input"), result.get("extracted"))
-                        try:
-                            await session.send_client_content(
-                                turns=[types.Content(role="user", parts=[types.Part.from_text(text=moa_response)])],
-                                turn_complete=True,
-                            )
-                            async for resp in session.receive():
-                                if resp.data:
-                                    await send({"type": "audio", "data": encode_audio(resp.data)})
-                                if resp.server_content and resp.server_content.turn_complete:
-                                    await send({"type": "turn_complete"})
-                                    break
-                        except Exception:
-                            await send({"type": "turn_complete"})
+                        if session:
+                            try:
+                                await session.send_client_content(
+                                    turns=[types.Content(role="user", parts=[types.Part.from_text(text=moa_response)])],
+                                    turn_complete=True,
+                                )
+                                async for resp in session.receive():
+                                    if resp.data:
+                                        await send({"type": "audio", "data": encode_audio(resp.data)})
+                                    if resp.server_content and resp.server_content.turn_complete:
+                                        await send({"type": "turn_complete"})
+                                        break
+                            except Exception:
+                                await send({"type": "turn_complete"})
+                                try:
+                                    await session.__aexit__(None, None, None)
+                                except Exception:
+                                    pass
+                                session = None
                 except Exception as e:
-                    logger.warning(f"Socket.IO audio processing error: {e}")
+                    logger.warning(f"Socket.IO audio error: {e}")
+                    try:
+                        await session.__aexit__(None, None, None)
+                    except Exception:
+                        pass
+                    session = None
 
             elif kind == "end_turn":
                 pass
@@ -450,7 +527,8 @@ async def run_voice_session(
         await send({"type": "error", "data": "Something went wrong."})
     finally:
         try:
-            await session.__aexit__(None, None, None)
+            if session:
+                await session.__aexit__(None, None, None)
         except Exception:
             pass
         logger.info("Socket.IO session closed")

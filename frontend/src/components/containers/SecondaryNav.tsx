@@ -11,12 +11,12 @@ type Props = {
 function navClass(isActive: boolean) {
   return [
     'block rounded-md px-2 py-1 text-[11px] transition-colors',
-    isActive ? 'bg-zinc-800/50 text-zinc-200' : 'text-zinc-500 hover:bg-zinc-800/30 hover:text-zinc-300',
+    isActive ? 'bg-zinc-800/50 text-zinc-200' : 'text-zinc-400 hover:bg-zinc-800/30 hover:text-zinc-300',
   ].join(' ')
 }
 
 function sectionLabel(text: string) {
-  return <p className="px-0.5 text-[9px] font-medium uppercase tracking-wide text-zinc-600">{text}</p>
+  return <p className="px-0.5 text-[9px] font-medium uppercase tracking-wide text-zinc-400">{text}</p>
 }
 
 function ConversationsBody({ onNavigate }: { onNavigate?: () => void }) {

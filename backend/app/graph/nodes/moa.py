@@ -41,25 +41,6 @@ async def moa_node(state: GraphState) -> dict:
         logger.info(f"MOA: sub-agent {routed} done, proceeding to response")
         return {"routed_domain": None}
 
-    # After db_translator: if response already exists, pass through (no need for LLM)
-    domain_result = state.get("domain_result")
-    if domain_result and domain_result.get("summary"):
-        existing_response = state.get("response")
-        if existing_response and existing_response.get("text"):
-            logger.info("MOA: response already set, passing through after db_translator")
-            return {"routed_domain": None}
-        # No response yet — use the db_translator summary as response
-        logger.info("MOA: using db_translator summary as response")
-        return {
-            "routed_domain": None,
-            "response": {"mode": "conversation", "text": domain_result["summary"]},
-            "output_mode": "conversation",
-            "messages": [
-                {"role": "user", "content": user_message},
-                {"role": "assistant", "content": domain_result["summary"]},
-            ],
-        }
-
     # Normal flow — invoke LLM with tool-calling
     config = load("moa")
     llm = get_llm()
@@ -91,22 +72,22 @@ async def moa_node(state: GraphState) -> dict:
             # Add assistant message with tool calls
             prompt.append({"role": "assistant", "content": response.content or "", "tool_calls": response.tool_calls})
 
-            # Execute tools and add results
-            for tool_call in response.tool_calls:
-                tool_name = tool_call["name"]
-                tool_args = tool_call["args"]
+            # Execute tools in parallel
+            async def _run_tool(tc):
+                name = tc["name"]
+                args = dict(tc["args"])
+                if "business_id" in args and not args["business_id"]:
+                    args["business_id"] = business_id
+                res = await _execute_tool(name, args)
+                logger.info(f"MOA: tool {name} returned {len(res)} chars")
+                return tc["id"], res
 
-                # Inject business_id if tool expects it but caller didn't provide
-                if "business_id" in tool_args and not tool_args["business_id"]:
-                    tool_args["business_id"] = business_id
+            tool_results = await asyncio.gather(*[_run_tool(tc) for tc in response.tool_calls])
 
-                # Find and execute the tool
-                result = await _execute_tool(tool_name, tool_args)
-                logger.info(f"MOA: tool {tool_name} returned {len(result)} chars")
-
+            for call_id, result in tool_results:
                 prompt.append({
                     "role": "tool",
-                    "tool_call_id": tool_call["id"],
+                    "tool_call_id": call_id,
                     "content": result,
                 })
 

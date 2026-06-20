@@ -153,7 +153,7 @@ export function MessageBubble({ role, content, audioUrl }: Props) {
 
           <span className={clsx(
             'mt-0.5 block text-right text-[10px]',
-            isUser ? 'text-zinc-500' : 'text-zinc-600'
+            isUser ? 'text-zinc-400' : 'text-zinc-400'
           )}>
             {time}
           </span>

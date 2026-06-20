@@ -40,11 +40,11 @@ export function Login() {
       }
     >
       <form className="space-y-4" onSubmit={onSubmit}>
-        <label className="block text-[11px] font-medium text-zinc-500">
+        <label className="block text-[11px] font-medium text-zinc-400">
           Email
           <input className={authInputClass} type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
-        <label className="block text-[11px] font-medium text-zinc-500">
+        <label className="block text-[11px] font-medium text-zinc-400">
           Password
           <input className={authInputClass} type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
         </label>
