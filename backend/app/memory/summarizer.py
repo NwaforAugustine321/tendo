@@ -64,23 +64,34 @@ async def store_summary(
     business_id: str,
     thread_id: str,
 ) -> bool:
-    """Store a summary in the long-term archive."""
+    """Store the rolling summary AND an archived copy for semantic search."""
     if not summary:
         return False
 
     namespace = (business_id, "summaries")
-    key = str(uuid.uuid4())
-    value = {
-        "type": "summary",
-        "content": summary,
-        "thread_id": thread_id,
-        "business_id": business_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+    timestamp = datetime.now(timezone.utc).isoformat()
 
     try:
-        await store.aput(namespace, key, value)
-        logger.info(f"Stored summary for {business_id}:{thread_id}")
+        # 1. Overwrite the "latest" rolling summary
+        await store.aput(namespace, "latest", {
+            "type": "summary",
+            "content": summary,
+            "thread_id": thread_id,
+            "business_id": business_id,
+            "timestamp": timestamp,
+        })
+
+        # 2. Also store as a searchable archived entry (unique key)
+        archive_key = f"summary_{str(uuid.uuid4())[:8]}"
+        await store.aput((business_id, "archived_messages"), archive_key, {
+            "role": "system",
+            "content": f"[Session Summary] {summary}",
+            "timestamp": timestamp,
+            "thread_id": thread_id,
+            "business_id": business_id,
+        })
+
+        logger.info(f"Stored rolling summary + archived for {business_id}")
         return True
     except Exception as e:
         logger.warning(f"Failed to store summary: {e}")
@@ -90,26 +101,16 @@ async def store_summary(
 async def get_latest_summary(
     store: AsyncPostgresStore,
     business_id: str,
-    limit: int = 3,
+    limit: int = 1,
 ) -> str:
-    """Retrieve the most recent summaries for a business."""
+    """Retrieve the current rolling summary for a business."""
     namespace = (business_id, "summaries")
 
     try:
-        results = await store.asearch(namespace, query="conversation summary", limit=limit)
-        if not results:
-            return ""
-
-        summaries = []
-        for item in results:
-            content = item.value.get("content", "")
-            if content:
-                summaries.append(content)
-
-        if not summaries:
-            return ""
-
-        return "\n---\n".join(summaries)
+        result = await store.aget(namespace, "latest")
+        if result and result.value:
+            return result.value.get("content", "")
+        return ""
     except Exception as e:
-        logger.warning(f"Failed to retrieve summaries: {e}")
+        logger.warning(f"Failed to retrieve summary: {e}")
         return ""
