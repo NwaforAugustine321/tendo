@@ -111,6 +111,19 @@ async def moa_node(state: GraphState) -> dict:
     logger.info(f"MOA raw LLM output: {raw[:200]}")
 
     decision = _parse_decision(raw)
+
+    # If parsing failed, retry once with correction
+    if decision.get("_retry"):
+        logger.warning("MOA: invalid JSON output, retrying...")
+        prompt.append({"role": "assistant", "content": raw})
+        prompt.append({"role": "user", "content": "Your response was not valid JSON. Respond ONLY with a JSON object. No text before or after."})
+        retry_response = await llm.ainvoke(prompt)
+        raw = retry_response.content.strip()
+        logger.info(f"MOA retry output: {raw[:200]}")
+        decision = _parse_decision(raw)
+        if decision.get("_retry"):
+            decision = {"response": raw, "type": "answer"}
+
     output_type = decision.get("type", "answer")
     text = decision.get("response", raw)
     target = decision.get("target")
@@ -147,19 +160,10 @@ def _parse_decision(raw: str) -> dict:
     try:
         clean = raw.strip()
         if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1].rsplit("```", 1)[0]
-        if clean.startswith("{"):
-            depth = 0
-            for i, ch in enumerate(clean):
-                if ch == "{":
-                    depth += 1
-                elif ch == "}":
-                    depth -= 1
-                    if depth == 0:
-                        return json.loads(clean[: i + 1])
+            clean = clean.split("\n", 1)[1].rsplit("```", 1)[0].strip()
         return json.loads(clean)
     except (json.JSONDecodeError, IndexError, ValueError):
-        return {"response": raw, "type": "answer"}
+        return {"response": raw, "type": "answer", "_retry": True}
 
 
 def _build_context(business_context: dict | None, session_context: dict | None) -> str:

@@ -82,10 +82,27 @@ async def get_business_profile(business_id: str, **kwargs) -> dict:
 
 @register("update_business_profile")
 async def update_business_profile(business_id: str, **kwargs) -> dict:
-    """Update a business profile."""
+    """Update a business profile. Only updates fields with non-empty values. Merges metadata."""
     client = get_client()
     valid_fields = ("name", "category", "description", "metadata", "phone", "location", "logo_url", "onboarding_completed")
-    updates = {k: v for k, v in kwargs.items() if k in valid_fields}
+    # Only include fields that have actual values — don't overwrite with empty strings
+    updates = {}
+    for k, v in kwargs.items():
+        if k not in valid_fields:
+            continue
+        if isinstance(v, bool):
+            updates[k] = v
+        elif isinstance(v, dict) and k == "metadata":
+            # Merge metadata — fetch existing and combine
+            try:
+                existing = client.table("business_profiles").select("metadata").eq("id", business_id).execute()
+                existing_meta = (existing.data[0].get("metadata") or {}) if existing.data else {}
+                merged = {**existing_meta, **v}
+                updates[k] = merged
+            except Exception:
+                updates[k] = v
+        elif v:
+            updates[k] = v
     if not updates:
         return {"error": "No valid fields to update"}
     result = client.table("business_profiles").update(updates).eq("id", business_id).execute()
