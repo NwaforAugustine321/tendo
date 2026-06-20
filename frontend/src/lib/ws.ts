@@ -71,7 +71,7 @@ export class WSClient {
       this.socket.on('connect_error', (err) => {
         console.warn('[Socket.IO] connect error:', err.message)
         if (!this.socket?.connected) {
-          this.callbacks.onError?.('Connecting to server...')
+          this.callbacks.onError?.('Connecting...')
           reject(new Error(err.message))
         }
       })
