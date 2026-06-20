@@ -7,7 +7,6 @@ from app.graph.nodes.confirmation import confirmation_node
 from app.graph.nodes.context_resolution import context_resolution_node
 from app.graph.nodes.db import db_node
 from app.graph.nodes.domain_router import domain_router_node
-from app.graph.nodes.memory import memory_node
 from app.graph.nodes.moa import moa_node
 from app.graph.nodes.onboarding import onboarding_node
 from app.graph.nodes.option_generator import option_generator_node
@@ -19,7 +18,7 @@ from app.models.state import GraphState
 def route_from_bsga(state: GraphState) -> str:
     if state.get("classification") == "OUT_OF_SCOPE":
         return "response"
-    return "memory"
+    return "moa"
 
 
 def route_from_moa(state: GraphState) -> str:
@@ -50,14 +49,11 @@ def route_from_moa(state: GraphState) -> str:
 
     return "response"
 
-    return "response"
-
 
 def build_graph() -> StateGraph:
     builder = StateGraph(GraphState)
 
     builder.add_node("bsga", bsga_node)
-    builder.add_node("memory", memory_node)
     builder.add_node("moa", moa_node)
     builder.add_node("onboarding", onboarding_node)
     builder.add_node("tool_planner", tool_planner_node)
@@ -68,10 +64,9 @@ def build_graph() -> StateGraph:
     builder.add_node("confirmation", confirmation_node)
     builder.add_node("response", response_node)
 
-    # Entry
+    # Entry — goes directly to MOA (MOA handles memory via tools)
     builder.add_edge(START, "bsga")
-    builder.add_conditional_edges("bsga", route_from_bsga, ["memory", "response"])
-    builder.add_edge("memory", "moa")
+    builder.add_conditional_edges("bsga", route_from_bsga, ["moa", "response"])
 
     # MOA routes to sub-agents or responds directly
     builder.add_conditional_edges(

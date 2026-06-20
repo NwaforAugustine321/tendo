@@ -1,4 +1,4 @@
-"""MOA (Tendo) — Master Orchestrator Agent node."""
+"""MOA (Tendo) — Master Orchestrator Agent with memory tools."""
 
 import asyncio
 import json
@@ -9,10 +9,12 @@ from app.db.tools.profiles import get_business_profile
 from app.lib.prompt_trimmer import trim_and_archive
 from app.llm.client import get_client as get_llm
 from app.llm.specs import load
+from app.memory.tools import MEMORY_TOOLS
 from app.models.state import GraphState
-from app.redis.sessions import get_business_context, get_session_context
 
 logger = logging.getLogger(__name__)
+
+MAX_TOOL_ITERATIONS = 3
 
 
 async def moa_node(state: GraphState) -> dict:
@@ -21,103 +23,90 @@ async def moa_node(state: GraphState) -> dict:
     thread_id = state.get("thread_id") or event.get("thread_id", "")
     business_id = state.get("business_id") or event.get("business_id", "")
     history = state.get("messages", [])
+
     logger.info(f"MOA: history has {len(history)} messages, business_id={business_id}, thread_id={thread_id}")
-    # If a sub-agent set routed_domain and cleared response, keep routing
+
+    # Pass-through checks (no LLM needed)
     routed = state.get("routed_domain")
     if routed and not state.get("response"):
         logger.info(f"MOA: continuing loop, routing to {routed}")
         return {"routed_domain": routed}
-    
-    # Sub-agent finished with tool_requests → route to tool_planner (don't ask LLM)
+
     if state.get("tool_requests"):
-        logger.info(f"MOA: tool_requests present, routing to tool_planner")
+        logger.info("MOA: tool_requests present, routing to tool_planner")
         return {"routed_domain": None}
 
-    # Sub-agent finished with response but no tool_requests → go to response node
     if routed and state.get("response"):
         logger.info(f"MOA: sub-agent {routed} done, proceeding to response")
         return {"routed_domain": None}
-    
-    # do not uncomment this logic
-   
-    # if not history and user_message.lower().strip() in ("hello", "hi", "hey", ""):
-    #   logger.info("MOA: first message in session, routing to onboarding")
-    # return {"routed_domain": "onboarding"}
 
-    # Normal flow — invoke LLM to decide
+    # Normal flow — invoke LLM with tool-calling
     config = load("moa")
     llm = get_llm()
 
-    import asyncio
+    # Bind memory tools to the LLM
+    llm_with_tools = llm.bind_tools(MEMORY_TOOLS)
 
-    async def _safe_business_context():
-        try:
-            return await asyncio.to_thread(get_business_context, business_id)
-        except Exception as e:
-            logger.warning(f"Failed to get business context: {e}")
-            return {"_error": "Could not load business context."}
-
-    async def _safe_session_context():
-        try:
-            return await asyncio.to_thread(get_session_context, business_id, thread_id)
-        except Exception as e:
-            logger.warning(f"Failed to get session context: {e}")
-            return {"_error": "Could not load session context."}
-
-    business_context, session_context = await asyncio.gather(
-        _safe_business_context(),
-        _safe_session_context(),
-    )
-    context_block = _build_context(business_context, session_context)
-
-    # Inject business profile
-    profile_context = ""
-    if business_id:
-        try:
-            profile = await get_business_profile(business_id=business_id)
-            if profile and isinstance(profile, dict) and not profile.get("error"):
-                exclude = {"id", "user_id", "created_at", "updated_at"}
-                profile_data = {}
-                for k, v in profile.items():
-                    if k in exclude or not v:
-                        continue
-                    profile_data[k] = v
-                if profile_data:
-                    profile_context = f"\n## Business Profile: {json.dumps(profile_data)}"
-                else:
-                    profile_context = "\n## Business Profile: Profile exists but has no data yet. User need to go back and select a bussiness profile or create new profile"
-            else:
-                profile_context = "\n## Business Profile: No profile found for this business. User need to go back and select a bussiness profile or create new profile"
-        except Exception as e:
-            logger.warning(f"Failed to fetch profile: {e}")
-            profile_context = "\n## Business Profile: Could not bussiness profile"
-
-    memory_context = state.get("memory_context") or ""
-
-    system_content = config.system_prompt + "\n\n" + context_block + profile_context
-    if memory_context:
-        system_content += "\n" + memory_context
+    system_content = config.system_prompt
+    system_content += f"\n\n## Current Context\n- business_id: {business_id}\n- thread_id: {thread_id}"
 
     prompt = [{"role": "system", "content": system_content}]
     prompt.extend(history[-10:])
     prompt.append({"role": "user", "content": user_message})
 
-    # Trim messages if over token limit
+    # Trim if needed
     prompt = await trim_and_archive(prompt, business_id, thread_id)
 
-    llm_response = await llm.ainvoke(prompt)
-    raw = llm_response.content.strip()
+    # Tool-calling loop — MOA can call tools and get results before responding
+    for iteration in range(MAX_TOOL_ITERATIONS):
+        response = await llm_with_tools.ainvoke(prompt)
+
+        # Check if the LLM wants to call tools
+        if response.tool_calls:
+            logger.info(f"MOA: calling {len(response.tool_calls)} tool(s): {[tc['name'] for tc in response.tool_calls]}")
+
+            # Add assistant message with tool calls
+            prompt.append({"role": "assistant", "content": response.content or "", "tool_calls": response.tool_calls})
+
+            # Execute tools and add results
+            for tool_call in response.tool_calls:
+                tool_name = tool_call["name"]
+                tool_args = tool_call["args"]
+
+                # Inject business_id if tool expects it but caller didn't provide
+                if "business_id" in tool_args and not tool_args["business_id"]:
+                    tool_args["business_id"] = business_id
+
+                # Find and execute the tool
+                result = await _execute_tool(tool_name, tool_args)
+                logger.info(f"MOA: tool {tool_name} returned {len(result)} chars")
+
+                prompt.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": result,
+                })
+
+            # Continue loop — LLM will see tool results and decide what to do next
+            continue
+
+        # No tool calls — LLM is ready to respond
+        raw = response.content.strip()
+        break
+    else:
+        # Exceeded max iterations — use last response
+        raw = response.content.strip() if response.content else '{"response": "Let me help you with that.", "type": "answer"}'
 
     logger.info(f"MOA raw LLM output: {raw[:200]}")
 
     decision = _parse_decision(raw)
 
-    # If parsing failed, retry once with correction
+    # If parsing failed, retry once
     if decision.get("_retry"):
         logger.warning("MOA: invalid JSON output, retrying...")
         prompt.append({"role": "assistant", "content": raw})
-        prompt.append({"role": "user", "content": "Your response was not valid JSON. Respond ONLY with a JSON object. No text before or after."})
-        retry_response = await llm.ainvoke(prompt)
+        prompt.append({"role": "user", "content": "Respond ONLY with a valid JSON object."})
+        retry_response = await llm_with_tools.ainvoke(prompt)
         raw = retry_response.content.strip()
         logger.info(f"MOA retry output: {raw[:200]}")
         decision = _parse_decision(raw)
@@ -148,12 +137,36 @@ async def moa_node(state: GraphState) -> dict:
     if questions:
         response_data["input"] = questions
 
-    return {
+    result = {
         "routed_domain": None,
         "response": response_data,
         "output_mode": "conversation",
         "messages": new_messages,
     }
+
+    if output_type == "question" and questions:
+        result["interruption"] = {
+            "source": "moa",
+            "type": "input_required",
+            "text": text,
+            "input": questions,
+        }
+
+    return result
+
+
+async def _execute_tool(tool_name: str, tool_args: dict) -> str:
+    """Execute a memory tool by name."""
+    tool_map = {t.name: t for t in MEMORY_TOOLS}
+    tool_fn = tool_map.get(tool_name)
+    if not tool_fn:
+        return f"Unknown tool: {tool_name}"
+    try:
+        result = await tool_fn.ainvoke(tool_args)
+        return str(result)
+    except Exception as e:
+        logger.warning(f"Tool {tool_name} failed: {e}")
+        return f"Tool error: {e}"
 
 
 def _parse_decision(raw: str) -> dict:
@@ -164,27 +177,3 @@ def _parse_decision(raw: str) -> dict:
         return json.loads(clean)
     except (json.JSONDecodeError, IndexError, ValueError):
         return {"response": raw, "type": "answer", "_retry": True}
-
-
-def _build_context(business_context: dict | None, session_context: dict | None) -> str:
-    parts = []
-
-    if business_context and business_context.get("_error"):
-        parts.append(f"## Business Context\n{business_context['_error']}")
-    elif business_context:
-        parts.append("## Business Context (available)")
-        for key, value in business_context.items():
-            if value:
-                parts.append(f"- {key}: {value}")
-    else:
-        parts.append("## Business Context\nNo business profile found. This user has not completed onboarding yet.")
-
-    if session_context and session_context.get("_error"):
-        parts.append(f"\n## Session\n{session_context['_error']}")
-    elif session_context:
-        parts.append("\n## Current Session")
-        for key, value in session_context.items():
-            if value:
-                parts.append(f"- {key}: {value}")
-
-    return "\n".join(parts)
