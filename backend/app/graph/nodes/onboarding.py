@@ -7,60 +7,35 @@ from langgraph.types import interrupt, Command
 
 from app.llm.client import get_client as get_llm
 from app.llm.specs import load
+from app.lib.prompt_trimmer import trim_and_archive
 from app.models.state import GraphState
 
 logger = logging.getLogger(__name__)
-
-REQUIRED_FIELDS = ["business_name", "business_type", "description"]
 
 
 async def onboarding_node(state: GraphState) -> dict:
     event = state.get("event", {})
     user_message = event.get("text", "")
     business_id = state.get("business_id") or event.get("business_id", "")
+    thread_id = state.get("thread_id") or event.get("thread_id", "")
 
     config = load("onboarding")
     llm = get_llm()
 
-    # Fetch existing business profile to give context to the agent
-    profile_context = ""
-    if business_id and business_id != "default":
-        try:
-            from app.db.tools.profiles import get_business_profile
-            profile = await get_business_profile(business_id=business_id)
-            if profile and not isinstance(profile, dict) or (isinstance(profile, dict) and not profile.get("error")):
-                saved_name = profile.get("name", "")
-                if saved_name:  # Profile has data — inject as context
-                    profile_context = (
-                        f"\n\n## EXISTING PROFILE DATA (already saved):\n"
-                        f"- Business Name: {profile.get('name', '')}\n"
-                        f"- Type: {profile.get('category', '')}\n"
-                        f"- Description: {profile.get('description', '')}\n"
-                        f"- Phone: {profile.get('phone', '')}\n"
-                        f"- Location: {profile.get('location', '')}\n"
-                        f"- Logo: {'uploaded' if profile.get('logo_url') else 'none'}\n"
-                        f"- Onboarding Completed: {profile.get('onboarding_completed', False)}\n"
-                        f"\nThe user is updating their existing profile. Acknowledge what's already set and ask what they'd like to change."
-                    )
-        except Exception:
-            pass
-
     history = state.get("messages", [])
+    logger.info(f"Onboarding: history has {len(history)} messages, business_id={business_id}")
 
-    # Filter to only onboarding-relevant messages
-    onboarding_history = []
-    for msg in history:
-        if msg.get("role") == "user":
-            onboarding_history.append(msg)
-        elif msg.get("role") == "assistant":
-            content = msg.get("content", "")
-            if content.startswith("{"):
-                onboarding_history.append(msg)
+    # Include memory context so agent knows what was collected in previous sessions
+    memory_context = state.get("memory_context") or ""
+    system_content = config.system_prompt
+    if memory_context:
+        system_content += "\n" + memory_context
 
-    system_content = config.system_prompt + profile_context
     prompt = [{"role": "system", "content": system_content}]
-    prompt.extend(onboarding_history[-12:])
+    prompt.extend(history[-12:])
     prompt.append({"role": "user", "content": user_message})
+
+    prompt = await trim_and_archive(prompt, business_id, thread_id)
 
     llm_response = await llm.ainvoke(prompt)
     raw = llm_response.content.strip()
@@ -79,23 +54,26 @@ async def onboarding_node(state: GraphState) -> dict:
     if questions:
         response_data["input"] = questions
 
-    # Pass extracted values for the frontend sidebar
     extracted = parsed.get("extracted")
     if extracted:
         response_data["extracted"] = extracted
 
-    if parsed.get("status") == "complete":
-        response_data["onboarding_complete"] = True
+    is_complete = parsed.get("status") == "complete"
+    business_data = {}
+
+    if is_complete:
         business_data = {
             "business_name": parsed.get("business_name", ""),
             "business_type": parsed.get("business_type", ""),
             "description": parsed.get("description", ""),
             "phone_number": parsed.get("phone_number", ""),
             "location": parsed.get("location", ""),
+            "logo_url": parsed.get("logo", ""),
+            "metadata": parsed.get("metadata", {}),
+            "onboarding_complete": True,
         }
         response_data["business_data"] = business_data
-        # Override response text with a lively "saving" message so user isn't left waiting
-        response_data["text"] = text  # Keep the agent's completion message
+        response_data["text"] = text
 
     result = {
         "response": response_data,
@@ -107,29 +85,25 @@ async def onboarding_node(state: GraphState) -> dict:
         ],
     }
 
-    # If onboarding complete, set tool_requests so MOA routes to tool_planner → db_oracle
-    if parsed.get("status") == "complete":
-        # Get logo URL from the agent's output (extracted during conversation)
-        logo_url = parsed.get("logo", "")
+    if is_complete:
+        logo = business_data["logo_url"]
         result["tool_requests"] = [{
             "tool": "update_business_profile",
             "params": {
-                "business_id": state.get("business_id") or event.get("business_id", ""),
+                "business_id": business_id,
                 "name": business_data["business_name"],
                 "category": business_data["business_type"],
                 "description": business_data["description"],
                 "phone": business_data["phone_number"],
                 "location": business_data["location"],
-                "logo_url": logo_url if logo_url.startswith("http") else "",
+                "logo_url": logo if isinstance(logo, str) and logo.startswith("http") else "",
                 "onboarding_completed": True,
+                "metadata": business_data["metadata"],
             }
         }]
 
-    # If we need user input, interrupt the graph — it will pause here
-    # and resume when user responds
     if output_type == "question" and questions:
         user_answer = interrupt({"text": text, "questions": questions, "extracted": extracted})
-        # Graph resumes here with user's answer
         formatted_answer = _format_user_answer(str(user_answer), questions)
         logger.info(f"Onboarding resumed with: {formatted_answer[:100]}")
         result["messages"] = [
@@ -137,39 +111,32 @@ async def onboarding_node(state: GraphState) -> dict:
             {"role": "assistant", "content": raw},
             {"role": "user", "content": formatted_answer},
         ]
-        result["event"] = {"text": formatted_answer, "thread_id": event.get("thread_id"), "business_id": event.get("business_id")}
-        # Keep routing to onboarding for the next step
+        result["event"] = {"text": formatted_answer, "thread_id": thread_id, "business_id": business_id}
         result["routed_domain"] = "onboarding"
-        # Clear the response so MOA doesn't think we're done
         result["response"] = None
 
     return result
 
 
 def _format_user_answer(answer: str, questions: dict) -> str:
-    """Format user answer with field context for the agent."""
     fields = questions.get("fields", [])
     if not fields:
-        return f"user response: {answer}"
+        return answer
 
     field = fields[0]
     field_type = field.get("type", "")
 
-    if field_type == "text":
-        name = field.get("name", "")
-        description = field.get("description", "")
-        return f"user response: {answer}\nlabel name: {name}\nlabel description: {description}"
-
+    # Only add field context for radio selections (user clicked a specific option)
     if field_type == "radio":
         options = field.get("options", [])
         for opt in options:
             if opt.get("id") == answer:
                 return f"user response: {answer}\nlabel name: {opt.get('name', '')}\nlabel description: {opt.get('description', '')}"
-        # If no exact match, still format with first option's name
-        name = options[0].get("name", "") if options else ""
-        return f"user response: {answer}\nlabel name: {name}\nlabel description: "
+        # Not a known radio option — pass as-is (could be typed text)
+        return answer
 
-    return f"user response: {answer}"
+    # For text fields, just pass the raw answer — no wrapping needed
+    return answer
 
 
 def _parse_response(raw: str) -> dict:

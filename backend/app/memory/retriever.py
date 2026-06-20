@@ -12,24 +12,25 @@ async def retrieve_relevant_memories(
     store: AsyncPostgresStore,
     query: str,
     business_id: str,
-    thread_id: str,
     limit: int = 5,
     timeout: float = 5.0,
 ) -> str | None:
     """Query Store for semantically similar archived messages.
 
+    Searches across ALL sessions for the given business — long-term memory
+    is shared across sessions.
+
     Args:
         store: The initialized AsyncPostgresStore.
         query: The user message to find similar memories for.
-        business_id: Business scope identifier.
-        thread_id: Thread scope identifier.
+        business_id: Business scope identifier (shared across all sessions).
         limit: Maximum number of items to retrieve.
         timeout: Maximum query time in seconds.
 
     Returns:
         Formatted string of relevant memories, or None if none found/error.
     """
-    namespace = (business_id, thread_id, "archived_messages")
+    namespace = (business_id, "archived_messages")
 
     try:
         results = await asyncio.wait_for(
@@ -56,7 +57,7 @@ async def retrieve_relevant_memories(
 
     except asyncio.TimeoutError:
         logger.warning(
-            "Store query timed out after %.1fs for thread %s", timeout, thread_id
+            "Store query timed out after %.1fs for business %s", timeout, business_id
         )
         return None
     except Exception as e:

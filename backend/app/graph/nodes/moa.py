@@ -1,14 +1,14 @@
 """MOA (Tendo) — Master Orchestrator Agent node."""
 
+import asyncio
 import json
 import logging
 
 from app.config.settings import settings
+from app.db.tools.profiles import get_business_profile
+from app.lib.prompt_trimmer import trim_and_archive
 from app.llm.client import get_client as get_llm
 from app.llm.specs import load
-from app.memory.archiver import archive_messages
-from app.memory.long_term_mem import ensure_store
-from app.memory.trimmer import count_tokens, trim_messages_to_limit
 from app.models.state import GraphState
 from app.redis.sessions import get_business_context, get_session_context
 
@@ -18,28 +18,28 @@ logger = logging.getLogger(__name__)
 async def moa_node(state: GraphState) -> dict:
     event = state.get("event", {})
     user_message = event.get("text", "")
-    thread_id = state.get("thread_id") or event.get("thread_id", "default")
-    business_id = state.get("business_id") or event.get("business_id", "default")
-
+    thread_id = state.get("thread_id") or event.get("thread_id", "")
+    business_id = state.get("business_id") or event.get("business_id", "")
+    history = state.get("messages", [])
+    logger.info(f"MOA: history has {len(history)} messages, business_id={business_id}, thread_id={thread_id}")
     # If a sub-agent set routed_domain and cleared response, keep routing
     routed = state.get("routed_domain")
     if routed and not state.get("response"):
         logger.info(f"MOA: continuing loop, routing to {routed}")
         return {"routed_domain": routed}
     
-    # Sub-agent finished (routed_domain still set from previous state + response exists).
-    # MOA doesn't invoke LLM here — just passes through.
-    # If tool_requests exist: route_from_moa will send to tool_planner/db_oracle to save.
-    # If no tool_requests: route_from_moa will send to response node to show the message.
+    # Sub-agent finished with tool_requests → route to tool_planner (don't ask LLM)
+    if state.get("tool_requests"):
+        logger.info(f"MOA: tool_requests present, routing to tool_planner")
+        return {"routed_domain": None}
+
+    # Sub-agent finished with response but no tool_requests → go to response node
     if routed and state.get("response"):
-        if state.get("tool_requests"):
-            logger.info(f"MOA: sub-agent {routed} done with tool_requests, routing to tool_planner")
-            return {"routed_domain": None}
         logger.info(f"MOA: sub-agent {routed} done, proceeding to response")
         return {"routed_domain": None}
     
     # do not uncomment this logic
-    # history = state.get("messages", [])
+   
     # if not history and user_message.lower().strip() in ("hello", "hi", "hey", ""):
     #   logger.info("MOA: first message in session, routing to onboarding")
     # return {"routed_domain": "onboarding"}
@@ -48,13 +48,53 @@ async def moa_node(state: GraphState) -> dict:
     config = load("moa")
     llm = get_llm()
 
-    business_context = get_business_context(business_id)
-    session_context = get_session_context(business_id, thread_id)
+    import asyncio
+
+    async def _safe_business_context():
+        try:
+            return await asyncio.to_thread(get_business_context, business_id)
+        except Exception as e:
+            logger.warning(f"Failed to get business context: {e}")
+            return {"_error": "Could not load business context."}
+
+    async def _safe_session_context():
+        try:
+            return await asyncio.to_thread(get_session_context, business_id, thread_id)
+        except Exception as e:
+            logger.warning(f"Failed to get session context: {e}")
+            return {"_error": "Could not load session context."}
+
+    business_context, session_context = await asyncio.gather(
+        _safe_business_context(),
+        _safe_session_context(),
+    )
     context_block = _build_context(business_context, session_context)
+
+    # Inject business profile
+    profile_context = ""
+    if business_id:
+        try:
+            profile = await get_business_profile(business_id=business_id)
+            if profile and isinstance(profile, dict) and not profile.get("error"):
+                exclude = {"id", "user_id", "created_at", "updated_at"}
+                profile_data = {}
+                for k, v in profile.items():
+                    if k in exclude or not v:
+                        continue
+                    profile_data[k] = v
+                if profile_data:
+                    profile_context = f"\n## Business Profile: {json.dumps(profile_data)}"
+                else:
+                    profile_context = "\n## Business Profile: Profile exists but has no data yet. User need to go back and select a bussiness profile or create new profile"
+            else:
+                profile_context = "\n## Business Profile: No profile found for this business. User need to go back and select a bussiness profile or create new profile"
+        except Exception as e:
+            logger.warning(f"Failed to fetch profile: {e}")
+            profile_context = "\n## Business Profile: Could not bussiness profile"
 
     memory_context = state.get("memory_context") or ""
 
-    system_content = config.system_prompt + "\n\n" + context_block
+    system_content = config.system_prompt + "\n\n" + context_block + profile_context
     if memory_context:
         system_content += "\n" + memory_context
 
@@ -62,35 +102,8 @@ async def moa_node(state: GraphState) -> dict:
     prompt.extend(history[-10:])
     prompt.append({"role": "user", "content": user_message})
 
-    # Trim messages if token count exceeds the configured limit
-    token_limit = settings.max_message_token_size
-    if count_tokens(prompt) > token_limit:
-        trim_result = trim_messages_to_limit(prompt, token_limit)
-        if trim_result.trimmed_messages:
-            # Archive trimmed messages to long-term store
-            try:
-                store = await ensure_store()
-                archived = await archive_messages(
-                    store=store,
-                    messages=trim_result.trimmed_messages,
-                    business_id=business_id,
-                    thread_id=thread_id,
-                )
-            except Exception as e:
-                logger.warning("Failed to get store for archival: %s", e)
-                archived = False
-
-            if archived:
-                prompt = trim_result.retained_messages
-                logger.info(
-                    "Trimmed %d messages before LLM call for %s:%s",
-                    len(trim_result.trimmed_messages),
-                    business_id,
-                    thread_id,
-                )
-            else:
-                # Archival failed — retain all messages (don't trim)
-                logger.warning("Archival failed, retaining all messages")
+    # Trim messages if over token limit
+    prompt = await trim_and_archive(prompt, business_id, thread_id)
 
     llm_response = await llm.ainvoke(prompt)
     raw = llm_response.content.strip()
@@ -152,7 +165,9 @@ def _parse_decision(raw: str) -> dict:
 def _build_context(business_context: dict | None, session_context: dict | None) -> str:
     parts = []
 
-    if business_context:
+    if business_context and business_context.get("_error"):
+        parts.append(f"## Business Context\n{business_context['_error']}")
+    elif business_context:
         parts.append("## Business Context (available)")
         for key, value in business_context.items():
             if value:
@@ -160,7 +175,9 @@ def _build_context(business_context: dict | None, session_context: dict | None) 
     else:
         parts.append("## Business Context\nNo business profile found. This user has not completed onboarding yet.")
 
-    if session_context:
+    if session_context and session_context.get("_error"):
+        parts.append(f"\n## Session\n{session_context['_error']}")
+    elif session_context:
         parts.append("\n## Current Session")
         for key, value in session_context.items():
             if value:

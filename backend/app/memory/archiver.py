@@ -34,7 +34,7 @@ async def archive_messages(
     if not messages:
         return True
 
-    namespace = (business_id, thread_id, "archived_messages")
+    namespace = (business_id, "archived_messages")
     timestamp = datetime.now(timezone.utc).isoformat()
 
     try:

@@ -9,15 +9,10 @@ dependencies:
   - pip:
     - fastapi
     - uvicorn[standard]
-    - python-multipart
     - langgraph
     - langgraph-checkpoint-redis
-    - langgraph-checkpoint-postgres
-    - langgraph-store-postgres
-    - "psycopg[binary]"
     - langchain-anthropic
     - langchain-google-genai
-    - langchain-openai
     - langchain-core
     - supabase
     - pydantic
@@ -26,10 +21,11 @@ dependencies:
     - mem0ai
     - httpx
     - python-dotenv
+    - python-multipart
     - google-genai
-    - tiktoken
     - websockets
     - pytest
     - pytest-asyncio
-    - hypothesis
     - ruff
+    - psycopg2-binary
+    - tiktoken

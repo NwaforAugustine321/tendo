@@ -13,27 +13,24 @@ from app.ws.sender import send_audio, send_message, send_turn_complete, send_err
 from app.ws.receiver import receive_json
 from app.ws.encoding import decode_audio
 from app.config.settings import settings
+from app.services.auth import handle_get_me, COOKIE_NAME
 
 logger = logging.getLogger(__name__)
 
-
-def _get_client():
-    return genai.Client(api_key=settings.google_voice_api_key)
-
-
-def _get_config() -> types.LiveConnectConfig:
-    return types.LiveConnectConfig(
-        response_modalities=["AUDIO"],
-        output_audio_transcription=types.AudioTranscriptionConfig(),
-        system_instruction=types.Content(
-            parts=[types.Part.from_text(text="Repeat exactly what the user says. Do not add anything.")]
-        ),
-        speech_config=types.SpeechConfig(
-            voice_config=types.VoiceConfig(
-                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Charon")
-            )
-        ),
-    )
+# Module-level singletons — created once at import time
+_gemini_client = genai.Client(api_key=settings.google_voice_api_key)
+_gemini_config = types.LiveConnectConfig(
+    response_modalities=["AUDIO"],
+    output_audio_transcription=types.AudioTranscriptionConfig(),
+    system_instruction=types.Content(
+        parts=[types.Part.from_text(text="Repeat exactly what the user says. Do not add anything.")]
+    ),
+    speech_config=types.SpeechConfig(
+        voice_config=types.VoiceConfig(
+            prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Charon")
+        )
+    ),
+)
 
 
 def _clean_text(text: str) -> str:
@@ -172,8 +169,7 @@ async def handle_session(websocket: WebSocket):
     await accept(websocket)
     logger.info("Voice WebSocket accepted")
 
-    # Authenticate via cookie
-    from app.services.auth import handle_get_me, COOKIE_NAME
+   
     token = websocket.cookies.get(COOKIE_NAME)
     user = None
     user_id = None
@@ -187,103 +183,90 @@ async def handle_session(websocket: WebSocket):
     else:
         logger.warning("WebSocket: no auth cookie, proceeding as anonymous")
 
-    client = _get_client()
-    config = _get_config()
+    client = _gemini_client
+    config = _gemini_config
     logger.info(f"Connecting to model: {settings.google_voice_model}")
 
-    thread_id = websocket.query_params.get("session_id", "default")
-    business_id = websocket.query_params.get("business_id", "default")
+    thread_id = websocket.query_params.get("session_id", "")
+    business_id = websocket.query_params.get("business_id", "")
 
     try:
-        async with client.aio.live.connect(
-            model=settings.google_voice_model, config=config
-        ) as session:
-            logger.info("AI session connected")
+        # Boot Gemini Live and run the graph in parallel for fast startup
+        
 
-            result = await _run_graph(settings.wake_phrase, thread_id, business_id, websocket, user_id)
-            greeting = result.get("text", "")
+        async def _connect_gemini():
+            return await client.aio.live.connect(
+                model=settings.google_voice_model, config=config
+            ).__aenter__()
 
-            if greeting:
-                logger.info(f"Initial: {greeting[:80]}")
-                await send_message(websocket, greeting, result.get("input"), result.get("extracted"))
+        session, result = await asyncio.gather(
+            _connect_gemini(),
+            _run_graph(settings.wake_phrase, thread_id, business_id, websocket, user_id),
+        )
+        logger.info("AI session connected + graph result ready")
 
-                if await _send_text_for_tts(session, greeting):
-                    async for response in session.receive():
-                        if response.data:
-                            await send_audio(websocket, response.data)
-                        if response.server_content and response.server_content.turn_complete:
-                            await send_turn_complete(websocket)
-                            break
-                else:
-                    await send_turn_complete(websocket)
+        response = result.get("text", "")
 
-            while True:
-                input_result = await _collect_input(websocket)
-                if input_result is None:
-                    break
+        if response:
+            logger.info(f"Initial: {response[:80]}")
+            await send_message(websocket, response, result.get("input"), result.get("extracted"))
 
-                input_type, data = input_result
-                user_text = ""
+            if await _send_text_for_tts(session, response):
+                async for response in session.receive():
+                    if response.data:
+                        await send_audio(websocket, response.data)
+                    if response.server_content and response.server_content.turn_complete:
+                        await send_turn_complete(websocket)
+                        break
+            else:
+                await send_turn_complete(websocket)
 
-                if input_type == "text":
-                    user_text = data
-                    logger.info(f"Text input: {user_text[:50]}")
+        while True:
+            input_result = await _collect_input(websocket)
+            if input_result is None:
+                break
 
-                elif input_type == "context":
-                    # Wake word context frame — process intent without TTS response
-                    context_data = data if isinstance(data, dict) else {}
-                    intent = context_data.get("intent", "")
-                    wake_phrase = context_data.get("wake_phrase", "")
-                    logger.info(f"Context frame: wake={wake_phrase}, intent={intent[:50]}")
-                    if intent:
-                        user_text = intent
-                    else:
-                        continue
+            input_type, data = input_result
+            user_text = ""
 
-                    # Detect logo upload — extract data URL and store separately
-                    if user_text.startswith("[LOGO_DATA]:"):
-                        logo_data_url = user_text[len("[LOGO_DATA]:"):]
-                        # Store in a variable accessible to _run_graph
-                        self_logo_data = logo_data_url
-                        user_text = "label: Business Logo, answer: [LOGO_UPLOADED], description: User uploaded a business profile image"
-                        logger.info(f"Logo data received: {len(logo_data_url)} chars")
-                    else:
-                        self_logo_data = None
+            if input_type == "text":
+                user_text = data
+                logger.info(f"Text input: {user_text[:50]}")
 
-                elif input_type == "audio":
-                    logger.info(f"Transcribing audio: {len(data)} bytes")
-                    await _send_audio_for_transcription(session, data)
+            elif input_type == "audio":
+                logger.info(f"Transcribing audio: {len(data)} bytes")
+                await _send_audio_for_transcription(session, data)
 
-                    transcription_parts = []
-                    async for response in session.receive():
-                        if (
-                            response.server_content
-                            and response.server_content.output_transcription
-                        ):
-                            text = response.server_content.output_transcription.text
-                            if text:
-                                transcription_parts.append(text)
-                        if response.server_content and response.server_content.turn_complete:
-                            break
+                transcription_parts = []
+                async for response in session.receive():
+                    if (
+                        response.server_content
+                        and response.server_content.output_transcription
+                    ):
+                        text = response.server_content.output_transcription.text
+                        if text:
+                            transcription_parts.append(text)
+                    if response.server_content and response.server_content.turn_complete:
+                        break
 
-                    user_text = "".join(transcription_parts)
-                    logger.info(f"Transcribed: {user_text[:80]}")
+                user_text = "".join(transcription_parts)
+                logger.info(f"Transcribed: {user_text[:80]}")
 
-                if not user_text:
-                    continue
+            if not user_text:
+                continue
 
-                result = await _run_graph(user_text, thread_id, business_id, websocket, user_id)
-                moa_response = result.get("text", "")
-                logger.info(f"Response: {moa_response[:80]}")
+            result = await _run_graph(user_text, thread_id, business_id, websocket, user_id)
+            moa_response = result.get("text", "")
+            logger.info(f"Response: {moa_response[:80]}")
 
-                await send_message(websocket, moa_response, result.get("input"), result.get("extracted"))
+            await send_message(websocket, moa_response, result.get("input"), result.get("extracted"))
 
-                if await _send_text_for_tts(session, moa_response):
-                    await _stream_tts_response(session, websocket)
-                else:
-                    await send_turn_complete(websocket)
+            if await _send_text_for_tts(session, moa_response):
+                await _stream_tts_response(session, websocket)
+            else:
+                await send_turn_complete(websocket)
 
-                await asyncio.sleep(0.3)
+            await asyncio.sleep(0.3)
 
     except WebSocketDisconnect:
         logger.info("Client disconnected")
@@ -291,11 +274,16 @@ async def handle_session(websocket: WebSocket):
         logger.error(f"Session error: {e}", exc_info=True)
         await send_error(websocket, "Something went wrong. Please try again.")
     finally:
+        # Close Gemini session if it was opened
+        try:
+            await session.__aexit__(None, None, None)
+        except Exception:
+            pass
         await close(websocket)
         logger.info("WebSocket closed")
 
 
-async def _collect_input(websocket: WebSocket) -> tuple[str, bytes | str | dict] | None:
+async def _collect_input(websocket: WebSocket) -> tuple[str, bytes | str] | None:
     audio_buffer: list[bytes] = []
 
     while True:
@@ -319,5 +307,150 @@ async def _collect_input(websocket: WebSocket) -> tuple[str, bytes | str | dict]
         elif kind == "text":
             return ("text", message.get("data", ""))
 
-        elif kind == "context":
-            return ("context", message.get("data", {}))
+
+async def run_voice_session(
+    session_id: str,
+    business_id: str,
+    user_id: str,
+    receive,
+    send,
+):
+    """Transport-agnostic voice session — used by Socket.IO handler.
+
+    Args:
+        session_id: Thread/session identifier for checkpoints.
+        business_id: Business profile scope.
+        user_id: Authenticated user ID.
+        receive: Async callable that returns the next message dict (or None on disconnect).
+        send: Async callable that sends a message dict to the client.
+    """
+    from app.ws.encoding import encode_audio, decode_audio
+
+    thread_id = session_id
+    client = _gemini_client
+    config = _gemini_config
+
+    async def _send_msg(msg_type: str, text: str = "", questions=None, extracted=None):
+        msg = {"type": "message", "data": {"response": text, "msg_type": "answer"}}
+        if questions:
+            msg["data"]["msg_type"] = "question"
+            msg["data"]["questions"] = questions
+        if extracted:
+            msg["data"]["extracted"] = extracted
+        await send(msg)
+
+    try:
+        async def _connect_gemini():
+            return await client.aio.live.connect(
+                model=settings.google_voice_model, config=config
+            ).__aenter__()
+
+        import asyncio
+        session, result = await asyncio.gather(
+            _connect_gemini(),
+            _run_graph(settings.wake_phrase, thread_id, business_id, None, user_id),
+        )
+        logger.info("Socket.IO: AI session + graph ready")
+
+        greeting = result.get("text", "")
+        if greeting:
+            logger.info(f"Socket.IO Initial: {greeting[:80]}")
+            await _send_msg("message", greeting, result.get("input"), result.get("extracted"))
+
+            try:
+                await session.send_client_content(
+                    turns=[types.Content(role="user", parts=[types.Part.from_text(text=greeting)])],
+                    turn_complete=True,
+                )
+                async for response in session.receive():
+                    if response.data:
+                        await send({"type": "audio", "data": encode_audio(response.data)})
+                    if response.server_content and response.server_content.turn_complete:
+                        await send({"type": "turn_complete"})
+                        break
+            except Exception:
+                await send({"type": "turn_complete"})
+
+        while True:
+            message = await receive()
+            if message is None:
+                break
+
+            kind = message.get("type")
+
+            if kind == "text":
+                user_text = message.get("data", "")
+                logger.info(f"Socket.IO text: {user_text[:50]}")
+
+                result = await _run_graph(user_text, thread_id, business_id, None, user_id)
+                moa_response = result.get("text", "")
+                logger.info(f"Socket.IO response: {moa_response[:80]}")
+
+                await _send_msg("message", moa_response, result.get("input"), result.get("extracted"))
+
+                try:
+                    await session.send_client_content(
+                        turns=[types.Content(role="user", parts=[types.Part.from_text(text=moa_response)])],
+                        turn_complete=True,
+                    )
+                    async for response in session.receive():
+                        if response.data:
+                            await send({"type": "audio", "data": encode_audio(response.data)})
+                        if response.server_content and response.server_content.turn_complete:
+                            await send({"type": "turn_complete"})
+                            break
+                except Exception:
+                    await send({"type": "turn_complete"})
+
+                await asyncio.sleep(0.3)
+
+            elif kind == "audio":
+                audio_data = decode_audio(message.get("data", ""))
+                logger.info(f"Socket.IO audio: {len(audio_data)} bytes")
+                # Send to Gemini for transcription
+                try:
+                    await session.send_client_content(
+                        turns=[types.Content(role="user", parts=[types.Part(inline_data=types.Blob(data=audio_data, mime_type="audio/pcm"))])],
+                        turn_complete=True,
+                    )
+                    transcription_parts = []
+                    async for response in session.receive():
+                        if response.server_content and response.server_content.output_transcription:
+                            text = response.server_content.output_transcription.text
+                            if text:
+                                transcription_parts.append(text)
+                        if response.server_content and response.server_content.turn_complete:
+                            break
+                    user_text = "".join(transcription_parts)
+                    if user_text:
+                        result = await _run_graph(user_text, thread_id, business_id, None, user_id)
+                        moa_response = result.get("text", "")
+                        await _send_msg("message", moa_response, result.get("input"), result.get("extracted"))
+                        try:
+                            await session.send_client_content(
+                                turns=[types.Content(role="user", parts=[types.Part.from_text(text=moa_response)])],
+                                turn_complete=True,
+                            )
+                            async for resp in session.receive():
+                                if resp.data:
+                                    await send({"type": "audio", "data": encode_audio(resp.data)})
+                                if resp.server_content and resp.server_content.turn_complete:
+                                    await send({"type": "turn_complete"})
+                                    break
+                        except Exception:
+                            await send({"type": "turn_complete"})
+                except Exception as e:
+                    logger.warning(f"Socket.IO audio processing error: {e}")
+
+            elif kind == "end_turn":
+                pass
+
+    except Exception as e:
+        logger.error(f"Socket.IO session error: {e}", exc_info=True)
+        await send({"type": "error", "data": "Something went wrong."})
+    finally:
+        try:
+            await session.__aexit__(None, None, None)
+        except Exception:
+            pass
+        logger.info("Socket.IO session closed")

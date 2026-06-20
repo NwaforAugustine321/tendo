@@ -13,8 +13,8 @@ async def memory_node(state: GraphState) -> dict:
     """Retrieve relevant memories from long-term store via semantic search."""
     event = state.get("event", {})
     user_message = event.get("text", "")
-    thread_id = state.get("thread_id") or event.get("thread_id", "default")
-    business_id = state.get("business_id") or event.get("business_id", "default")
+    thread_id = state.get("thread_id") or event.get("thread_id", "")
+    business_id = state.get("business_id") or event.get("business_id", "")
 
     memory_context = None
     if user_message:
@@ -24,7 +24,6 @@ async def memory_node(state: GraphState) -> dict:
                 store=store,
                 query=user_message,
                 business_id=business_id,
-                thread_id=thread_id,
                 limit=5,
             )
         except Exception as e:

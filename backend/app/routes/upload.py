@@ -39,6 +39,15 @@ async def upload_logo(file: UploadFile = File(...), business_id: str = Query(def
         )
         public_url = client.storage.from_(settings.bucket_name).get_public_url(file_name)
         logger.info(f"Logo uploaded: {public_url}")
+
+        # Also update the business profile logo_url directly
+        if business_id and business_id != "default":
+            try:
+                client.table("business_profiles").update({"logo_url": public_url}).eq("id", business_id).execute()
+                logger.info(f"Logo URL saved to profile: {business_id}")
+            except Exception as e:
+                logger.warning(f"Failed to update profile logo_url: {e}")
+
         return {"url": public_url}
     except Exception as e:
         logger.error(f"Upload failed: {e}")

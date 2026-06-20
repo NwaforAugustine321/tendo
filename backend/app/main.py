@@ -13,6 +13,10 @@ from app.routes.business import router as business_router
 from app.routes.upload import router as upload_router
 from app.lib.errors import register_error_handlers
 
+import socketio
+from app.ws.socketio_server import sio
+import app.ws.voice_handler  # noqa: F401 — registers Socket.IO event handlers
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -30,6 +34,9 @@ app.include_router(auth_router)
 app.include_router(business_router)
 app.include_router(upload_router)
 register_error_handlers(app)
+
+# Mount Socket.IO on /ws/voice path — this becomes the main ASGI app
+asgi_app = socketio.ASGIApp(sio, other_asgi_app=app, socketio_path='/ws/voice')
 
 
 @app.on_event("startup")
