@@ -5,12 +5,17 @@ import logging
 
 from langgraph.types import interrupt, Command
 
+from app.lib.tool_schema import tools_to_prompt
 from app.llm.client import get_client as get_llm
 from app.llm.specs import load
 from app.lib.prompt_trimmer import trim_and_archive
+from app.memory.tools import MEMORY_TOOLS
 from app.models.state import GraphState
 
 logger = logging.getLogger(__name__)
+
+ONBOARDING_TOOLS = MEMORY_TOOLS
+MAX_TOOL_ITERATIONS = 3
 
 
 async def onboarding_node(state: GraphState) -> dict:
@@ -25,11 +30,12 @@ async def onboarding_node(state: GraphState) -> dict:
     history = state.get("messages", [])
     logger.info(f"Onboarding: history has {len(history)} messages, business_id={business_id}")
 
-    # Include memory context so agent knows what was collected in previous sessions
-    memory_context = state.get("memory_context") or ""
+    # Bind tools so onboarding can call get_profile
+    llm_with_tools = llm.bind_tools(ONBOARDING_TOOLS)
+
     system_content = config.system_prompt
-    if memory_context:
-        system_content += "\n" + memory_context
+    system_content += f"\n\n## Available Tools\n{tools_to_prompt(ONBOARDING_TOOLS)}"
+    system_content += f"\n\n## Context\n- business_id: {business_id}\n- thread_id: {thread_id}"
 
     prompt = [{"role": "system", "content": system_content}]
     prompt.extend(history[-12:])
@@ -37,8 +43,37 @@ async def onboarding_node(state: GraphState) -> dict:
 
     prompt = await trim_and_archive(prompt, business_id, thread_id)
 
-    llm_response = await llm.ainvoke(prompt)
-    raw = llm_response.content.strip()
+    # Tool-calling loop — onboarding can call get_profile before responding
+    raw = ""
+    for iteration in range(MAX_TOOL_ITERATIONS):
+        llm_response = await llm_with_tools.ainvoke(prompt)
+
+        if llm_response.tool_calls:
+            logger.info(f"Onboarding: calling {len(llm_response.tool_calls)} tool(s): {[tc['name'] for tc in llm_response.tool_calls]}")
+
+            prompt.append({"role": "assistant", "content": llm_response.content or "", "tool_calls": llm_response.tool_calls})
+
+            for tool_call in llm_response.tool_calls:
+                tool_name = tool_call["name"]
+                tool_args = tool_call["args"]
+
+                if "business_id" in tool_args and not tool_args["business_id"]:
+                    tool_args["business_id"] = business_id
+
+                result = await _execute_tool(tool_name, tool_args)
+                logger.info(f"Onboarding: tool {tool_name} returned {len(result)} chars")
+
+                prompt.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": result,
+                })
+            continue
+
+        raw = llm_response.content.strip()
+        break
+    else:
+        raw = llm_response.content.strip() if llm_response.content else '{"response": "Let me help set up your profile.", "type": "question", "questions": {"fields": [{"type": "text", "name": "business_name", "placeholder": "e.g. Sunrise Café", "description": "What is your business called?"}]}}'
 
     logger.info(f"Onboarding raw LLM output: {raw[:300]}")
 
@@ -118,6 +153,20 @@ async def onboarding_node(state: GraphState) -> dict:
     return result
 
 
+async def _execute_tool(tool_name: str, tool_args: dict) -> str:
+    """Execute an onboarding tool by name."""
+    tool_map = {t.name: t for t in ONBOARDING_TOOLS}
+    tool_fn = tool_map.get(tool_name)
+    if not tool_fn:
+        return f"Unknown tool: {tool_name}"
+    try:
+        result = await tool_fn.ainvoke(tool_args)
+        return str(result)
+    except Exception as e:
+        logger.warning(f"Onboarding tool {tool_name} failed: {e}")
+        return f"Tool error: {e}"
+
+
 def _format_user_answer(answer: str, questions: dict) -> str:
     fields = questions.get("fields", [])
     if not fields:
@@ -126,16 +175,13 @@ def _format_user_answer(answer: str, questions: dict) -> str:
     field = fields[0]
     field_type = field.get("type", "")
 
-    # Only add field context for radio selections (user clicked a specific option)
     if field_type == "radio":
         options = field.get("options", [])
         for opt in options:
             if opt.get("id") == answer:
                 return f"user response: {answer}\nlabel name: {opt.get('name', '')}\nlabel description: {opt.get('description', '')}"
-        # Not a known radio option — pass as-is (could be typed text)
         return answer
 
-    # For text fields, just pass the raw answer — no wrapping needed
     return answer
 
 

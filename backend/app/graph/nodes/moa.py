@@ -7,6 +7,7 @@ import logging
 from app.config.settings import settings
 from app.db.tools.profiles import get_business_profile
 from app.lib.prompt_trimmer import trim_and_archive
+from app.lib.tool_schema import registry_tool_names, tools_to_prompt
 from app.llm.client import get_client as get_llm
 from app.llm.specs import load
 from app.memory.tools import MEMORY_TOOLS
@@ -48,6 +49,9 @@ async def moa_node(state: GraphState) -> dict:
     llm_with_tools = llm.bind_tools(MEMORY_TOOLS)
 
     system_content = config.system_prompt
+    system_content += f"\n\n## Available Memory Tools\n{tools_to_prompt(MEMORY_TOOLS)}"
+    db_tools = registry_tool_names()
+    system_content += f"\n\n## Available DB Tools (routed via tool_planner)\n{', '.join(db_tools)}"
     system_content += f"\n\n## Current Context\n- business_id: {business_id}\n- thread_id: {thread_id}"
 
     prompt = [{"role": "system", "content": system_content}]

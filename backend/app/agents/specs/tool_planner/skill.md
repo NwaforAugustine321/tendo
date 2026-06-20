@@ -1,4 +1,4 @@
-- Accurately map user intent to the correct tool(s)
+- Accurately map user intent to the correct tool(s) from the dynamically injected list
 - Extract parameters from natural language context
 - Handle multi-step operations (e.g., create customer then create invoice)
 - business_id is automatically injected — do NOT include it in params unless it's a different business
@@ -6,3 +6,4 @@
 - When user says "add 10 units of product X", use record_inventory_movement with movement_type: "in"
 - When user asks "how are my sales?", use get_sales_summary
 - When user asks to upload a logo, use upload_business_logo
+- Tool names must match EXACTLY as shown in the "Available DB Tools" section — they are inferred from code at runtime

@@ -63,5 +63,30 @@ async def get_profile(business_id: str) -> str:
         return "Could not retrieve profile."
 
 
+@tool
+async def get_archived_messages(business_id: str, thread_id: str, limit: int = 10) -> str:
+    """Get older messages from this conversation that were archived (trimmed from context). Use this to recall earlier parts of the current session."""
+    try:
+        store = await ensure_store()
+        namespace = (business_id, "archived_messages")
+        results = await store.asearch(namespace, query="recent conversation", limit=limit)
+        if not results:
+            return "No archived messages found for this thread."
+
+        formatted = []
+        for item in results:
+            value = item.value
+            role = value.get("role", "unknown")
+            content = value.get("content", "")
+            tid = value.get("thread_id", "")
+            if tid == thread_id and content:
+                formatted.append(f"[{role}]: {content[:200]}")
+
+        return "\n".join(formatted) if formatted else "No messages found for this specific thread."
+    except Exception as e:
+        logger.warning(f"get_thread_messages failed: {e}")
+        return "Could not retrieve thread messages."
+
+
 # All tools available to MOA
-MEMORY_TOOLS = [recall_summary, search_memory, get_profile]
+MEMORY_TOOLS = [recall_summary, search_memory, get_profile, get_archived_messages]
