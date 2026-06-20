@@ -71,6 +71,8 @@ export function useVoiceSession() {
         setReconnectAttempt(0)
         setState('idle')
         setErrorMessage('')
+        // Re-enable mic after reconnect
+        client.startMic().catch(() => {})
       },
       onInput: (inputSpec) => {
         msgCounter.current++
