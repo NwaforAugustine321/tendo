@@ -220,26 +220,22 @@ export function Onboarding() {
             onLogoUpload={async (dataUrl) => {
               setProfile((prev) => ({ ...prev, logo: dataUrl }))
 
-              // Upload to backend REST endpoint → get public URL → send URL to agent
+              // Upload to backend — saves directly to profile, no need to tell agent
               try {
                 const res = await fetch(dataUrl)
                 const blob = await res.blob()
                 const formData = new FormData()
                 formData.append('file', blob, 'logo.png')
 
-                const uploadRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/upload/logo`, {
+                const uploadRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/upload/logo?business_id=${businessId}`, {
                   method: 'POST',
                   body: formData,
+                  credentials: 'include',
                 })
                 const data = await uploadRes.json()
 
                 if (data.url) {
                   setProfile((prev) => ({ ...prev, logo: data.url }))
-                  // Send the actual public URL to the agent
-                  const sendText = `label: Business Logo, answer: ${data.url}, description: User uploaded business profile image`
-                  setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: '📷 Logo uploaded', type: 'text' }])
-                  setThinking(true)
-                  voice.sendText(sendText)
                 }
               } catch (err) {
                 console.error('Logo upload failed:', err)

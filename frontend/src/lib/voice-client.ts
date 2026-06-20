@@ -272,12 +272,16 @@ export class VoiceClient {
     })
   }
 
-  sendText(text: string) {
-    this.wsClient?.send({ type: 'text', data: text })
+  sendText(text: string): boolean {
+    return this.wsClient?.send({ type: 'text', data: text }) || false
   }
 
-  sendContext(context: { wake_phrase: string; intent: string; business_id: string; thread_id: string }) {
-    this.wsClient?.send({ type: 'context', data: context })
+  sendContext(context: { wake_phrase: string; intent: string; business_id: string; thread_id: string }): boolean {
+    return this.wsClient?.send({ type: 'context', data: context }) || false
+  }
+
+  isConnected(): boolean {
+    return this.wsClient?.isOpen() ?? false
   }
 
   disconnect() {

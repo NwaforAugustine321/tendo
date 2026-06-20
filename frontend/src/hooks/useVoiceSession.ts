@@ -22,11 +22,13 @@ export function useVoiceSession() {
   const [reconnectAttempt, setReconnectAttempt] = useState(0)
   const [turnComplete, setTurnComplete] = useState(false)
   const clientRef = useRef<VoiceClient | null>(null)
+  const connectParamsRef = useRef<{ sessionId?: string; businessId?: string } | undefined>(undefined)
   const msgCounter = useRef(0)
 
   const connect = useCallback(async (params?: { sessionId?: string; businessId?: string }) => {
     if (clientRef.current) return
 
+    connectParamsRef.current = params
     setState('connecting')
     setErrorMessage('')
 
@@ -99,8 +101,13 @@ export function useVoiceSession() {
       clientRef.current = client
       setState('idle')
     } catch {
-      setErrorMessage('Could not connect to voice server. Make sure the backend is running.')
-      setState('error')
+      setErrorMessage('Connecting to server...')
+      setState('reconnecting')
+      // Auto-retry after 3 seconds
+      setTimeout(() => {
+        clientRef.current = null
+        connect(params)
+      }, 3000)
     }
   }, [])
 
@@ -135,11 +142,32 @@ export function useVoiceSession() {
   const sendText = useCallback((text: string) => {
     setLastMessage(null)
     setTurnComplete(false)
-    if (!clientRef.current) {
-      connect().then(() => clientRef.current?.sendText(text))
+
+    const client = clientRef.current
+
+    // If no client or WebSocket is not open, force fresh reconnect
+    if (!client || !client.isConnected?.()) {
+      if (client) {
+        client.disconnect()
+      }
+      clientRef.current = null
+      setState('connecting')
+      connect(connectParamsRef.current).then(() => {
+        clientRef.current?.sendText(text)
+      })
       return
     }
-    clientRef.current.sendText(text)
+
+    // Try to send — if it fails (returns false), reconnect
+    const sent = client.sendText(text)
+    if (!sent) {
+      client.disconnect()
+      clientRef.current = null
+      setState('connecting')
+      connect(connectParamsRef.current).then(() => {
+        clientRef.current?.sendText(text)
+      })
+    }
   }, [connect])
 
   const disconnect = useCallback(() => {

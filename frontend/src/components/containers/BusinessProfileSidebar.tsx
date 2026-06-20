@@ -138,8 +138,8 @@ export function BusinessProfileSidebar({ profile, onLogoUpload }: Props) {
 
       {/* Status */}
       <div className="mt-4 rounded-lg border border-zinc-800/40 bg-zinc-900/50 px-3 py-2">
-        <p className="text-center text-[10px] text-zinc-500">
-          {profile.businessName ? '✓ Profile updating live' : 'Waiting for onboarding...'}
+        <p className="text-center text-[10px] text-white/70">
+          {profile.businessName ? `${import.meta.env.VITE_AGENT_NAME || 'Jay'} is here to help you setup your business profile` : `Hey! ${import.meta.env.VITE_AGENT_NAME || 'Jay'} is here, use the mic or text me when you are ready` }
         </p>
       </div>
     </aside>

@@ -19,7 +19,7 @@ conda activate tendo
 cp .env.example .env
 
 # Run the server
-uvicorn app.main:app --reload
+uvicorn app.main:asgi_app --reload
 ```
 
 To update the environment after changes to `environment.yml`:
