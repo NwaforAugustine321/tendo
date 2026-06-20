@@ -1,18 +1,25 @@
-"""Workflow assembly — state graph with all nodes wired."""
+"""Workflow assembly — state graph with all nodes wired.
+
+Graph is built once at startup and cached. Connection pools handle reconnection
+at the driver level — no rebuild needed per request.
+"""
+
+import logging
 
 from langgraph.graph import END, START, StateGraph
 
 from app.graph.nodes.bsga import bsga_node
-from app.graph.nodes.confirmation import confirmation_node
-from app.graph.nodes.context_resolution import context_resolution_node
+from app.graph.nodes.db_translator import db_translator_node
 from app.graph.nodes.db import db_node
 from app.graph.nodes.domain_router import domain_router_node
 from app.graph.nodes.moa import moa_node
-from app.graph.nodes.onboarding import onboarding_node
-from app.graph.nodes.option_generator import option_generator_node
 from app.graph.nodes.response import response_node
 from app.graph.nodes.tool_planner import tool_planner_node
 from app.models.state import GraphState
+
+logger = logging.getLogger(__name__)
+
+_compiled_graph = None
 
 
 def route_from_bsga(state: GraphState) -> str:
@@ -25,27 +32,16 @@ def route_from_moa(state: GraphState) -> str:
     if state.get("error"):
         return "response"
 
-    routed = state.get("routed_domain")
-    if routed == "onboarding":
-        return "onboarding"
-    if state.get("output_mode") == "structured_options":
-        return "option_generator"
-    
-    # If tool_requests exist and db_result is already set, we're done with execution
-    # If tool_requests exist but no db_result yet, check if they've been planned
     tool_requests = state.get("tool_requests")
     if tool_requests:
-        # If tool_planner already structured them (has "tool" key), send to db_oracle
         if isinstance(tool_requests, list) and len(tool_requests) > 0:
             if isinstance(tool_requests[0], dict) and "tool" in tool_requests[0]:
                 return "db_oracle"
-        # Otherwise, needs planning first
         return "tool_planner"
-    
+
+    routed = state.get("routed_domain")
     if routed:
         return "domain_router"
-    if state.get("confirmation_status") == "pending":
-        return "confirmation"
 
     return "response"
 
@@ -55,63 +51,48 @@ def build_graph() -> StateGraph:
 
     builder.add_node("bsga", bsga_node)
     builder.add_node("moa", moa_node)
-    builder.add_node("onboarding", onboarding_node)
     builder.add_node("tool_planner", tool_planner_node)
     builder.add_node("db_oracle", db_node)
-    builder.add_node("context_resolution", context_resolution_node)
-    builder.add_node("option_generator", option_generator_node)
+    builder.add_node("db_translator", db_translator_node)
     builder.add_node("domain_router", domain_router_node)
-    builder.add_node("confirmation", confirmation_node)
     builder.add_node("response", response_node)
 
-    # Entry — goes directly to MOA (MOA handles memory via tools)
     builder.add_edge(START, "bsga")
     builder.add_conditional_edges("bsga", route_from_bsga, ["moa", "response"])
 
-    # MOA routes to sub-agents or responds directly
     builder.add_conditional_edges(
         "moa",
         route_from_moa,
-        ["tool_planner", "db_oracle", "option_generator", "domain_router", "confirmation", "onboarding", "response"],
+        ["tool_planner", "db_oracle", "domain_router", "response"],
     )
 
-    # Sub-agents return to MOA (the loop)
-    builder.add_edge("onboarding", "moa")
     builder.add_edge("domain_router", "moa")
     builder.add_edge("tool_planner", "moa")
 
-    # DB execution: MOA sends to db_oracle, results go to context_resolution, back to MOA
-    builder.add_edge("db_oracle", "context_resolution")
-    builder.add_edge("context_resolution", "moa")
+    builder.add_edge("db_oracle", "db_translator")
+    builder.add_edge("db_translator", "moa")
 
-    # Other
-    builder.add_edge("option_generator", "response")
-    builder.add_edge("confirmation", "moa")
     builder.add_edge("response", END)
 
     return builder
 
 
-async def get_graph():
-    """Build and compile the graph with Supabase checkpointer + store."""
+async def init_graph():
+    """Initialize the graph once at app startup. Fails fast if connections fail."""
+    global _compiled_graph
+
     from app.memory import ensure_checkpointer, ensure_store
-    from app.memory.short_term_mem import _checkpointer as _cp
 
-    try:
-        checkpointer = await ensure_checkpointer()
-        store = await ensure_store()
-        builder = build_graph()
-        return builder.compile(checkpointer=checkpointer, store=store)
-    except Exception as e:
-        # If connection is closed, reset singletons and retry once
-        import app.memory.short_term_mem as stm
-        import app.memory.long_term_mem as ltm
-        stm._checkpointer = None
-        stm._conn = None
-        ltm._store = None
-        ltm._conn = None
+    checkpointer = await ensure_checkpointer()
+    store = await ensure_store()
+    builder = build_graph()
+    _compiled_graph = builder.compile(checkpointer=checkpointer, store=store)
+    logger.info("Graph compiled and ready")
+    return _compiled_graph
 
-        checkpointer = await ensure_checkpointer()
-        store = await ensure_store()
-        builder = build_graph()
-        return builder.compile(checkpointer=checkpointer, store=store)
+
+def get_graph():
+    """Return the pre-compiled graph. Must call init_graph() first at startup."""
+    if _compiled_graph is None:
+        raise RuntimeError("Graph not initialized. Call init_graph() during app startup.")
+    return _compiled_graph

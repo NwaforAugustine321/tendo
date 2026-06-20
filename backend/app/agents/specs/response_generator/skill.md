@@ -1,1 +1,8 @@
-Follow your defined responsibilities.
+- Remove any markdown (**, *, #, `, bullet points)
+- Remove any JSON artifacts or code blocks
+- Fix awkward phrasing that would sound unnatural when spoken
+- Keep numbers readable (e.g., "forty-five thousand naira" or "45,000 naira" — either is fine)
+- Preserve the original meaning — do not add or remove information
+- If the text mentions a list, convert to natural spoken form ("you have three products: rice, beans, and garri")
+- Keep the same language the agent used (if response is in pidgin, keep pidgin)
+- Do NOT add greetings or sign-offs unless the original has them

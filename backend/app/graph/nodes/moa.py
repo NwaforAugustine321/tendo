@@ -15,7 +15,7 @@ from app.models.state import GraphState
 
 logger = logging.getLogger(__name__)
 
-MAX_TOOL_ITERATIONS = 3
+MAX_TOOL_ITERATIONS = 5
 
 
 async def moa_node(state: GraphState) -> dict:
@@ -40,6 +40,25 @@ async def moa_node(state: GraphState) -> dict:
     if routed and state.get("response"):
         logger.info(f"MOA: sub-agent {routed} done, proceeding to response")
         return {"routed_domain": None}
+
+    # After db_translator: if response already exists, pass through (no need for LLM)
+    domain_result = state.get("domain_result")
+    if domain_result and domain_result.get("summary"):
+        existing_response = state.get("response")
+        if existing_response and existing_response.get("text"):
+            logger.info("MOA: response already set, passing through after db_translator")
+            return {"routed_domain": None}
+        # No response yet — use the db_translator summary as response
+        logger.info("MOA: using db_translator summary as response")
+        return {
+            "routed_domain": None,
+            "response": {"mode": "conversation", "text": domain_result["summary"]},
+            "output_mode": "conversation",
+            "messages": [
+                {"role": "user", "content": user_message},
+                {"role": "assistant", "content": domain_result["summary"]},
+            ],
+        }
 
     # Normal flow — invoke LLM with tool-calling
     config = load("moa")

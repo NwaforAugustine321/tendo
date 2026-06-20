@@ -1,6 +1,7 @@
 """Application entrypoint."""
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +21,30 @@ import app.ws.voice_handler  # noqa: F401 — registers Socket.IO event handlers
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Tendo", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """App lifespan — initialize graph + connections on startup, cleanup on shutdown."""
+    from app.graph.workflow import init_graph
+    from app.memory.short_term_mem import shutdown_checkpointer
+    from app.memory.long_term_mem import shutdown_store
+
+    try:
+        await init_graph()
+        logger.info("Application ready — graph + memory initialized")
+    except Exception as e:
+        logger.critical("STARTUP FAILED: %s", e)
+        raise
+
+    yield
+
+    # Cleanup on shutdown
+    await shutdown_checkpointer()
+    await shutdown_store()
+    logger.info("Application shutdown — connections closed")
+
+
+app = FastAPI(title="Tendo", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,20 +59,8 @@ app.include_router(business_router)
 app.include_router(upload_router)
 register_error_handlers(app)
 
-# Mount Socket.IO on /ws/voice path — this becomes the main ASGI app
+# Mount Socket.IO on /ws/voice path
 asgi_app = socketio.ASGIApp(sio, other_asgi_app=app, socketio_path='/ws/voice')
-
-
-@app.on_event("startup")
-async def startup_memory_system():
-    """Initialize memory system tables on startup."""
-    try:
-        from app.memory import ensure_checkpointer, ensure_store
-        await ensure_checkpointer()
-        await ensure_store()
-        logger.info("Memory system initialized successfully")
-    except Exception as e:
-        logger.error("Failed to initialize memory system: %s", e)
 
 
 @app.get("/health")
@@ -59,7 +71,6 @@ async def health():
 @app.post("/events")
 async def receive_event(event: UnifiedUserEvent):
     """Unified event ingress — accepts all user interactions."""
-    # TODO: dispatch to workflow
     return {"event_id": event.event_id, "status": "accepted"}
 
 
@@ -78,7 +89,6 @@ async def whatsapp_verify(
 @app.post("/webhook/whatsapp")
 async def whatsapp_receive(payload: dict):
     """Receive messages — normalize and process."""
-    # TODO: normalize payload → event → dispatch
     return {"status": "received"}
 
 

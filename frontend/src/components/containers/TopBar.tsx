@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Search, Bell, HelpCircle, Menu, ChevronDown, User } from 'lucide-react'
 import { useBusinessStore } from '../../store/business'
+import { resumeSession } from '../../lib/services/business'
 
 type Props = {
   onMenuClick: () => void
@@ -10,6 +12,7 @@ export function TopBar({ onMenuClick }: Props) {
   const { profiles, currentProfile, fetchProfiles, setCurrentProfileById } = useBusinessStore()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     if (profiles.length === 0) fetchProfiles()
@@ -80,9 +83,19 @@ export function TopBar({ onMenuClick }: Props) {
                   <button
                     key={profile.id}
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       setCurrentProfileById(profile.id)
                       setDropdownOpen(false)
+                      if (!profile.onboarding_completed) {
+                        try {
+                          const { session_id, business_id } = await resumeSession(profile.id)
+                          navigate(`/onboarding?session_id=${session_id}&business_id=${business_id}`)
+                        } catch {
+                          navigate(`/onboarding?business_id=${profile.id}`)
+                        }
+                      } else {
+                        navigate('/app')
+                      }
                     }}
                     className={`flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-zinc-800 ${
                       profile.id === currentProfile?.id ? 'text-emerald-400' : 'text-zinc-300'

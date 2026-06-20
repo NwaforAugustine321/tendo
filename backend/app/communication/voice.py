@@ -46,7 +46,7 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
     from app.graph.workflow import get_graph
     from langgraph.types import Command
 
-    graph = await get_graph()
+    graph = get_graph()
     config = {"configurable": {"thread_id": thread_id}}
 
     # Node-level thinking messages for the user

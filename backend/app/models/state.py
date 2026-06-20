@@ -18,8 +18,7 @@ class GraphState(TypedDict, total=False):
     tool_requests: list[dict] | None
     domain_result: dict | None
     db_result: dict | None
-    confirmation_status: Literal["pending", "confirmed", "rejected", "timeout"] | None
-    output_mode: Literal["conversation", "structured_options"] | None
+    output_mode: Literal["conversation"] | None
     response: dict | None
     messages: Annotated[list[dict], operator.add]
     error: str | None

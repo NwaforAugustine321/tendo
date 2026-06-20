@@ -51,11 +51,8 @@ async def get_profile(business_id: str) -> str:
         profile = await get_business_profile(business_id=business_id)
         if profile and isinstance(profile, dict) and not profile.get("error"):
             import json
-            exclude = {"id", "user_id", "created_at", "updated_at"}
+            exclude = {"id", "user_id", "created_at", "updated_at", "onboarding_completed", "logo_url" }
             data = {k: v for k, v in profile.items() if k not in exclude and v}
-            if data.get("logo_url"):
-                data["logo"] = "uploaded"
-                del data["logo_url"]
             return json.dumps(data) if data else "Profile exists but has no data yet."
         return "No business profile found."
     except Exception as e:

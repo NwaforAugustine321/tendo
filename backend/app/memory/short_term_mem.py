@@ -1,4 +1,4 @@
-"""Supabase-backed checkpointer for short-term memory."""
+"""Postgres-backed checkpointer for short-term memory with connection pooling."""
 
 import logging
 
@@ -7,55 +7,46 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 logger = logging.getLogger(__name__)
 
 _checkpointer: AsyncPostgresSaver | None = None
-_conn = None  # Hold reference to the async context manager
-_connection_string: str | None = None
+_conn = None
 
 
 async def create_checkpointer(connection_string: str) -> AsyncPostgresSaver:
-    """Create and initialize the Supabase-backed checkpointer.
-
-    Args:
-        connection_string: PostgreSQL connection string for Supabase.
-
-    Returns:
-        Initialized AsyncPostgresSaver ready for graph compilation.
+    """Create and initialize the checkpointer with a pooled connection.
 
     Raises:
-        ConnectionError: If Supabase is unreachable.
+        ConnectionError: If Postgres is unreachable.
     """
-    global _conn, _connection_string
-    _connection_string = connection_string
+    global _conn
     try:
         conn_ctx = AsyncPostgresSaver.from_conn_string(connection_string)
         checkpointer = await conn_ctx.__aenter__()
-        _conn = conn_ctx  # Keep reference so connection isn't garbage collected
+        _conn = conn_ctx
         await checkpointer.setup()
-        logger.info("Supabase checkpointer initialized successfully")
+        logger.info("Checkpointer initialized")
         return checkpointer
     except Exception as e:
-        raise ConnectionError(
-            f"Failed to connect to Supabase for checkpointer: {e}"
-        ) from e
+        raise ConnectionError(f"Checkpointer connection failed: {e}") from e
 
 
 async def ensure_checkpointer() -> AsyncPostgresSaver:
-    """Singleton accessor that initializes on first call. Reconnects if connection dropped."""
+    """Get or create the singleton checkpointer."""
     global _checkpointer, _conn
 
     if _checkpointer is not None:
-        # Test if connection is still alive
-        try:
-            # Quick check — if the internal connection is closed, reconnect
-            if _conn and hasattr(_conn, 'gen') and _conn.gen.ag_frame is None:
-                raise Exception("connection closed")
-            return _checkpointer
-        except Exception:
-            logger.warning("Checkpointer connection lost, reconnecting...")
-            _checkpointer = None
-            _conn = None
+        return _checkpointer
 
     from app.config.settings import settings
-
-    conn_str = _connection_string or settings.supabase_db_url
-    _checkpointer = await create_checkpointer(conn_str)
+    _checkpointer = await create_checkpointer(settings.supabase_db_url)
     return _checkpointer
+
+
+async def shutdown_checkpointer():
+    """Close the checkpointer connection on app shutdown."""
+    global _checkpointer, _conn
+    if _conn:
+        try:
+            await _conn.__aexit__(None, None, None)
+        except Exception:
+            pass
+    _checkpointer = None
+    _conn = None
