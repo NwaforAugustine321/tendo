@@ -103,7 +103,7 @@ export function useVoiceSession() {
       clientRef.current = client
       setState('idle')
     } catch {
-      setErrorMessage('Connecting to server...')
+      setErrorMessage('Reconnecting...')
       setState('reconnecting')
       // Auto-retry after 3 seconds
       setTimeout(() => {
