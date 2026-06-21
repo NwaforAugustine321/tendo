@@ -15,6 +15,21 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = ""
     gemini_model: str = ""
+    ollama_model: str = "nemotron-3-super"
+    ollama_base_url: str = "http://localhost:11434"
+
+    # HuggingFace Inference
+    hf_token: str = ""
+    hf_model: str = "meta-llama/Llama-3.1-8B"
+    hf_provider: str = "featherless-ai"
+
+    # Grok (xAI)
+    xai_api_key: str = ""
+    xai_model: str = "grok-3-mini"
+
+    # Groq (fast inference)
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.1-8b-instant"
 
     # Embeddings
     embedding_provider: str = ""

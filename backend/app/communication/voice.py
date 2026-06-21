@@ -44,7 +44,6 @@ def _clean_text(text: str) -> str:
 
 async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket=None, user_id: str = "anonymous", send_fn=None) -> dict:
     from app.graph.workflow import get_graph
-    from langgraph.types import Command
 
     graph = get_graph()
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 25}
@@ -82,77 +81,19 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
                     result.update(node_output)
         return result
 
-    # Check if the graph is interrupted (waiting for user input)
-    state = await graph.aget_state(config)
-
-    if state.tasks:
-        # Graph is paused at an interrupt — resume with user's answer
-        logger.info(f"Resuming interrupted graph with: {user_text[:50]}")
-        try:
-            result = await _stream_invoke(Command(resume=user_text))
-        except TypeError:
-            # Stale checkpoint with incompatible node signatures — start fresh
-            logger.warning("Stale checkpoint detected, starting fresh invocation")
-            input_state = {
-                "event": {"text": user_text, "thread_id": thread_id, "business_id": business_id},
-                "thread_id": thread_id,
-                "business_id": business_id,
-                "user_id": user_id,
-            }
-            result = await _stream_invoke(input_state)
-
-        # If the resumed graph completed (no more interrupts), check if we should
-        # also run a fresh invocation for the actual user question
-        post_resume_state = await graph.aget_state(config)
-        if not post_resume_state.tasks:
-            # Graph finished after resume — the user's message was consumed as an interrupt answer
-            # but they might be asking something new. Run fresh for the new message.
-            response = result.get("response") or {}
-            # Only re-run if the response looks like a completion/confirmation, not an answer to their question
-            resp_text = response.get("text", "")
-            if resp_text and user_text.lower() not in resp_text.lower() and not any(
-                kw in user_text.lower() for kw in ["confirm", "yes", "save", "done", "ok", "cancel", "no"]
-            ):
-                logger.info("Post-resume: user asked a new question, running fresh graph")
-                input_state = {
-                    "event": {"text": user_text, "thread_id": thread_id, "business_id": business_id},
-                    "thread_id": thread_id,
-                    "business_id": business_id,
-                    "user_id": user_id,
-                }
-                result = await _stream_invoke(input_state)
-    else:
-        # Fresh invocation
-        input_state = {
-            "event": {"text": user_text, "thread_id": thread_id, "business_id": business_id},
-            "thread_id": thread_id,
-            "business_id": business_id,
-            "user_id": user_id,
-        }
-        result = await _stream_invoke(input_state)
+    # Fresh invocation every time
+    input_state = {
+        "event": {"text": user_text, "thread_id": thread_id, "business_id": business_id},
+        "thread_id": thread_id,
+        "business_id": business_id,
+        "user_id": user_id,
+    }
+    result = await _stream_invoke(input_state)
 
     response = result.get("response") or {}
     response["text"] = _clean_text(response.get("text", ""))
     response["input"] = response.get("input")
     response["extracted"] = response.get("extracted")
-
-    # Check if graph is now interrupted (needs user input)
-    new_state = await graph.aget_state(config)
-    if new_state.tasks:
-        # Graph paused — extract the interrupt value (the actual question to show)
-        for task in new_state.tasks:
-            if hasattr(task, 'interrupts') and task.interrupts:
-                for intr in task.interrupts:
-                    interrupt_data = intr.value if hasattr(intr, 'value') else intr
-                    if isinstance(interrupt_data, dict):
-                        # Use interrupt text as the response (this is the current step's text)
-                        if interrupt_data.get("text"):
-                            response["text"] = _clean_text(interrupt_data["text"])
-                        if interrupt_data.get("questions"):
-                            response["input"] = interrupt_data["questions"]
-                        if interrupt_data.get("extracted"):
-                            response["extracted"] = interrupt_data["extracted"]
-                        break
 
     return response
 

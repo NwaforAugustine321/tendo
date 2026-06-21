@@ -1,9 +1,8 @@
 """Onboarding node — collects business profile info through structured conversation."""
 
+import asyncio
 import json
 import logging
-
-from langgraph.types import interrupt, Command
 
 from app.llm.client import get_client as get_llm
 from app.llm.specs import load
@@ -50,9 +49,6 @@ async def onboarding_node(state: GraphState) -> dict:
 
             prompt.append({"role": "assistant", "content": llm_response.content or "", "tool_calls": llm_response.tool_calls})
 
-            # Execute tools in parallel
-            import asyncio
-
             async def _run_tool(tc):
                 name = tc["name"]
                 args = dict(tc["args"])
@@ -81,10 +77,9 @@ async def onboarding_node(state: GraphState) -> dict:
 
     parsed = _parse_response(raw)
     text = parsed.get("response", raw)
-    output_type = parsed.get("type", "answer")
     questions = parsed.get("questions")
 
-    logger.info(f"Onboarding type={output_type}: {text[:80]}")
+    logger.info(f"Onboarding type={parsed.get('type', 'answer')}: {text[:80]}")
 
     response_data = {"mode": "conversation", "text": text}
 
@@ -139,19 +134,6 @@ async def onboarding_node(state: GraphState) -> dict:
             }
         }]
 
-    if output_type == "question" and questions:
-        user_answer = interrupt({"text": text, "questions": questions, "extracted": extracted})
-        formatted_answer = _format_user_answer(str(user_answer), questions)
-        logger.info(f"Onboarding resumed with: {formatted_answer[:100]}")
-        result["messages"] = [
-            {"role": "user", "content": user_message},
-            {"role": "assistant", "content": raw},
-            {"role": "user", "content": formatted_answer},
-        ]
-        result["event"] = {"text": formatted_answer, "thread_id": thread_id, "business_id": business_id}
-        result["routed_domain"] = "onboarding"
-        result["response"] = None
-
     return result
 
 
@@ -167,24 +149,6 @@ async def _execute_tool(tool_name: str, tool_args: dict) -> str:
     except Exception as e:
         logger.warning(f"Onboarding tool {tool_name} failed: {e}")
         return f"Tool error: {e}"
-
-
-def _format_user_answer(answer: str, questions: dict) -> str:
-    fields = questions.get("fields", [])
-    if not fields:
-        return answer
-
-    field = fields[0]
-    field_type = field.get("type", "")
-
-    if field_type == "radio":
-        options = field.get("options", [])
-        for opt in options:
-            if opt.get("id") == answer:
-                return f"user response: {answer}\nlabel name: {opt.get('name', '')}\nlabel description: {opt.get('description', '')}"
-        return answer
-
-    return answer
 
 
 def _parse_response(raw: str) -> dict:

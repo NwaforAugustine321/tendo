@@ -162,6 +162,7 @@ CREATE TABLE IF NOT EXISTS ai_business_understanding (
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+
 -- Business evidence
 CREATE TABLE IF NOT EXISTS business_evidence (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
