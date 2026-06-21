@@ -133,6 +133,8 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
 
     response = result.get("response") or {}
     response["text"] = _clean_text(response.get("text", ""))
+    response["input"] = response.get("input")
+    response["extracted"] = response.get("extracted")
 
     # Check if graph is now interrupted (needs user input)
     new_state = await graph.aget_state(config)
