@@ -28,10 +28,12 @@ async def lifespan(app: FastAPI):
     from app.graph.workflow import init_graph
     from app.memory.short_term_mem import shutdown_checkpointer
     from app.memory.long_term_mem import shutdown_store
+    from app.events.worker import start_scheduler, stop_scheduler
 
     try:
         await init_graph()
-        logger.info("Application ready — graph + memory initialized")
+        start_scheduler()
+        logger.info("Application ready — graph + memory + event scheduler initialized")
     except Exception as e:
         logger.critical("STARTUP FAILED: %s", e)
         raise
@@ -39,6 +41,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Cleanup on shutdown
+    stop_scheduler()
     await shutdown_checkpointer()
     await shutdown_store()
     logger.info("Application shutdown — connections closed")

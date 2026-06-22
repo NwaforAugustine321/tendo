@@ -57,6 +57,18 @@ class Settings(BaseSettings):
     # Agent
     agent_name: str = ""
 
+    # Business Event System Worker
+    event_min_event_count: int = 5
+    event_min_char_count: int = 500
+    event_max_events_per_batch: int = 50
+    event_polling_interval_seconds: int = 30
+    event_max_batch_size: int = 100
+
+    # Business Event Scheduler
+    event_max_concurrent_workers: int = 10
+    event_dispatcher_interval: int = 15
+    event_idle_eviction_cycles: int = 3
+
     @field_validator("max_message_token_size")
     @classmethod
     def validate_token_size(cls, v: int) -> int:

@@ -1,13 +1,12 @@
 """Auth routes — thin HTTP layer."""
 
-from fastapi import APIRouter, Response, Request
+from fastapi import APIRouter, Depends, Response
 
 from app.models.auth import RegisterRequest, LoginRequest, AuthResponse
-from app.lib.errors import AuthError
+from app.lib.auth_dependency import get_current_user
 from app.services.auth import (
     handle_register,
     handle_login,
-    handle_get_me,
     COOKIE_NAME,
     COOKIE_MAX_AGE,
 )
@@ -56,13 +55,5 @@ async def logout(response: Response):
 
 
 @router.get("/me", response_model=AuthResponse)
-async def me(request: Request):
-    token = request.cookies.get(COOKIE_NAME)
-    if not token:
-        raise AuthError("Not authenticated")
-
-    user = await handle_get_me(token)
-    if not user:
-        raise AuthError("Session expired. Please log in again.")
-
+async def me(user: dict = Depends(get_current_user)):
     return AuthResponse(user_id=user["user_id"], email=user["email"], name=user["name"])

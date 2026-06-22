@@ -1,11 +1,12 @@
-"""Upload routes — file uploads to Supabase Storage."""
+"""Upload routes — file uploads to Storage."""
 
 import logging
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Query
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Query
 
 from app.config.settings import settings
 from app.db.client import get_client
+from app.lib.auth_dependency import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -15,11 +16,12 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
 
 
 @router.post("/logo")
-async def upload_logo(file: UploadFile = File(...), business_id: str = Query(default="default")):
-    """Upload a business logo to Supabase Storage and return the public URL.
-    
-    Always overwrites the previous logo for this business.
-    """
+async def upload_logo(
+    file: UploadFile = File(...),
+    business_id: str = Query(default="default"),
+    user: dict = Depends(get_current_user),
+):
+    """Upload a business logo to Storage and return the public URL."""
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
 
@@ -27,7 +29,7 @@ async def upload_logo(file: UploadFile = File(...), business_id: str = Query(def
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File must be 20MB or less")
 
-    extension = file.content_type.split("/")[1]  # png, jpeg, webp
+    extension = file.content_type.split("/")[1]
     file_name = f"business_profiles/{business_id}/profiles/logo.{extension}"
 
     try:
@@ -40,7 +42,6 @@ async def upload_logo(file: UploadFile = File(...), business_id: str = Query(def
         public_url = client.storage.from_(settings.bucket_name).get_public_url(file_name)
         logger.info(f"Logo uploaded: {public_url}")
 
-        # Also update the business profile logo_url directly
         if business_id and business_id != "default":
             try:
                 client.table("business_profiles").update({"logo_url": public_url}).eq("id", business_id).execute()

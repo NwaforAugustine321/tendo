@@ -1,14 +1,16 @@
 """Business profile routes."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from app.lib.errors import AuthError
-from app.services.auth import handle_get_me, COOKIE_NAME
+from app.lib.auth_dependency import get_current_user
 from app.services.business import list_business_profiles, create_empty_business_profile
 from app.services.session import create_session, get_or_create_session
+from app.events.writer import EventWriter
 
 router = APIRouter(prefix="/business", tags=["business"])
+
+_event_writer = EventWriter()
 
 
 class ResumeSessionRequest(BaseModel):
@@ -16,74 +18,46 @@ class ResumeSessionRequest(BaseModel):
 
 
 @router.get("/profiles")
-async def get_profiles(request: Request):
-    token = request.cookies.get(COOKIE_NAME)
-    if not token:
-        raise AuthError("Not authenticated")
-
-    user = await handle_get_me(token)
-    if not user:
-        raise AuthError("Session expired")
-
+async def get_profiles(user: dict = Depends(get_current_user)):
     profiles = await list_business_profiles(user["user_id"])
     return {"profiles": profiles}
 
 
 @router.post("/create-empty")
-async def create_empty(request: Request):
-    """Create an empty business profile + conversation session.
-    
-    Returns business_id and session_id for the onboarding flow.
-    """
-    token = request.cookies.get(COOKIE_NAME)
-    if not token:
-        raise AuthError("Not authenticated")
-
-    user = await handle_get_me(token)
-    if not user:
-        raise AuthError("Session expired")
-
+async def create_empty(user: dict = Depends(get_current_user)):
+    """Create an empty business profile + conversation session."""
     user_id = user["user_id"]
 
-    # Create empty business profile
     profile = await create_empty_business_profile(user_id)
     business_id = profile["id"]
 
-    # Create conversation session linked to this business
     session = await create_session(business_id, user_id)
     session_id = session["id"]
+
+    _event_writer.write(
+        business_id=business_id,
+        entity_type="business_profile",
+        entity_id=business_id,
+        event_type="BusinessProfileCreated",
+        source="api",
+        payload={"profile_id": business_id, "session_id": session_id},
+        metadata={"user_id": user_id, "action": "create_empty"},
+        session_id=session_id,
+    )
 
     return {"business_id": business_id, "session_id": session_id}
 
 
 @router.post("/resume-session")
-async def resume_session(request: Request, body: ResumeSessionRequest):
+async def resume_session(body: ResumeSessionRequest, user: dict = Depends(get_current_user)):
     """Get or create a session for an existing business (resume onboarding)."""
-    token = request.cookies.get(COOKIE_NAME)
-    if not token:
-        raise AuthError("Not authenticated")
-
-    user = await handle_get_me(token)
-    if not user:
-        raise AuthError("Session expired")
-
-    user_id = user["user_id"]
-    session = await get_or_create_session(body.business_id, user_id)
-
+    session = await get_or_create_session(body.business_id, user["user_id"])
     return {"session_id": session["id"], "business_id": body.business_id}
 
 
 @router.get("/profile/{business_id}")
-async def get_profile(business_id: str, request: Request):
+async def get_profile(business_id: str, user: dict = Depends(get_current_user)):
     """Get a single business profile by ID."""
-    token = request.cookies.get(COOKIE_NAME)
-    if not token:
-        raise AuthError("Not authenticated")
-
-    user = await handle_get_me(token)
-    if not user:
-        raise AuthError("Session expired")
-
     from app.db.tools.profiles import get_business_profile
     profile = await get_business_profile(business_id)
     return {"profile": profile}
@@ -100,21 +74,14 @@ class UpdateProfileRequest(BaseModel):
 
 
 @router.put("/profile/{business_id}")
-async def update_profile(business_id: str, body: UpdateProfileRequest, request: Request):
+async def update_profile(
+    business_id: str,
+    body: UpdateProfileRequest,
+    user: dict = Depends(get_current_user),
+):
     """Update a business profile directly (from sidebar form)."""
-    token = request.cookies.get(COOKIE_NAME)
-    if not token:
-        raise AuthError("Not authenticated")
-
-    user = await handle_get_me(token)
-    if not user:
-        raise AuthError("Session expired")
-
-    from app.db.tools.profiles import update_business_profile
     from app.db.client import get_client
 
-    # For direct sidebar updates, replace metadata entirely (not merge)
-    result_data = {}
     valid_fields = ("name", "category", "description", "phone", "location", "onboarding_completed")
     updates = {}
     for field in valid_fields:
@@ -126,7 +93,6 @@ async def update_profile(business_id: str, body: UpdateProfileRequest, request: 
         elif val:
             updates[field] = val
 
-    # Replace metadata entirely if provided
     if body.metadata is not None:
         updates["metadata"] = body.metadata
 
@@ -135,34 +101,51 @@ async def update_profile(business_id: str, body: UpdateProfileRequest, request: 
 
     client = get_client()
     result = client.table("business_profiles").update(updates).eq("id", business_id).execute()
+
+    _event_writer.write(
+        business_id=business_id,
+        entity_type="business_profile",
+        entity_id=business_id,
+        event_type="BusinessProfileUpdated",
+        source="ui",
+        payload=updates,
+        metadata={"user_id": user["user_id"], "fields_changed": list(updates.keys())},
+    )
+
     return {"profile": result.data[0] if result.data else {"error": "Update failed"}}
 
 
 @router.delete("/profile/{business_id}")
-async def delete_profile(business_id: str, request: Request):
+async def delete_profile(business_id: str, user: dict = Depends(get_current_user)):
     """Delete an incomplete business profile. Cannot delete completed profiles."""
-    token = request.cookies.get(COOKIE_NAME)
-    if not token:
-        raise AuthError("Not authenticated")
-
-    user = await handle_get_me(token)
-    if not user:
-        raise AuthError("Session expired")
-
     from app.db.client import get_client
     client = get_client()
 
-    # Check if profile exists and is incomplete
-    profile = client.table("business_profiles").select("id, onboarding_completed").eq("id", business_id).eq("user_id", user["user_id"]).single().execute()
+    profile = (
+        client.table("business_profiles")
+        .select("id, onboarding_completed")
+        .eq("id", business_id)
+        .eq("user_id", user["user_id"])
+        .single()
+        .execute()
+    )
     if not profile.data:
         return {"error": "Profile not found"}, 404
 
     if profile.data.get("onboarding_completed"):
         return {"error": "Cannot delete a completed business profile"}, 403
 
-    # Delete associated sessions first (FK constraint)
     client.table("conversation_sessions").delete().eq("business_id", business_id).execute()
-    # Delete the profile
     client.table("business_profiles").delete().eq("id", business_id).execute()
+
+    _event_writer.write(
+        business_id=business_id,
+        entity_type="business_profile",
+        entity_id=business_id,
+        event_type="BusinessProfileDeleted",
+        source="ui",
+        payload={"profile_id": business_id},
+        metadata={"user_id": user["user_id"], "action": "delete"},
+    )
 
     return {"deleted": True}
