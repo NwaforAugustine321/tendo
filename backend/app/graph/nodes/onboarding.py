@@ -78,10 +78,12 @@ async def onboarding_node(state: GraphState) -> dict:
     parsed = _parse_response(raw)
     text = parsed.get("response", raw)
     questions = parsed.get("questions")
+    output_type = parsed.get("type", "answer")
+    workflow_status = parsed.get("workflow_status", "completed" if output_type == "answer" else "waiting_for_user")
 
-    logger.info(f"Onboarding type={parsed.get('type', 'answer')}: {text[:80]}")
+    logger.info(f"Onboarding type={output_type}, workflow_status={workflow_status}: {text[:80]}")
 
-    response_data = {"mode": "conversation", "text": text}
+    response_data = {"mode": "conversation", "text": text, "workflow_status": workflow_status}
 
     if questions:
         response_data["input"] = questions
@@ -110,7 +112,6 @@ async def onboarding_node(state: GraphState) -> dict:
     result = {
         "response": response_data,
         "output_mode": "conversation",
-        "routed_domain": None,
         "messages": [
             {"role": "user", "content": user_message},
             {"role": "assistant", "content": raw},

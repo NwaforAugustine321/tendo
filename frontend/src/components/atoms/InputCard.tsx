@@ -35,6 +35,9 @@ export function InputCard({ fields, onSubmit, disabled = false }: Props) {
   const [textValues, setTextValues] = useState<Record<string, string>>({})
   const [otherValues, setOtherValues] = useState<Record<string, string>>({})
 
+  const isFlatOption = (f: any): boolean =>
+    f && typeof f === 'object' && 'id' in f && 'label' in f && !('type' in f)
+
   const normalizedFields = (() => {
     const raw = fields || []
     // Check if all fields are flat options (id + label, no type)
@@ -50,6 +53,19 @@ export function InputCard({ fields, onSubmit, disabled = false }: Props) {
     }
     return raw
   })()
+
+  // Separate flat options from typed fields
+  const flatOptions: RadioOption[] = []
+  const typedFields: Field[] = []
+  for (const field of normalizedFields) {
+    if (field.type === 'radio' && 'options' in field) {
+      typedFields.push(field as RadioField)
+    } else if (field.type === 'text') {
+      typedFields.push(field as TextField)
+    }
+  }
+
+  const flatSelected = selectedRadio['_flat'] || ''
 
   const handleContinue = () => {
     if (disabled) return

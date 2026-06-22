@@ -15,21 +15,26 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = ""
     gemini_model: str = ""
-    ollama_model: str = "nemotron-3-super"
-    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = ""
+    ollama_base_url: str = ""
 
     # HuggingFace Inference
     hf_token: str = ""
-    hf_model: str = "meta-llama/Llama-3.1-8B"
-    hf_provider: str = "featherless-ai"
+    hf_model: str = ""
+    hf_provider: str = ""
 
     # Grok (xAI)
     xai_api_key: str = ""
-    xai_model: str = "grok-3-mini"
+    xai_model: str = ""
 
     # Groq (fast inference)
     groq_api_key: str = ""
-    groq_model: str = "llama-3.1-8b-instant"
+    groq_model: str = ""
+
+    # Msty (local OpenAI-compatible)
+    msty_model: str = ""
+    msty_base_url: str = ""
+    msty_num_ctx: int = 4096
 
     # Embeddings
     embedding_provider: str = ""
@@ -45,7 +50,7 @@ class Settings(BaseSettings):
     bucket_name: str = "business-assets"
 
     # Voice
-    voice_provider: str = "gemini"
+    voice_provider: str = ""
     google_voice_api_key: str = ""
     google_voice_model: str = ""
     wake_phrase: str = ""
@@ -58,16 +63,16 @@ class Settings(BaseSettings):
     agent_name: str = ""
 
     # Business Event System Worker
-    event_min_event_count: int = 5
-    event_min_char_count: int = 500
-    event_max_events_per_batch: int = 50
-    event_polling_interval_seconds: int = 30
-    event_max_batch_size: int = 100
+    event_min_event_count: int
+    event_min_char_count: int
+    event_max_events_per_batch: int
+    event_polling_interval_seconds: int
+    event_max_batch_size: int
 
     # Business Event Scheduler
-    event_max_concurrent_workers: int = 10
-    event_dispatcher_interval: int = 15
-    event_idle_eviction_cycles: int = 3
+    event_max_concurrent_workers: int
+    event_dispatcher_interval: int
+    event_idle_eviction_cycles: int
 
     @field_validator("max_message_token_size")
     @classmethod

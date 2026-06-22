@@ -118,12 +118,22 @@ async def moa_node(state: GraphState) -> dict:
 
     decision = _parse_decision(raw)
 
-    # If parsing failed, retry once
+    # If parsing failed, retry once with stronger JSON enforcement
     if decision.get("_retry"):
         logger.warning("MOA: invalid JSON output, retrying...")
         prompt.append({"role": "assistant", "content": raw})
-        prompt.append({"role": "user", "content": "Respond ONLY with a valid JSON object."})
-        retry_response = await llm_with_tools.ainvoke(prompt)
+        prompt.append({"role": "user", "content": (
+            "Your previous response was not valid JSON. "
+            "Respond with ONLY a JSON object, no markdown, no explanation. "
+            'Example: {"response": "your text here", "type": "answer", "workflow_status": "completed"}'
+        )})
+        # Retry without tools to avoid tool_call interference
+        try:
+            retry_llm = llm.bind(response_format={"type": "json_object"})
+            retry_response = await retry_llm.ainvoke(prompt)
+        except (TypeError, NotImplementedError):
+            # Some providers don't support response_format — fall back to normal call
+            retry_response = await llm.ainvoke(prompt)
         retry_content = retry_response.content
         if isinstance(retry_content, list):
             retry_content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in retry_content)
@@ -211,4 +221,5 @@ def _parse_decision(raw: str) -> dict:
                         return json.loads(clean[start:i + 1])
         return json.loads(clean)
     except (json.JSONDecodeError, IndexError, ValueError):
-        return {"response": raw, "type": "answer", "_retry": True}
+        # Plain text output — wrap it as an answer response
+        return {"response": raw.strip() if raw else "", "type": "answer"}

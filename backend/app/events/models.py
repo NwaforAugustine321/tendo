@@ -65,8 +65,8 @@ class Job(BaseModel):
 class ThresholdConfig(BaseModel):
     """Configurable thresholds for StreamWorker job creation."""
 
-    min_event_count: int = 5
-    min_char_count: int = 500
-    max_events_per_batch: int = 50
-    polling_interval_seconds: int = 30
-    max_batch_size: int = 100
+    min_event_count: int
+    min_char_count: int
+    max_events_per_batch: int
+    polling_interval_seconds: int
+    max_batch_size: int

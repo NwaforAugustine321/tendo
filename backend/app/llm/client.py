@@ -25,6 +25,9 @@ def get_client():
     elif settings.llm_provider == "groq":
         from app.llm.groq import get_client as get_groq
         _client = get_groq()
+    elif settings.llm_provider == "msty":
+        from app.llm.msty import get_client as get_msty
+        _client = get_msty()
     else:
         from app.llm.anthropic import get_client as get_anthropic
         _client = get_anthropic()

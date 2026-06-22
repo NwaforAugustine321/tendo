@@ -2,7 +2,6 @@
 
 import json
 import logging
-import os
 from abc import ABC, abstractmethod
 from enum import Enum
 from uuid import uuid4
@@ -10,9 +9,11 @@ from uuid import uuid4
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.executors.pool import ThreadPoolExecutor, ProcessPoolExecutor
 
+from app.config.settings import settings
 from app.events.config import load_threshold_config
 from app.events.models import BusinessEvent, Job, ThresholdConfig
-from app.events.store import EventStore
+from app.events.writer import EventStore
+from app.db.client import get_client
 
 logger = logging.getLogger(__name__)
 
@@ -263,8 +264,8 @@ def _dispatch() -> None:
     if not _scheduler or not _store:
         return
 
-    max_workers = int(os.environ.get("EVENT_MAX_CONCURRENT_WORKERS", "10"))
-    idle_eviction = int(os.environ.get("EVENT_IDLE_EVICTION_CYCLES", "3"))
+    max_workers = settings.event_max_concurrent_workers
+    idle_eviction = settings.event_idle_eviction_cycles
 
     # Find businesses with pending events (prioritized by count)
     ready_businesses = _store.query_businesses_with_pending_events(
@@ -301,11 +302,10 @@ def _dispatch() -> None:
 
         job_id = f"biz_{biz['business_id']}"
         if job_id not in scheduled_jobs:
-            polling_interval = int(os.environ.get("EVENT_POLLING_INTERVAL_SECONDS", "30"))
             _scheduler.add_job(
                 _process_business,
                 "interval",
-                seconds=polling_interval,
+                seconds=settings.event_polling_interval_seconds,
                 id=job_id,
                 args=[biz["business_id"]],
                 max_instances=1,
@@ -332,18 +332,24 @@ def start_scheduler() -> None:
 
     _store = EventStore()
 
-    max_workers = int(os.environ.get("EVENT_MAX_CONCURRENT_WORKERS", "10"))
-    dispatcher_interval = int(os.environ.get("EVENT_DISPATCHER_INTERVAL", "15"))
+    max_workers = settings.event_max_concurrent_workers
+    dispatcher_interval = settings.event_dispatcher_interval
 
     executors = {
         "default": ProcessPoolExecutor(5),
         "threadpool": ThreadPoolExecutor(max_workers),
     }
 
-    from app.events.jobstore import LearningJobStore
+    from app.events.scheduler_store import LearningJobStore
+
+    jobstore = LearningJobStore()
+
+    # Clear all stale scheduled jobs from previous runs to ensure fresh intervals
+    jobstore._client = get_client()
+    get_client().table("learning_jobs").delete().eq("status", "scheduled").execute()
 
     jobstores = {
-        "default": LearningJobStore(),
+        "default": jobstore,
     }
 
     _scheduler = BackgroundScheduler(executors=executors, jobstores=jobstores)
@@ -360,6 +366,7 @@ def start_scheduler() -> None:
         id="event_dispatcher",
         max_instances=1,
         executor="threadpool",
+        replace_existing=True,
     )
 
     _scheduler.start()

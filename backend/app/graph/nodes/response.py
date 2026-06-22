@@ -29,11 +29,13 @@ async def response_node(state: GraphState) -> dict:
         response = {"mode": "conversation", "text": assistant_text}
 
     # Polish the text through response_generator for TTS readiness
-    if assistant_text and _needs_polishing(assistant_text):
-        polished = await _polish_response(assistant_text)
-        if polished:
-            response["text"] = polished
-            assistant_text = polished
+    # NOTE: Disabled — response_generator was stripping question fields and changing types.
+    # Re-enable when using a model that reliably preserves JSON structure.
+    # if assistant_text and _needs_polishing(assistant_text):
+    #     polished = await _polish_response(assistant_text)
+    #     if polished:
+    #         response["text"] = polished
+    #         assistant_text = polished
 
     # Persist turn to long-term store
     if user_message and assistant_text:

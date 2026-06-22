@@ -100,6 +100,9 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
 
 async def _send_text_for_tts(session, text: str) -> bool:
     """Send text to Gemini Live for TTS playback. Returns False if session is dead."""
+    if session is None:
+        logger.warning("TTS skipped: session is None")
+        return False
     try:
         await session.send_client_content(
             turns=[types.Content(role="user", parts=[types.Part.from_text(text=text)])],
@@ -320,9 +323,11 @@ async def run_voice_session(
                 moa_response = result.get("text", "")
                 logger.info(f"Socket.IO response: {moa_response[:80]}")
 
+                # Always send text response to frontend first — this must never fail
                 await _send_msg("message", moa_response, result.get("input"), result.get("extracted"))
+                await send({"type": "turn_complete"})
 
-                # TTS is optional — skip if Gemini session is dead
+                # TTS is best-effort — never crashes the connection
                 if session and moa_response:
                     try:
                         await session.send_client_content(
@@ -333,53 +338,14 @@ async def run_voice_session(
                             if response.data:
                                 await send({"type": "audio", "data": encode_audio(response.data)})
                             if response.server_content and response.server_content.turn_complete:
-                                await send({"type": "turn_complete"})
                                 break
                     except Exception as e:
-                        logger.warning(f"Socket.IO TTS failed: {e}")
-                        await send({"type": "turn_complete"})
+                        logger.warning(f"Socket.IO TTS failed (non-fatal): {e}")
                         try:
                             await session.__aexit__(None, None, None)
                         except Exception:
                             pass
                         session = None
-                elif not session and moa_response:
-                    # Try to reconnect Gemini for TTS
-                    await send({"type": "turn_complete"})
-                    try:
-                        session = await client.aio.live.connect(
-                            model=settings.google_voice_model, config=config
-                        ).__aenter__()
-                        logger.info("Socket.IO: Gemini session reconnected on text")
-                    except Exception:
-                        pass
-                else:
-                    await send({"type": "turn_complete"})
-
-                await asyncio.sleep(0.3)
-
-                try:
-                    await session.send_client_content(
-                        turns=[types.Content(role="user", parts=[types.Part.from_text(text=moa_response)])],
-                        turn_complete=True,
-                    )
-                    async for response in session.receive():
-                        if response.data:
-                            await send({"type": "audio", "data": encode_audio(response.data)})
-                        if response.server_content and response.server_content.turn_complete:
-                            await send({"type": "turn_complete"})
-                            break
-                except Exception as e:
-                    logger.warning(f"Socket.IO TTS failed: {e}")
-                    await send({"type": "turn_complete"})
-                    # Mark session as dead, will try to reconnect on next message
-                    try:
-                        await session.__aexit__(None, None, None)
-                    except Exception:
-                        pass
-                    session = None
-
-                await asyncio.sleep(0.3)
 
             elif kind == "audio":
                 # If Gemini session is dead, skip audio silently

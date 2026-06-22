@@ -10,7 +10,7 @@ from app.events.models import (
     JobStatus,
     ThresholdConfig,
 )
-from app.events.store import EventStore
+from app.events.writer import EventStore, EventWriter
 from app.events.worker import (
     BusinessEventWorker,
     StreamWorker,
@@ -18,7 +18,6 @@ from app.events.worker import (
     start_scheduler,
     stop_scheduler,
 )
-from app.events.writer import EventWriter
 
 __all__ = [
     "BusinessEvent",
