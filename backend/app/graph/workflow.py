@@ -51,7 +51,7 @@ def route_from_moa(state: GraphState) -> str:
 def route_from_domain_router(state: GraphState) -> str:
     """Dispatch to the correct specialist node."""
     owner = state.get("workflow_owner") or ""
-    if owner in ("onboarding", "transactions"):
+    if owner in ("onboarding", "transactions", "inventory"):
         return owner
     return "response"
 
@@ -66,7 +66,7 @@ def route_from_specialist(state: GraphState) -> str:
 def route_from_db_translator(state: GraphState) -> str:
     """Dynamic return — go back to whoever requested the data."""
     return_to = state.get("return_to") or "response"
-    if return_to in ("moa", "onboarding", "transactions"):
+    if return_to in ("moa", "onboarding", "transactions", "inventory"):
         return return_to
     return "response"
 
@@ -83,6 +83,7 @@ def build_graph() -> StateGraph:
     builder.add_node("domain_router", domain_router_node)
     builder.add_node("onboarding", onboarding_node)
     builder.add_node("transactions", transactions_node)
+    builder.add_node("inventory", inventory_node)
     builder.add_node("tool_planner", tool_planner_node)
     builder.add_node("db_oracle", db_node)
     builder.add_node("db_translator", db_translator_node)
@@ -102,7 +103,7 @@ def build_graph() -> StateGraph:
     builder.add_conditional_edges(
         "domain_router",
         route_from_domain_router,
-        ["onboarding", "transactions", "response"],
+        ["onboarding", "transactions", "inventory", "response"],
     )
 
     # Specialists either finish or need tools
@@ -116,6 +117,11 @@ def build_graph() -> StateGraph:
         route_from_specialist,
         ["tool_planner", "response"],
     )
+    builder.add_conditional_edges(
+        "inventory",
+        route_from_specialist,
+        ["tool_planner", "response"],
+    )
 
     # Tool execution chain
     builder.add_edge("tool_planner", "db_oracle")
@@ -125,7 +131,7 @@ def build_graph() -> StateGraph:
     builder.add_conditional_edges(
         "db_translator",
         route_from_db_translator,
-        ["moa", "onboarding", "transactions", "response"],
+        ["moa", "onboarding", "transactions", "inventory", "response"],
     )
 
     builder.add_edge("response", END)
