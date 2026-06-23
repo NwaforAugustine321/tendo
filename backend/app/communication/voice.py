@@ -17,6 +17,9 @@ from app.services.auth import handle_get_me, COOKIE_NAME
 
 logger = logging.getLogger(__name__)
 
+# Per-thread conversation history — maps thread_id to message list
+_thread_histories: dict[str, list[dict]] = {}
+
 # Module-level singletons — created once at import time
 _gemini_client = genai.Client(api_key=settings.google_voice_api_key)
 _gemini_config = types.LiveConnectConfig(
@@ -86,6 +89,11 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
 
     from app.lib.thinking_status import get_thinking_status
 
+    # Maintain per-thread conversation history (last 12 messages)
+    if thread_id not in _thread_histories:
+        _thread_histories[thread_id] = []
+    thread_messages = _thread_histories[thread_id]
+
     async def _send_thinking_msg(msg: str):
         if send_fn:
             try:
@@ -129,14 +137,23 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
                 await send_fn({"type": "error", "data": "Something went wrong."})
         return result
 
-    # Fresh invocation every time
+    # Fresh invocation every time — include conversation history
     input_state = {
         "event": {"text": user_text, "thread_id": thread_id, "business_id": business_id},
         "thread_id": thread_id,
         "business_id": business_id,
         "user_id": user_id,
+        "messages": thread_messages[-12:],
     }
     result = await _stream_invoke(input_state)
+
+    # Update thread history with new messages from this turn
+    new_messages = result.get("messages", [])
+    if new_messages:
+        thread_messages.extend(new_messages)
+        # Keep only last 24 messages to prevent unbounded growth
+        if len(thread_messages) > 24:
+            _thread_histories[thread_id] = thread_messages[-24:]
 
     response = result.get("response") or {}
     response["text"] = _clean_text(response.get("text", ""))

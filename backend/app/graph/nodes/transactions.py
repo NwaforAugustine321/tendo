@@ -63,7 +63,7 @@ async def transactions_node(state: GraphState) -> dict:
     system_content += f"\n\n## Context\n- business_id: {business_id}\n- thread_id: {thread_id}"
 
     prompt = [{"role": "system", "content": system_content}]
-    prompt.extend(history[-10:])
+    prompt.extend(history[-12:])
     prompt.append({"role": "user", "content": user_message})
 
     raw = ""

@@ -97,7 +97,7 @@ async def moa_node(state: GraphState) -> dict:
         description=user_message,
         tools=moa_tools,
         expected_output=agent.expected_output,
-        chat_history=history[-10:],
+        chat_history=history[-12:],
         context=context,
         output_pydantic=DomainAgentOutput,
         use_system_prompt=True,
