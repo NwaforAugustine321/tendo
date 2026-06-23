@@ -3,12 +3,10 @@
 import logging
 
 from app.db.client import get_client
-from app.db.registry import register
 
 logger = logging.getLogger(__name__)
 
 
-@register("search_services")
 async def search_services(business_id: str, query: str = "", **kwargs) -> dict:
     """Search services by name or category."""
     client = get_client()
@@ -19,7 +17,6 @@ async def search_services(business_id: str, query: str = "", **kwargs) -> dict:
     return {"results": result.data or [], "count": len(result.data or [])}
 
 
-@register("create_service")
 async def create_service(
     business_id: str, name: str, price: float = 0, category: str = "", **kwargs
 ) -> dict:
@@ -35,7 +32,6 @@ async def create_service(
     return result.data[0] if result.data else data
 
 
-@register("update_service")
 async def update_service(business_id: str, service_id: str, **kwargs) -> dict:
     """Update a service."""
     client = get_client()
@@ -52,7 +48,6 @@ async def update_service(business_id: str, service_id: str, **kwargs) -> dict:
     return result.data[0] if result.data else {"error": "Update failed"}
 
 
-@register("delete_service")
 async def delete_service(business_id: str, service_id: str, **kwargs) -> dict:
     """Delete a service."""
     client = get_client()

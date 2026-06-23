@@ -1,14 +1,15 @@
-"""Transaction database operations."""
+"""Transaction database operations with event emission."""
 
 import logging
 
 from app.db.client import get_client
-from app.db.registry import register
+from app.events.writer import EventWriter
 
 logger = logging.getLogger(__name__)
 
+_event_writer = EventWriter()
 
-@register("record_transaction")
+
 async def record_transaction(
     business_id: str,
     total: float,
@@ -20,7 +21,7 @@ async def record_transaction(
     items: list = None,
     **kwargs,
 ) -> dict:
-    """Record a transaction with type, payment, total, status, narration, and optional metadata."""
+    """Record a transaction."""
     client = get_client()
     data = {
         "business_id": business_id,
@@ -34,12 +35,24 @@ async def record_transaction(
         data["customer_id"] = customer_id
 
     result = client.table("transactions").insert(data).execute()
-    return result.data[0] if result.data else data
+    transaction = result.data[0] if result.data else data
+
+    if result.data:
+        _event_writer.write(
+            business_id=business_id,
+            entity_type="transaction",
+            entity_id=transaction.get("id", ""),
+            event_type="TransactionCreated",
+            source="system",
+            payload={"total": total, "type": transaction_type, "payment_type": payment_type, "status": status},
+            metadata={"customer_id": customer_id, "narration": narration},
+        )
+
+    return transaction
 
 
-@register("get_transactions")
 async def get_transactions(business_id: str, limit: int = 10, offset: int = 0, status: str = "", transaction_type: str = "", **kwargs) -> dict:
-    """Get transactions with pagination. Filter by type or status optionally."""
+    """Get transactions with pagination."""
     client = get_client()
     q = client.table("transactions").select("*, customers(name)").eq("business_id", business_id)
     if transaction_type:
@@ -50,9 +63,8 @@ async def get_transactions(business_id: str, limit: int = 10, offset: int = 0, s
     return {"results": result.data or [], "count": len(result.data or []), "offset": offset, "limit": limit, "has_more": len(result.data or []) == limit}
 
 
-@register("get_transactions_summary")
 async def get_transactions_summary(business_id: str, transaction_type: str = "", **kwargs) -> dict:
-    """Get transactions summary (total, count). Optionally filter by type."""
+    """Get transactions summary."""
     client = get_client()
     q = client.table("transactions").select("total, status, type").eq("business_id", business_id)
     if transaction_type:
@@ -67,7 +79,6 @@ async def get_transactions_summary(business_id: str, transaction_type: str = "",
     }
 
 
-@register("update_transaction")
 async def update_transaction(business_id: str, transaction_id: str, **kwargs) -> dict:
     """Update a transaction."""
     client = get_client()
@@ -82,10 +93,21 @@ async def update_transaction(business_id: str, transaction_id: str, **kwargs) ->
         .eq("business_id", business_id)
         .execute()
     )
+
+    if result.data:
+        _event_writer.write(
+            business_id=business_id,
+            entity_type="transaction",
+            entity_id=transaction_id,
+            event_type="TransactionUpdated",
+            source="system",
+            payload=updates,
+            metadata={"transaction_id": transaction_id},
+        )
+
     return result.data[0] if result.data else {"error": "Update failed"}
 
 
-@register("delete_transaction")
 async def delete_transaction(business_id: str, transaction_id: str, **kwargs) -> dict:
     """Delete a transaction."""
     client = get_client()
@@ -96,4 +118,16 @@ async def delete_transaction(business_id: str, transaction_id: str, **kwargs) ->
         .eq("business_id", business_id)
         .execute()
     )
+
+    if result.data:
+        _event_writer.write(
+            business_id=business_id,
+            entity_type="transaction",
+            entity_id=transaction_id,
+            event_type="TransactionDeleted",
+            source="system",
+            payload={"transaction_id": transaction_id},
+            metadata={},
+        )
+
     return {"deleted": True} if result.data else {"error": "Delete failed"}

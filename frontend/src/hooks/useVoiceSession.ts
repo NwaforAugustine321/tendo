@@ -19,6 +19,7 @@ export function useVoiceSession() {
   const [lastMessage, setLastMessage] = useState<AgentMessage | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   const [thinkingText, setThinkingText] = useState('')
+  const [thoughtText, setThoughtText] = useState('')
   const [reconnectAttempt, setReconnectAttempt] = useState(0)
   const [turnComplete, setTurnComplete] = useState(false)
   const clientRef = useRef<VoiceClient | null>(null)
@@ -59,10 +60,13 @@ export function useVoiceSession() {
       onError: (err) => {
         setErrorMessage(err)
         setState('error')
+        setThoughtText('')
+        setThinkingText('')
       },
       onSpeakingStart: () => setState('speaking'),
       onSpeakingEnd: () => setState('idle'),
       onThinking: (text) => setThinkingText(text),
+      onThought: (text) => setThoughtText(text),
       onReconnecting: (attempt) => {
         setReconnectAttempt(attempt)
         setState('reconnecting')
@@ -95,6 +99,8 @@ export function useVoiceSession() {
           extracted: extracted || undefined,
         })
         setTurnComplete(false)
+        setThoughtText('')
+        setThinkingText('')
       },
     })
 
@@ -199,6 +205,7 @@ export function useVoiceSession() {
     turnComplete,
     errorMessage,
     thinkingText,
+    thoughtText,
     reconnectAttempt,
     connect,
     startListening,

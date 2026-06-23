@@ -1,4 +1,8 @@
-"""DB Translator node — converts raw DB results to natural language for MOA."""
+"""DB Translator node — converts raw DB results to natural language.
+
+Returns dynamically to whoever requested the data via the `return_to` state field.
+The conditional edge in workflow.py reads `return_to` to route back.
+"""
 
 import json
 import logging
@@ -11,11 +15,15 @@ logger = logging.getLogger(__name__)
 
 
 async def db_translator_node(state: GraphState) -> dict:
-    """Convert db_result into a natural language summary for MOA to use."""
+    """Convert db_result into a natural language summary for the caller."""
     db_result = state.get("db_result")
 
     if not db_result or not db_result.get("results"):
-        return {"domain_result": {"summary": "No results."}}
+        return {
+            "domain_result": {"summary": "No results."},
+            "db_result": None,
+            "tool_requests": None,
+        }
 
     results = db_result["results"]
     event = state.get("event", {})
@@ -51,9 +59,7 @@ async def db_translator_node(state: GraphState) -> dict:
 
     return {
         "domain_result": {"summary": summary},
-        "response": {"mode": "conversation", "text": summary},
         "db_result": None,
-        "messages": [
-            {"role": "assistant", "content": summary},
-        ],
+        "tool_requests": None,
+        # Keep return_to unchanged so the routing function can read it
     }

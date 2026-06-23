@@ -48,6 +48,7 @@ class Settings(BaseSettings):
 
     # Storage
     bucket_name: str = "business-assets"
+    vector_store_path: str = "./data/vector_store"
 
     # Voice
     voice_provider: str = ""
@@ -61,6 +62,18 @@ class Settings(BaseSettings):
 
     # Agent
     agent_name: str = ""
+
+    # Intelligence Agent
+    intelligence_llm_provider: str = "msty"
+    intelligence_llm_model: str = ""
+    intelligence_max_iterations: int = 5
+    intelligence_embedding_batch_size: int = 10
+
+    # Graph Database
+    graph_db_uri: str = "bolt://localhost:7687"
+    graph_db_user: str = "neo4j"
+    graph_db_password: str = ""
+    graph_db_name: str = "neo4j"
 
     # Business Event System Worker
     event_min_event_count: int

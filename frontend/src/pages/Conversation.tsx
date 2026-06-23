@@ -193,6 +193,7 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
       messages={messages}
       isTyping={thinking || voice.isSpeaking}
       thinkingText={thinking ? (voice.thinkingText || 'Thinking...') : undefined}
+      thoughtText={thinking ? voice.thoughtText : undefined}
       onSendText={handleSendText}
       onVoiceRecorded={() => {}}
       onVoiceToggle={handleVoiceToggle}

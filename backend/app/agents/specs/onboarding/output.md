@@ -2,28 +2,41 @@ OUTPUT FORMAT
 
 Respond with ONE valid JSON object only. No markdown. No explanation.
 
-QUESTION (waiting for user input)
+MESSAGE WITH INPUT FIELDS (waiting for user input)
 
 ```json
 {
   "response": "spoken text",
-  "type": "question",
   "workflow_status": "waiting_for_user",
   "extracted": {},
-  "questions": {
-    "fields": [{"type": "radio", "options": [{"id": "opt1", "name": "field_name", "label": "Option 1", "description": "explanation"}]}]
-  }
+  "fields": [
+    {"name": "field_name", "placeholder": "hint", "description": "help text"}
+  ]
 }
 ```
 
-ANSWER (step complete, not yet finished onboarding)
+CHOICES (radio-style selection)
 
 ```json
 {
   "response": "spoken text",
-  "type": "answer",
+  "workflow_status": "waiting_for_user",
+  "extracted": {},
+  "fields": [
+    {"id": "opt1", "name": "field_name", "label": "Option 1", "description": "explanation"},
+    {"id": "opt2", "name": "field_name", "label": "Option 2", "description": "explanation"},
+    {"id": "opt2", "name": "field_name", "label": "Option 2", "description": "others allow user to choose option"}
+  ]
+}
+```
+
+MESSAGE ONLY (step complete, not yet finished onboarding)
+
+```json
+{
+  "response": "spoken text",
   "workflow_status": "completed",
-  "extracted": {}
+  "extracted": {"business_name": "Flivana"}
 }
 ```
 
@@ -32,7 +45,6 @@ ONBOARDING COMPLETE
 ```json
 {
   "response": "Profile looks great.",
-  "type": "answer",
   "workflow_status": "completed",
   "status": "complete",
   "extracted": {},
@@ -46,21 +58,26 @@ ONBOARDING COMPLETE
 }
 ```
 
-FIELD TYPES
+DETECTION LOGIC
 
-Text:
+- If `fields` exists and is non-empty → show input to user
+- Otherwise → just a message response
+
+FIELD FORMATS
+
+Text input (has `placeholder`):
 ```json
-{"type": "text", "name": "field_name", "placeholder": "hint", "description": "help text"}
+{"name": "field_name", "placeholder": "hint", "description": "help text"}
 ```
 
-Radio:
+Radio/choice (has `id` + `label`, fields share the same `name`):
 ```json
-{"type": "radio", "options": [{"id": "opt1", "name": "field_name", "label": "Option 1", "description": "explanation"}]}
+{"id": "opt1", "name": "field_name", "label": "Option 1", "description": "explanation"}
 ```
 
 FIELD COLLECTION RULES
 
-The questions.fields array collects missing information only.
+The fields array collects missing information only.
 
 Before generating fields:
 1. Understand the request
@@ -73,14 +90,16 @@ The extracted object contains all newly identified profile information from the 
 
 STATE RULES
 
-question + workflow_status=waiting_for_user
+workflow_status=waiting_for_user
 * waiting for user input
 * onboarding not complete
+* has fields
 
-answer + workflow_status=completed
+workflow_status=completed
 * current step complete
+* no fields needed
 
-answer + status=complete
+workflow_status=completed + status=complete
 * onboarding fully complete
 * no further questions
 

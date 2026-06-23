@@ -1,46 +1,27 @@
-"""Memory tools — callable by MOA to fetch context on demand."""
+"""Memory tools — callable by agents to fetch context on demand."""
 
+import json
 import logging
 
 from langchain_core.tools import tool
 
-from app.config.settings import settings
-from app.memory.long_term_mem import ensure_store
-from app.memory.retriever import retrieve_relevant_memories
-from app.memory.summarizer import get_latest_summary
 from app.db.tools.profiles import get_business_profile
+from app.memory.memory import get_memory
 
 logger = logging.getLogger(__name__)
 
-# These will be bound to the LLM as tools MOA can call
-
 
 @tool
-async def recall_summary(business_id: str) -> str:
-    """Get the rolling conversation summary for a business. Use this to understand overall context and what happened in previous conversations."""
+async def recall_memory(business_id: str, query: str) -> str:
+    """Search past conversations for specific information. Use when you need to find a specific fact, statement, or detail from previous interactions."""
     try:
-        store = await ensure_store()
-        summary = await get_latest_summary(store, business_id)
-        return summary or "No conversation history found for this business."
+        memory = get_memory(f"/business/{business_id}")
+        matches = await memory.recall(query, limit=5)
+        if not matches:
+            return "No relevant past memories found."
+        return "\n".join(m.format() for m in matches)
     except Exception as e:
-        logger.warning(f"recall_summary failed: {e}")
-        return "Could not retrieve summary."
-
-
-@tool
-async def search_memory(business_id: str, query: str) -> str:
-    """Search past conversations for specific information. Use when you need to find a specific fact, statement, or detail from previous messages."""
-    try:
-        store = await ensure_store()
-        results = await retrieve_relevant_memories(
-            store=store,
-            query=query,
-            business_id=business_id,
-            limit=5,
-        )
-        return results or "No relevant past messages found."
-    except Exception as e:
-        logger.warning(f"search_memory failed: {e}")
+        logger.warning(f"recall_memory failed: {e}")
         return "Could not search memory."
 
 
@@ -50,8 +31,7 @@ async def get_profile(business_id: str) -> str:
     try:
         profile = await get_business_profile(business_id=business_id)
         if profile and isinstance(profile, dict) and not profile.get("error"):
-            import json
-            exclude = {"id", "user_id", "created_at", "updated_at", "onboarding_completed", "logo_url" }
+            exclude = {"id", "user_id", "created_at", "updated_at", "onboarding_completed", "logo_url"}
             data = {k: v for k, v in profile.items() if k not in exclude and v}
             return json.dumps(data) if data else "Profile exists but has no data yet."
         return "No business profile found."
@@ -60,30 +40,5 @@ async def get_profile(business_id: str) -> str:
         return "Could not retrieve profile."
 
 
-@tool
-async def get_archived_messages(business_id: str, thread_id: str, limit: int = 10) -> str:
-    """Get older messages from this conversation that were archived (trimmed from context). Use this to recall earlier parts of the current session."""
-    try:
-        store = await ensure_store()
-        namespace = (business_id, "archived_messages")
-        results = await store.asearch(namespace, query="recent conversation", limit=limit)
-        if not results:
-            return "No archived messages found for this thread."
-
-        formatted = []
-        for item in results:
-            value = item.value
-            role = value.get("role", "unknown")
-            content = value.get("content", "")
-            tid = value.get("thread_id", "")
-            if tid == thread_id and content:
-                formatted.append(f"[{role}]: {content[:200]}")
-
-        return "\n".join(formatted) if formatted else "No messages found for this specific thread."
-    except Exception as e:
-        logger.warning(f"get_thread_messages failed: {e}")
-        return "Could not retrieve thread messages."
-
-
-# All tools available to MOA
-MEMORY_TOOLS = [recall_summary, search_memory, get_profile, get_archived_messages]
+# All memory tools available to agents
+MEMORY_TOOLS = [recall_memory, get_profile]

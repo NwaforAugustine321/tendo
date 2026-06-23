@@ -8,7 +8,6 @@ This module is available for future use when persistence becomes important.
 """
 
 import logging
-import pickle
 from datetime import datetime, timezone
 
 from apscheduler.job import Job as APJob
@@ -148,6 +147,7 @@ class LearningJobStore(BaseJobStore):
 
     def _serialize_job(self, job: APJob) -> dict:
         """Convert an APScheduler Job to a row dict for learning_jobs."""
+        import pickle
         job_state = pickle.dumps(job.__getstate__(), protocol=pickle.HIGHEST_PROTOCOL)
         next_run = job.next_run_time.isoformat() if job.next_run_time else None
 
@@ -159,11 +159,12 @@ class LearningJobStore(BaseJobStore):
             "end_sequence": 0,
             "status": "scheduled",
             "started_at": next_run,
-            "error_message": job_state.hex(),  # Store pickled state as hex string
+            "error_message": job_state.hex(),
         }
 
     def _deserialize_job(self, row: dict) -> APJob | None:
-        """Reconstruct an APScheduler Job from a row dict."""
+        """Reconstruct an APScheduler Job from a stored row."""
+        import pickle
         try:
             job_state_hex = row.get("error_message", "")
             if not job_state_hex:

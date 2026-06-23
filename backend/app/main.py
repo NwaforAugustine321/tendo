@@ -19,6 +19,8 @@ from app.ws.socketio_server import sio
 import app.ws.voice_handler  # noqa: F401 — registers Socket.IO event handlers
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
@@ -26,14 +28,12 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """App lifespan — initialize graph + connections on startup, cleanup on shutdown."""
     from app.graph.workflow import init_graph
-    from app.memory.short_term_mem import shutdown_checkpointer
-    from app.memory.long_term_mem import shutdown_store
     from app.events.worker import start_scheduler, stop_scheduler
 
     try:
         await init_graph()
         start_scheduler()
-        logger.info("Application ready — graph + memory + event scheduler initialized")
+        logger.info("Application ready — graph + event scheduler initialized")
     except Exception as e:
         logger.critical("STARTUP FAILED: %s", e)
         raise
@@ -42,8 +42,6 @@ async def lifespan(app: FastAPI):
 
     # Cleanup on shutdown
     stop_scheduler()
-    await shutdown_checkpointer()
-    await shutdown_store()
     logger.info("Application shutdown — connections closed")
 
 

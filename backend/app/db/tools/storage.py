@@ -1,61 +1,75 @@
-"""Supabase Storage operations — file upload for business assets."""
+"""Storage operations — file upload for business assets."""
 
 import base64
 import logging
 import uuid
 
 from app.db.client import get_client
-from app.db.registry import register
+from app.events.writer import EventWriter
 
 logger = logging.getLogger(__name__)
 
+_event_writer = EventWriter()
 
-@register("upload_business_logo")
-async def upload_business_logo(business_id: str, logo_data_url: str, **kwargs) -> dict:
-    """Upload a business logo to Supabase Storage and update the profile.
 
-    Args:
-        business_id: The business ID.
-        logo_data_url: Base64 data URL (e.g., data:image/png;base64,...)
-
-    Returns:
-        Dict with the public URL of the uploaded logo.
-    """
+async def upload_file(business_id: str, path: str, content: bytes, content_type: str) -> str:
+    """Upload a file to storage and return the public URL."""
     client = get_client()
+    from app.config.settings import settings
 
+    client.storage.from_(settings.bucket_name).upload(
+        path=path,
+        file=content,
+        file_options={"content-type": content_type, "upsert": "true"},
+    )
+    public_url = client.storage.from_(settings.bucket_name).get_public_url(path)
+    logger.info(f"File uploaded: {public_url}")
+
+    _event_writer.write(
+        business_id=business_id,
+        entity_type="storage",
+        entity_id=path,
+        event_type="FileUploaded",
+        source="system",
+        payload={"path": path, "content_type": content_type, "url": public_url},
+        metadata={"business_id": business_id},
+    )
+
+    return public_url
+
+
+async def upload_logo(business_id: str, content: bytes, content_type: str) -> str:
+    """Upload a business logo and update the profile with the URL."""
+    extension = content_type.split("/")[1]
+    path = f"business_profiles/{business_id}/profiles/logo.{extension}"
+
+    public_url = await upload_file(business_id, path, content, content_type)
+
+    # Update the business profile logo_url
+    client = get_client()
     try:
-        from app.config.settings import settings
-        bucket_name = settings.bucket_name
-        # Parse the data URL
+        client.table("business_profiles").update({"logo_url": public_url}).eq("id", business_id).execute()
+        logger.info(f"Logo URL saved to profile: {business_id}")
+    except Exception as e:
+        logger.warning(f"Failed to update profile logo_url: {e}")
+
+    return public_url
+
+
+async def upload_business_logo(business_id: str, logo_data_url: str, **kwargs) -> dict:
+    """Upload a business logo from a base64 data URL.
+
+    Used by agents that receive logo as data URL from the frontend.
+    """
+    try:
         if not logo_data_url.startswith("data:"):
             return {"error": "Invalid data URL format"}
 
         header, encoded = logo_data_url.split(",", 1)
         mime_type = header.split(":")[1].split(";")[0]
-        extension = mime_type.split("/")[1]  # png, jpeg, webp, etc.
-
-        # Decode the base64 data
         file_bytes = base64.b64decode(encoded)
 
-        # Generate unique file path
-        file_name = f"business_profiles/{business_id}/logo_{uuid.uuid4().hex[:8]}.{extension}"
-
-        # Upload to Supabase Storage
-        client.storage.from_(bucket_name).upload(
-            path=file_name,
-            file=file_bytes,
-            file_options={"content-type": mime_type, "upsert": "true"},
-        )
-
-        # Get public URL
-        public_url = client.storage.from_(bucket_name).get_public_url(file_name)
-
-        # Update business profile with the logo URL
-        client.table("business_profiles").update(
-            {"logo_url": public_url}
-        ).eq("id", business_id).execute()
-
-        logger.info(f"Logo uploaded for business {business_id}: {public_url}")
+        public_url = await upload_logo(business_id, file_bytes, mime_type)
         return {"logo_url": public_url, "success": True}
 
     except Exception as e:

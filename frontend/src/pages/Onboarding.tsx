@@ -188,10 +188,18 @@ export function Onboarding() {
 
   const handleSendText = (text: string) => {
     const optionContext = findOptionContext(text)
-    const displayText = optionContext?.label || text
+    let displayText = optionContext?.label || text
     const sendText = optionContext
       ? `label: ${optionContext.label}, answer: ${optionContext.id}, description: ${optionContext.description || ''}`
       : text
+
+    // If it's a JSON array from InputCard, show a clean summary
+    if (text.startsWith('[') && text.includes('"answer"')) {
+      try {
+        const responses = JSON.parse(text) as Array<{name: string; label?: string; answer: string}>
+        displayText = responses.map((r) => r.label || r.answer).join(', ')
+      } catch { /* use raw text */ }
+    }
 
     setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: displayText, type: 'text' }])
     setThinking(true)
@@ -280,6 +288,7 @@ export function Onboarding() {
               messages={messages}
               isTyping={thinking || voice.isSpeaking}
               thinkingText={thinking ? (voice.thinkingText || ``) : undefined}
+              thoughtText={thinking ? voice.thoughtText : undefined}
               onSendText={handleSendText}
               onVoiceRecorded={() => {}}
               onVoiceToggle={handleVoiceToggle}

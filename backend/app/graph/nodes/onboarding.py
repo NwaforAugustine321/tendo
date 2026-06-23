@@ -1,19 +1,23 @@
-"""Onboarding node — collects business profile info through structured conversation."""
+"""Onboarding node — collects business profile info through structured conversation.
 
-import asyncio
+Call-stack architecture: onboarding owns its workflow. When onboarding completes,
+it issues a tool_request to update the business profile via tool_planner.
+"""
+
 import json
 import logging
 
-from app.llm.client import get_client as get_llm
-from app.llm.specs import load
-from app.lib.prompt_trimmer import trim_and_archive
-from app.memory.tools import MEMORY_TOOLS
+from app.agents.models import Agent, DomainAgentOutput
+from app.db.tools.onboarding_tools import ONBOARDING_TOOLS
+from app.lib.agent_executor import execute_task
+from app.lib.user_input_tool import ask_user_question
+from app.memory.memory import Memory, get_memory
 from app.models.state import GraphState
 
 logger = logging.getLogger(__name__)
 
-ONBOARDING_TOOLS = MEMORY_TOOLS
-MAX_TOOL_ITERATIONS = 3
+# Load agent once at module level
+_onboarding_agent = Agent.from_spec("onboarding")
 
 
 async def onboarding_node(state: GraphState) -> dict:
@@ -21,77 +25,71 @@ async def onboarding_node(state: GraphState) -> dict:
     user_message = event.get("text", "")
     business_id = state.get("business_id") or event.get("business_id", "")
     thread_id = state.get("thread_id") or event.get("thread_id", "")
-
-    config = load("onboarding", tools=ONBOARDING_TOOLS)
-    llm = get_llm()
-
     history = state.get("messages", [])
-    logger.info(f"Onboarding: history has {len(history)} messages, business_id={business_id}")
 
-    llm_with_tools = llm.bind_tools(ONBOARDING_TOOLS)
+    from app.lib.field_formatter import format_user_input
+    user_message = format_user_input(user_message)
 
-    system_content = config.system_prompt
-    system_content += f"\n\n## Context\n- business_id: {business_id}\n- thread_id: {thread_id}"
+    # Return from tool_planner (db_translator just ran)
+    domain_result = state.get("domain_result")
+    if domain_result and state.get("return_to") == "onboarding":
+        summary = domain_result.get("summary", "")
+        logger.info(f"Onboarding: got tool results back — {summary[:100]}")
 
-    prompt = [{"role": "system", "content": system_content}]
-    prompt.extend(history[-12:])
-    prompt.append({"role": "user", "content": user_message})
+        response_data = {"mode": "conversation", "text": summary}
+        return {
+            "response": response_data,
+            "output_mode": "conversation",
+            "domain_result": None,
+            "return_to": None,
+            "workflow_owner": None,
+            "current_agent": None,
+            "tool_requests": None,
+            "messages": [
+                {"role": "assistant", "content": summary},
+            ],
+        }
 
-    prompt = await trim_and_archive(prompt, business_id, thread_id)
+    # Use module-level agent
+    agent = _onboarding_agent
 
-    # Tool-calling loop — onboarding can call get_profile before responding
-    raw = ""
-    for iteration in range(MAX_TOOL_ITERATIONS):
-        llm_response = await llm_with_tools.ainvoke(prompt)
+    # Context
+    context = f"business_id: {business_id}\nthread_id: {thread_id}"
 
-        if llm_response.tool_calls:
-            logger.info(f"Onboarding: calling {len(llm_response.tool_calls)} tool(s): {[tc['name'] for tc in llm_response.tool_calls]}")
+    # Memory for this business (cached, not recreated per request)
+    memory = get_memory(f"/business/{business_id}")
 
-            prompt.append({"role": "assistant", "content": llm_response.content or "", "tool_calls": llm_response.tool_calls})
+    # Execute using our lib pipeline
+    raw = await execute_task(
+        agent=agent,
+        description=user_message,
+        tools=ONBOARDING_TOOLS + [ask_user_question],
+        expected_output=agent.expected_output,
+        chat_history=history[-10:],
+        context=context,
+        output_pydantic=DomainAgentOutput,
+        memory=memory,
+        use_system_prompt=True,
+        max_iter=3,
+    )
 
-            async def _run_tool(tc):
-                name = tc["name"]
-                args = dict(tc["args"])
-                if "business_id" in args and not args["business_id"]:
-                    args["business_id"] = business_id
-                res = await _execute_tool(name, args)
-                logger.info(f"Onboarding: tool {name} returned {len(res)} chars")
-                return tc["id"], res
+    logger.info(f"Onboarding raw output: {raw[:200]}")
 
-            tool_results = await asyncio.gather(*[_run_tool(tc) for tc in llm_response.tool_calls])
-
-            for call_id, result in tool_results:
-                prompt.append({
-                    "role": "tool",
-                    "tool_call_id": call_id,
-                    "content": result,
-                })
-            continue
-
-        raw = llm_response.content.strip()
-        break
-    else:
-        raw = llm_response.content.strip() if llm_response.content else '{"response": "Let me help set up your profile.", "type": "question", "questions": {"fields": [{"type": "text", "name": "business_name", "placeholder": "e.g. Sunrise Café", "description": "What is your business called?"}]}}'
-
-    logger.info(f"Onboarding raw LLM output: {raw[:300]}")
-
+    # Parse response
     parsed = _parse_response(raw)
     text = parsed.get("response", raw)
-    questions = parsed.get("questions")
-    output_type = parsed.get("type", "answer")
-    workflow_status = parsed.get("workflow_status", "completed" if output_type == "answer" else "waiting_for_user")
-
-    logger.info(f"Onboarding type={output_type}, workflow_status={workflow_status}: {text[:80]}")
+    fields = parsed.get("fields")
+    workflow_status = parsed.get("workflow_status", "completed")
 
     response_data = {"mode": "conversation", "text": text, "workflow_status": workflow_status}
-
-    if questions:
-        response_data["input"] = questions
+    if fields:
+        response_data["input"] = {"fields": fields}
 
     extracted = parsed.get("extracted")
     if extracted:
         response_data["extracted"] = extracted
 
+    # Check if onboarding is complete
     is_complete = parsed.get("status") == "complete"
     business_data = {}
 
@@ -107,22 +105,24 @@ async def onboarding_node(state: GraphState) -> dict:
             "onboarding_complete": True,
         }
         response_data["business_data"] = business_data
-        response_data["text"] = text
 
     result = {
         "response": response_data,
         "output_mode": "conversation",
+        "workflow_owner": "onboarding",
+        "current_agent": "onboarding",
         "messages": [
             {"role": "user", "content": user_message},
             {"role": "assistant", "content": raw},
         ],
     }
 
+    # When onboarding completes, save the profile via tool_planner
     if is_complete:
         logo = business_data["logo_url"]
         result["tool_requests"] = [{
             "tool": "update_business_profile",
-            "params": {
+            "arguments": {
                 "business_id": business_id,
                 "name": business_data["business_name"],
                 "category": business_data["business_type"],
@@ -134,38 +134,39 @@ async def onboarding_node(state: GraphState) -> dict:
                 "metadata": business_data["metadata"],
             }
         }]
+        result["return_to"] = "onboarding"
+        result["workflow_owner"] = "onboarding"
 
     return result
 
 
-async def _execute_tool(tool_name: str, tool_args: dict) -> str:
-    """Execute an onboarding tool by name."""
-    tool_map = {t.name: t for t in ONBOARDING_TOOLS}
-    tool_fn = tool_map.get(tool_name)
-    if not tool_fn:
-        return f"Unknown tool: {tool_name}"
-    try:
-        result = await tool_fn.ainvoke(tool_args)
-        return str(result)
-    except Exception as e:
-        logger.warning(f"Onboarding tool {tool_name} failed: {e}")
-        return f"Tool error: {e}"
-
-
 def _parse_response(raw: str) -> dict:
+    """Parse onboarding agent JSON output. Also handles __WAITING__ tool signal."""
+    # Handle __WAITING__ signal from ask_user_question tool
+    if "__WAITING__|" in raw:
+        try:
+            json_part = raw.split("__WAITING__|", 1)[1]
+            return json.loads(json_part)
+        except (json.JSONDecodeError, IndexError):
+            return {"response": raw.strip(), "workflow_status": "waiting_for_user"}
+
     try:
         clean = raw.strip()
         if clean.startswith("```"):
             clean = clean.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-        if clean.startswith("{"):
+        start = clean.find("{")
+        if start != -1:
             depth = 0
-            for i, ch in enumerate(clean):
-                if ch == "{":
+            for i in range(start, len(clean)):
+                if clean[i] == "{":
                     depth += 1
-                elif ch == "}":
+                elif clean[i] == "}":
                     depth -= 1
                     if depth == 0:
-                        return json.loads(clean[: i + 1])
+                        parsed = json.loads(clean[start: i + 1])
+                        if "response" in parsed:
+                            return parsed
+                        break
         return json.loads(clean)
     except (json.JSONDecodeError, IndexError, ValueError):
-        return {"response": raw, "type": "answer"}
+        return {"response": raw.strip(), "workflow_status": "completed"}

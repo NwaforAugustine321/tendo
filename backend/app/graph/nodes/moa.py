@@ -1,21 +1,53 @@
-"""MOA (Tendo) — Master Orchestrator Agent with memory tools."""
+"""MOA (Tendo) — Master Orchestrator Agent node.
 
-import asyncio
+Call-stack architecture: MOA runs once per request. It either answers directly,
+routes to a specialist via delegation tools, or requests its own DB tools.
+When returning from a tool call (return_to == "moa"), it incorporates results.
+
+Uses hierarchical_manager_agent translations for role/goal/backstory (like CrewAI).
+Only tools: DelegateWorkTool + AskQuestionTool for specialist routing.
+"""
+
 import json
 import logging
 
-from app.config.settings import settings
-from app.db.tools.profiles import get_business_profile
-from app.lib.prompt_trimmer import trim_and_archive
-from app.lib.tool_schema import registry_tool_names
-from app.llm.client import get_client as get_llm
-from app.llm.specs import load
-from app.memory.tools import MEMORY_TOOLS
+from app.agents.models import Agent, DomainAgentOutput
+from app.lib.agent_executor import execute_task
+from app.lib.agent_tools import AgentTools
+from app.lib.i18n import _get_i18n
 from app.models.state import GraphState
 
 logger = logging.getLogger(__name__)
 
-MAX_TOOL_ITERATIONS = 5
+# Specialist agents available for delegation
+_SPECIALIST_SPECS = [
+    "domain/inventory",
+    "domain/transactions",
+    "onboarding",
+]
+
+
+def _get_moa_agent() -> Agent:
+    """Create MOA agent from i18n translations (hierarchical_manager_agent)."""
+    i18n = _get_i18n()
+    return Agent(
+        role=i18n.get("hierarchical_manager_agent.role"),
+        goal=i18n.get("hierarchical_manager_agent.goal"),
+        backstory=i18n.get("hierarchical_manager_agent.backstory"),
+        expected_output=Agent.from_spec("moa").expected_output,
+        skill=Agent.from_spec("moa").skill,
+    )
+
+
+def _get_specialist_agents() -> list[Agent]:
+    """Load specialist agents for delegation tools."""
+    agents = []
+    for spec in _SPECIALIST_SPECS:
+        try:
+            agents.append(Agent.from_spec(spec))
+        except FileNotFoundError:
+            logger.warning(f"Specialist spec not found: {spec}")
+    return agents
 
 
 async def moa_node(state: GraphState) -> dict:
@@ -25,190 +57,148 @@ async def moa_node(state: GraphState) -> dict:
     business_id = state.get("business_id") or event.get("business_id", "")
     history = state.get("messages", [])
 
-    logger.info(f"MOA: history has {len(history)} messages, business_id={business_id}, thread_id={thread_id}")
+    from app.lib.field_formatter import format_user_input
+    user_message = format_user_input(user_message)
 
-    # Pass-through checks (no LLM needed)
-    routed = state.get("routed_domain")
-    if routed and not state.get("response"):
-        logger.info(f"MOA: continuing loop, routing to {routed}")
-        return {"routed_domain": routed}
+    logger.info(f"MOA: history has {len(history)} messages, business_id={business_id}")
 
-    if state.get("tool_requests"):
-        logger.info("MOA: tool_requests present, routing to tool_planner")
-        return {"routed_domain": None}
+    # If returning from a tool call the MOA itself made
+    if state.get("return_to") == "moa" and state.get("domain_result"):
+        domain_result = state.get("domain_result")
+        summary = domain_result.get("summary", "")
+        logger.info(f"MOA: got tool results back — {summary[:100]}")
 
-    if routed and state.get("response"):
-        logger.info(f"MOA: sub-agent {routed} done, proceeding to response")
-        return {"routed_domain": None}
+        response_data = {"mode": "conversation", "text": summary}
+        return {
+            "response": response_data,
+            "output_mode": "conversation",
+            "domain_result": None,
+            "return_to": None,
+            "workflow_owner": None,
+            "current_agent": None,
+            "messages": [
+                {"role": "assistant", "content": summary},
+            ],
+        }
 
-    # db_translator just ran — domain_result has summary AND response is already set
-    domain_result = state.get("domain_result")
-    existing_response = state.get("response")
-    if domain_result and domain_result.get("summary") and existing_response and existing_response.get("text"):
-        logger.info("MOA: db_translator response ready, proceeding to response node")
-        return {"routed_domain": None, "domain_result": None}
+    # Load MOA agent from translations
+    agent = _get_moa_agent()
 
-    # Normal flow — invoke LLM with tool-calling
-    config = load("moa", tools=MEMORY_TOOLS)
-    llm = get_llm()
+    # Load specialist agents and create delegation tools
+    specialists = _get_specialist_agents()
+    moa_tools = AgentTools(agents=specialists).tools()
 
-    # Bind memory tools to the LLM
-    llm_with_tools = llm.bind_tools(MEMORY_TOOLS)
+    # Context (business-specific only — tools are injected via prompts.py)
+    context = f"business_id: {business_id}\nthread_id: {thread_id}"
 
-    system_content = config.system_prompt
-    db_tools = registry_tool_names()
-    system_content += f"\n\n## Available DB Tools (routed via tool_planner)\n{', '.join(db_tools)}"
-    system_content += f"\n\n## Available DB Tools (routed via tool_planner)\n{', '.join(db_tools)}"
-    system_content += f"\n\n## Current Context\n- business_id: {business_id}\n- thread_id: {thread_id}"
+    # Execute using our lib pipeline
+    raw = await execute_task(
+        agent=agent,
+        description=user_message,
+        tools=moa_tools,
+        expected_output=agent.expected_output,
+        chat_history=history[-10:],
+        context=context,
+        output_pydantic=DomainAgentOutput,
+        use_system_prompt=True,
+        max_iter=5,
+    )
 
-    prompt = [{"role": "system", "content": system_content}]
-    prompt.extend(history[-10:])
-    prompt.append({"role": "user", "content": user_message})
+    logger.info(f"MOA raw output: {raw[:200]}")
 
-    # Trim if needed
-    prompt = await trim_and_archive(prompt, business_id, thread_id)
-
-    # Tool-calling loop — MOA can call tools and get results before responding
-    for iteration in range(MAX_TOOL_ITERATIONS):
-        response = await llm_with_tools.ainvoke(prompt)
-
-        # Check if the LLM wants to call tools
-        if response.tool_calls:
-            logger.info(f"MOA: calling {len(response.tool_calls)} tool(s): {[tc['name'] for tc in response.tool_calls]}")
-
-            # Add assistant message with tool calls
-            prompt.append({"role": "assistant", "content": response.content or "", "tool_calls": response.tool_calls})
-
-            # Execute tools in parallel
-            async def _run_tool(tc):
-                name = tc["name"]
-                args = dict(tc["args"])
-                if "business_id" in args and not args["business_id"]:
-                    args["business_id"] = business_id
-                res = await _execute_tool(name, args)
-                logger.info(f"MOA: tool {name} returned {len(res)} chars")
-                return tc["id"], res
-
-            tool_results = await asyncio.gather(*[_run_tool(tc) for tc in response.tool_calls])
-
-            for call_id, result in tool_results:
-                prompt.append({
-                    "role": "tool",
-                    "tool_call_id": call_id,
-                    "content": result,
-                })
-
-            # Continue loop — LLM will see tool results and decide what to do next
-            continue
-
-        # No tool calls — LLM is ready to respond
-        content = response.content
-        if isinstance(content, list):
-            content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
-        raw = content.strip() if content else ""
-        break
-    else:
-        # Exceeded max iterations — use last response
-        content = response.content if response.content else ""
-        if isinstance(content, list):
-            content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
-        raw = content.strip() if content else '{"response": "Let me help you with that.", "type": "answer"}'
-
-    logger.info(f"MOA raw LLM output: {raw[:200]}")
+    # Check if delegation tool was called — detect __ROUTE__ signal in raw output
+    route_target = _extract_route_signal(raw)
+    if route_target:
+        logger.info(f"MOA: delegation detected → routing to {route_target}")
+        return {
+            "routed_domain": route_target,
+            "current_agent": "moa",
+            "workflow_owner": route_target,
+            "return_to": route_target,
+            "tool_requests": None,
+            "response": {"mode": "conversation", "text": ""},
+            "output_mode": "conversation",
+            "messages": [
+                {"role": "user", "content": user_message},
+                {"role": "assistant", "content": f"Routing to {route_target}"},
+            ],
+        }
 
     decision = _parse_decision(raw)
 
     # If parsing failed, retry once with stronger JSON enforcement
     if decision.get("_retry"):
-        logger.warning("MOA: invalid JSON output, retrying...")
-        prompt.append({"role": "assistant", "content": raw})
-        prompt.append({"role": "user", "content": (
-            "Your previous response was not valid JSON. "
-            "Respond with ONLY a JSON object, no markdown, no explanation. "
-            'Example: {"response": "your text here", "type": "answer", "workflow_status": "completed"}'
-        )})
-        # Retry without tools to avoid tool_call interference
-        try:
-            retry_llm = llm.bind(response_format={"type": "json_object"})
-            retry_response = await retry_llm.ainvoke(prompt)
-        except (TypeError, NotImplementedError):
-            # Some providers don't support response_format — fall back to normal call
-            retry_response = await llm.ainvoke(prompt)
-        retry_content = retry_response.content
-        if isinstance(retry_content, list):
-            retry_content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in retry_content)
-        raw = retry_content.strip() if retry_content else raw
-        logger.info(f"MOA retry output: {raw[:200]}")
-        decision = _parse_decision(raw)
-        if decision.get("_retry"):
-            decision = {"response": raw, "type": "answer"}
+        logger.warning("MOA: invalid JSON output, using raw as response")
+        decision = {"response": raw, "workflow_status": "completed"}
 
-    output_type = decision.get("type", "answer")
     text = decision.get("response", raw)
     target = decision.get("target")
-    questions = decision.get("questions")
+    fields = decision.get("fields")
+    tool_requests = decision.get("tool_requests")
 
-    logger.info(f"MOA decision: type={output_type}, target={target}")
+    logger.info(f"MOA decision: target={target}, has_fields={bool(fields)}, has_tool_requests={bool(tool_requests)}")
 
     new_messages = [
         {"role": "user", "content": user_message},
         {"role": "assistant", "content": text},
     ]
 
-    if output_type == "route" and target:
+    # Route to a specialist
+    if target:
         return {
             "routed_domain": target,
+            "current_agent": "moa",
+            "workflow_owner": target,
+            "return_to": target,
             "response": {"mode": "conversation", "text": text},
             "output_mode": "conversation",
             "messages": new_messages,
         }
 
+    # MOA needs its own DB tools (not delegation — those are handled inline above)
+    if tool_requests and isinstance(tool_requests, list):
+        # Ensure tool_requests only contains serializable dicts
+        clean_requests = [
+            {"tool": tr.get("tool", ""), "arguments": tr.get("arguments", tr.get("params", {}))}
+            for tr in tool_requests
+            if isinstance(tr, dict)
+        ]
+        return {
+            "tool_requests": clean_requests,
+            "return_to": "moa",
+            "workflow_owner": "moa",
+            "current_agent": "moa",
+            "response": {"mode": "conversation", "text": text},
+            "output_mode": "conversation",
+            "messages": new_messages,
+        }
+
+    # Direct answer — no routing needed
     response_data = {"mode": "conversation", "text": text}
-    if questions:
-        response_data["input"] = questions
+    if fields:
+        response_data["input"] = {"fields": fields}
 
     result = {
         "routed_domain": None,
+        "current_agent": None,
+        "workflow_owner": None,
+        "return_to": None,
         "response": response_data,
         "output_mode": "conversation",
         "messages": new_messages,
     }
 
-    if output_type == "question" and questions:
-        result["interruption"] = {
-            "source": "moa",
-            "type": "input_required",
-            "text": text,
-            "input": questions,
-        }
-
     return result
 
 
-async def _execute_tool(tool_name: str, tool_args: dict) -> str:
-    """Execute a memory tool by name."""
-    tool_map = {t.name: t for t in MEMORY_TOOLS}
-    tool_fn = tool_map.get(tool_name)
-    if not tool_fn:
-        return f"Unknown tool: {tool_name}"
-    try:
-        result = await tool_fn.ainvoke(tool_args)
-        return str(result)
-    except Exception as e:
-        logger.warning(f"Tool {tool_name} failed: {e}")
-        return f"Tool error: {e}"
-
-
 def _parse_decision(raw: str) -> dict:
+    """Parse MOA JSON output."""
     try:
         clean = raw.strip()
-        # Remove markdown code block wrapper
         if clean.startswith("```"):
             clean = clean.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-        # Try direct parse
         if clean.startswith("{"):
             return json.loads(clean)
-        # Try to find JSON object anywhere in the string
         start = clean.find("{")
         if start != -1:
             depth = 0
@@ -221,5 +211,51 @@ def _parse_decision(raw: str) -> dict:
                         return json.loads(clean[start:i + 1])
         return json.loads(clean)
     except (json.JSONDecodeError, IndexError, ValueError):
-        # Plain text output — wrap it as an answer response
-        return {"response": raw.strip() if raw else "", "type": "answer"}
+        return {"_retry": True}
+
+
+def _extract_route_signal(raw: str) -> str | None:
+    """Extract routing target from __ROUTE__ signal in output.
+
+    The delegation tool returns __ROUTE__:{role}|task:...|context:...
+    The LLM may echo this or include it in its response.
+
+    Returns:
+        The domain name to route to, or None if no route signal found.
+    """
+    if "__ROUTE__:" not in raw:
+        return None
+
+    # Map agent roles to domain names
+    role_to_domain = {
+        "transactions": "transactions",
+        "inventory": "inventory",
+        "onboarding": "onboarding",
+        "you_help_users_create,_complete,_and_update_their_business_profile.": "onboarding",
+        "you_are_the_inventory_agent.": "inventory",
+        "you_handle_all_transaction-related_requests.": "transactions",
+    }
+
+    try:
+        # Find __ROUTE__:{role}
+        idx = raw.index("__ROUTE__:")
+        after = raw[idx + 10:]
+        role_part = after.split("|")[0].strip()
+
+        # Try direct match
+        if role_part in role_to_domain:
+            return role_to_domain[role_part]
+
+        # Try partial match
+        for key, domain in role_to_domain.items():
+            if key in role_part or role_part in key:
+                return domain
+
+        # If role_part looks like a domain name already
+        if role_part in ("transactions", "inventory", "onboarding"):
+            return role_part
+
+    except (ValueError, IndexError):
+        pass
+
+    return None

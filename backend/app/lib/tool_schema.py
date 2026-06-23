@@ -35,15 +35,11 @@ def registry_tools_to_prompt() -> str:
     """Infer tool schemas from the DB registry and generate a prompt-friendly description.
 
     Reads function signatures, type annotations, and docstrings from all registered tools.
-    No manual editing needed — register a tool with @register and it appears here.
     """
-    from app.db.registry import _registry
-
-    if not _registry:
-        import app.db.tools  # noqa: F401 — trigger auto-registration
+    from app.db.registry import TOOLS
 
     lines = []
-    for name, fn in sorted(_registry.items()):
+    for name, fn in sorted(TOOLS.items()):
         doc = inspect.getdoc(fn) or ""
         sig = inspect.signature(fn)
         hints = get_type_hints(fn)
@@ -70,9 +66,6 @@ def registry_tools_to_prompt() -> str:
 
 def registry_tool_names() -> list[str]:
     """Return list of all registered DB tool names."""
-    from app.db.registry import _registry
+    from app.db.registry import TOOLS
 
-    if not _registry:
-        import app.db.tools  # noqa: F401
-
-    return sorted(_registry.keys())
+    return sorted(TOOLS.keys())

@@ -7,7 +7,7 @@ from enum import Enum
 from uuid import uuid4
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.executors.pool import ThreadPoolExecutor, ProcessPoolExecutor
+from apscheduler.executors.pool import ThreadPoolExecutor
 
 from app.config.settings import settings
 from app.events.config import load_threshold_config
@@ -60,15 +60,15 @@ class StreamWorker(ABC):
         """Transition to a new state with structured logging."""
         old_state = self.state
         self.state = new_state
-        logger.debug(
-            "Worker state transition",
-            extra={
-                "worker_name": self.worker_name,
-                "stream_key": self.stream_key,
-                "from_state": old_state.value,
-                "to_state": new_state.value,
-            },
-        )
+        # logger.debug(
+        #     "Worker state transition",
+        #     extra={
+        #         "worker_name": self.worker_name,
+        #         "stream_key": self.stream_key,
+        #         "from_state": old_state.value,
+        #         "to_state": new_state.value,
+        #     },
+        # )
 
     def poll(self) -> Job | None:
         """Execute one polling cycle. Returns created Job or None."""
@@ -89,15 +89,22 @@ class StreamWorker(ABC):
             start_sequence = batch_events[0].sequence_number
             end_sequence = batch_events[-1].sequence_number
 
-            job = Job(
-                id=str(uuid4()),
-                worker_name=self.worker_name,
-                stream_key=self.stream_key,
-                start_sequence=start_sequence,
-                end_sequence=end_sequence,
-                status="pending",
-            )
-            created_job = self._store.create_job(job)
+            # Reuse existing job if one exists (pending/failed), otherwise create new
+            existing_job = self._store.find_existing_job(self.worker_name, self.stream_key)
+            if existing_job:
+                created_job = existing_job
+                # Update sequence range in case events changed
+                self._store.update_job_status(str(created_job.id), "pending")
+            else:
+                job = Job(
+                    id=str(uuid4()),
+                    worker_name=self.worker_name,
+                    stream_key=self.stream_key,
+                    start_sequence=start_sequence,
+                    end_sequence=end_sequence,
+                    status="pending",
+                )
+                created_job = self._store.create_job(job)
 
             self._store.update_job_status(str(created_job.id), "running")
 
@@ -109,11 +116,11 @@ class StreamWorker(ABC):
                     str(created_job.id), "failed", error_message=error_msg
                 )
                 logger.error(
-                    "Error in process_job",
+                    f"Error in process_job: {error_msg}",
+                    exc_info=True,
                     extra={
                         "worker_name": self.worker_name,
                         "stream_key": self.stream_key,
-                        "error": error_msg,
                     },
                 )
                 self._transition(WorkerState.FAILED)
@@ -123,14 +130,14 @@ class StreamWorker(ABC):
             self._store.update_job_status(str(created_job.id), "completed")
 
             self._store.save_checkpoint(self.worker_name, self.stream_key, end_sequence)
-            logger.info(
-                "Checkpoint updated",
-                extra={
-                    "worker_name": self.worker_name,
-                    "stream_key": self.stream_key,
-                    "last_processed_sequence": end_sequence,
-                },
-            )
+            # logger.info(
+            #     "Checkpoint updated",
+            #     extra={
+            #         "worker_name": self.worker_name,
+            #         "stream_key": self.stream_key,
+            #         "last_processed_sequence": end_sequence,
+            #     },
+            # )
 
             self._transition(WorkerState.COMPLETED)
             self._transition(WorkerState.IDLE)
@@ -166,10 +173,7 @@ class StreamWorker(ABC):
             self._store.update_job_status(
                 str(job.id), "failed", error_message="Recovered after worker restart"
             )
-            logger.info(
-                "Stale job recovered",
-                extra={"job_id": str(job.id), "worker_name": self.worker_name},
-            )
+            
 
     def _evaluate_thresholds(self, events: list[BusinessEvent]) -> bool:
         """Return True if events meet both min_event_count and min_char_count."""
@@ -179,15 +183,7 @@ class StreamWorker(ABC):
             event_count >= self.config.min_event_count
             and char_count >= self.config.min_char_count
         )
-        logger.debug(
-            "Threshold evaluation",
-            extra={
-                "worker_name": self.worker_name,
-                "event_count": event_count,
-                "char_count": char_count,
-                "meets_threshold": meets_threshold,
-            },
-        )
+        
         return meets_threshold
 
     def _compute_char_count(self, events: list[BusinessEvent]) -> int:
@@ -212,18 +208,13 @@ class BusinessEventWorker(StreamWorker):
     """Processes events for a single business."""
 
     def process_job(self, job: Job, events: list[BusinessEvent]) -> None:
-        """Process a batch of business events."""
-        logger.info(
-            "Processing event batch",
-            extra={
-                "job_id": str(job.id),
-                "worker_name": self.worker_name,
-                "stream_key": self.stream_key,
-                "event_count": len(events),
-                "start_sequence": job.start_sequence,
-                "end_sequence": job.end_sequence,
-            },
-        )
+        """Process a batch of business events through the intelligence agent."""
+        import asyncio
+
+        from app.intelligence.agent import process_events
+
+        
+        asyncio.run(process_events(job, events))
 
 
 # ---------------------------------------------------------------------------
@@ -286,10 +277,10 @@ def _dispatch() -> None:
         if idle_count >= idle_eviction:
             _scheduler.remove_job(job_id)
             _idle_counts.pop(business_id, None)
-            logger.debug(
-                "Evicted idle business from scheduler",
-                extra={"business_id": business_id, "idle_cycles": idle_count},
-            )
+            # logger.debug(
+            #     "Evicted idle business from scheduler",
+            #     extra={"business_id": business_id, "idle_cycles": idle_count},
+            # )
 
     # Schedule ready businesses (up to max_workers)
     current_count = len([
@@ -313,13 +304,7 @@ def _dispatch() -> None:
             )
             _idle_counts[biz["business_id"]] = 0
             current_count += 1
-            logger.info(
-                "Scheduled business for processing",
-                extra={
-                    "business_id": biz["business_id"],
-                    "pending_count": biz["pending_count"],
-                },
-            )
+           
 
 
 def start_scheduler() -> None:
@@ -336,8 +321,7 @@ def start_scheduler() -> None:
     dispatcher_interval = settings.event_dispatcher_interval
 
     executors = {
-        "default": ProcessPoolExecutor(5),
-        "threadpool": ThreadPoolExecutor(max_workers),
+        "default": ThreadPoolExecutor(max_workers),
     }
 
     from app.events.scheduler_store import LearningJobStore
@@ -365,7 +349,6 @@ def start_scheduler() -> None:
         seconds=dispatcher_interval,
         id="event_dispatcher",
         max_instances=1,
-        executor="threadpool",
         replace_existing=True,
     )
 

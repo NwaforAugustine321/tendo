@@ -3,12 +3,10 @@
 import logging
 
 from app.db.client import get_client
-from app.db.registry import register
 
 logger = logging.getLogger(__name__)
 
 
-@register("record_payment")
 async def record_payment(
     business_id: str,
     amount: float,
@@ -35,7 +33,6 @@ async def record_payment(
     return result.data[0] if result.data else data
 
 
-@register("get_payments")
 async def get_payments(business_id: str, customer_id: str = "", limit: int = 20, **kwargs) -> dict:
     """Get recent payments."""
     client = get_client()

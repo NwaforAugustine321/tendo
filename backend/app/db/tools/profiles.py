@@ -1,21 +1,21 @@
-"""Profile database operations."""
+"""Profile database operations with event emission."""
 
 import logging
 
 from app.db.client import get_client
-from app.db.registry import register
+from app.events.writer import EventWriter
 
 logger = logging.getLogger(__name__)
 
+_event_writer = EventWriter()
+
 
 async def create_user_profile(user_id: str, email: str, name: str = "") -> dict:
-    """Create a user profile (used by auth service)."""
+    """Create a user profile."""
     client = get_client()
     data = {"id": user_id, "email": email, "name": name}
     result = client.table("user_profiles").insert(data).execute()
     return result.data[0] if result.data else data
-
-
 
 
 async def get_user_profile(user_id: str) -> dict | None:
@@ -46,12 +46,22 @@ async def insert_empty_business_profile(user_id: str) -> dict:
         "onboarding_completed": False,
     }
     result = client.table("business_profiles").insert(data).execute()
-    if result.data:
-        return result.data[0]
-    raise Exception("Failed to insert empty business profile")
+    if not result.data:
+        raise Exception("Failed to insert empty business profile")
+
+    profile = result.data[0]
+    _event_writer.write(
+        business_id=profile["id"],
+        entity_type="business_profile",
+        entity_id=profile["id"],
+        event_type="BusinessProfileCreated",
+        source="system",
+        payload={"user_id": user_id},
+        metadata={"action": "create_empty"},
+    )
+    return profile
 
 
-@register("create_business_profile")
 async def create_business_profile(
     user_id: str, name: str, category: str = "hybrid", description: str = "",
     phone: str = "", location: str = "", logo_url: str = "", **kwargs
@@ -69,10 +79,21 @@ async def create_business_profile(
         "metadata": kwargs.get("metadata", {}),
     }
     result = client.table("business_profiles").insert(data).execute()
-    return result.data[0] if result.data else data
+    profile = result.data[0] if result.data else data
+
+    if result.data:
+        _event_writer.write(
+            business_id=profile["id"],
+            entity_type="business_profile",
+            entity_id=profile["id"],
+            event_type="BusinessProfileCreated",
+            source="system",
+            payload=data,
+            metadata={"user_id": user_id},
+        )
+    return profile
 
 
-@register("get_business_profile")
 async def get_business_profile(business_id: str, **kwargs) -> dict:
     """Get a business profile by ID."""
     client = get_client()
@@ -80,12 +101,10 @@ async def get_business_profile(business_id: str, **kwargs) -> dict:
     return result.data if result.data else {"error": "Not found"}
 
 
-@register("update_business_profile")
 async def update_business_profile(business_id: str, **kwargs) -> dict:
     """Update a business profile. Only updates fields with non-empty values. Merges metadata."""
     client = get_client()
     valid_fields = ("name", "category", "description", "metadata", "phone", "location", "logo_url", "onboarding_completed")
-    # Only include fields that have actual values — don't overwrite with empty strings
     updates = {}
     for k, v in kwargs.items():
         if k not in valid_fields:
@@ -93,7 +112,6 @@ async def update_business_profile(business_id: str, **kwargs) -> dict:
         if isinstance(v, bool):
             updates[k] = v
         elif isinstance(v, dict) and k == "metadata":
-            # Merge metadata — fetch existing and combine
             try:
                 existing = client.table("business_profiles").select("metadata").eq("id", business_id).execute()
                 existing_meta = (existing.data[0].get("metadata") or {}) if existing.data else {}
@@ -103,7 +121,46 @@ async def update_business_profile(business_id: str, **kwargs) -> dict:
                 updates[k] = v
         elif v:
             updates[k] = v
+
     if not updates:
         return {"error": "No valid fields to update"}
+
     result = client.table("business_profiles").update(updates).eq("id", business_id).execute()
+
+    if result.data:
+        _event_writer.write(
+            business_id=business_id,
+            entity_type="business_profile",
+            entity_id=business_id,
+            event_type="BusinessProfileUpdated",
+            source="system",
+            payload=updates,
+            metadata={"fields_changed": list(updates.keys())},
+        )
+
     return result.data[0] if result.data else {"error": "Update failed"}
+
+
+async def delete_business_profile(business_id: str, user_id: str) -> dict:
+    """Delete an incomplete business profile and its sessions."""
+    client = get_client()
+    profile = client.table("business_profiles").select("id, onboarding_completed").eq("id", business_id).eq("user_id", user_id).single().execute()
+    if not profile.data:
+        return {"error": "Profile not found"}
+    if profile.data.get("onboarding_completed"):
+        return {"error": "Cannot delete a completed business profile"}
+
+    client.table("conversation_sessions").delete().eq("business_id", business_id).execute()
+    client.table("business_profiles").delete().eq("id", business_id).execute()
+
+    _event_writer.write(
+        business_id=business_id,
+        entity_type="business_profile",
+        entity_id=business_id,
+        event_type="BusinessProfileDeleted",
+        source="system",
+        payload={"profile_id": business_id},
+        metadata={"user_id": user_id, "action": "delete"},
+    )
+
+    return {"deleted": True}

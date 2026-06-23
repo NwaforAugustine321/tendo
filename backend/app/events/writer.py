@@ -20,19 +20,16 @@ class EventStore:
 
     # --- Event operations ---
 
-    def next_sequence_number(
-        self, business_id: str, entity_type: str, entity_id: str
-    ) -> int:
+    def next_sequence_number(self, business_id: str) -> int:
         """
-        Get the next sequence number for a stream.
-        Returns max + 1, or 1 if no events exist for the stream.
+        Get the next sequence number for a business.
+        Auto-increments per business_id across all entity types.
+        Returns max + 1, or 1 if no events exist for the business.
         """
         result = (
             self._client.table("business_events")
             .select("sequence_number")
             .eq("business_id", business_id)
-            .eq("entity_type", entity_type)
-            .eq("entity_id", entity_id)
             .order("sequence_number", desc=True)
             .limit(1)
             .execute()
@@ -198,6 +195,22 @@ class EventStore:
             raise RuntimeError("Failed to create learning job")
         return Job(**result.data[0])
 
+    def find_existing_job(self, worker_name: str, stream_key: str) -> Job | None:
+        """Find an existing non-completed job for a worker+stream (pending or failed)."""
+        result = (
+            self._client.table("learning_jobs")
+            .select("*")
+            .eq("worker_name", worker_name)
+            .eq("stream_key", stream_key)
+            .in_("status", ["pending", "failed"])
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if result.data:
+            return Job(**result.data[0])
+        return None
+
     def update_job_status(
         self, job_id: str, status: str, error_message: str | None = None
     ) -> None:
@@ -254,7 +267,7 @@ class EventWriter:
         self._validate_source(source)
 
         event_id = uuid4()
-        sequence_number = self._next_sequence_number(business_id, entity_type, entity_id)
+        sequence_number = self._next_sequence_number(business_id)
 
         event = BusinessEvent(
             id=event_id,
@@ -279,15 +292,7 @@ class EventWriter:
                 f"error={e}"
             ) from e
 
-        logger.info(
-            "Event persisted",
-            extra={
-                "event_type": event_type,
-                "entity_type": entity_type,
-                "entity_id": entity_id,
-                "sequence_number": persisted_event.sequence_number,
-            },
-        )
+        
 
         return persisted_event
 
@@ -298,15 +303,12 @@ class EventWriter:
                 f"Invalid source '{source}'. Must be one of: {sorted(VALID_SOURCES)}"
             )
 
-    def _next_sequence_number(
-        self, business_id: str, entity_type: str, entity_id: str
-    ) -> int:
-        """Get next sequence number for the stream."""
+    def _next_sequence_number(self, business_id: str) -> int:
+        """Get next sequence number for the business."""
         try:
-            return self._store.next_sequence_number(business_id, entity_type, entity_id)
+            return self._store.next_sequence_number(business_id)
         except Exception as e:
             raise RuntimeError(
                 f"Failed to get next sequence number: "
-                f"business_id={business_id}, entity_type={entity_type}, "
-                f"entity_id={entity_id}, error={e}"
+                f"business_id={business_id}, error={e}"
             ) from e

@@ -15,6 +15,7 @@ type VoiceCallbacks = {
   onInput?: (inputSpec: any) => void
   onMessage?: (data: any) => void
   onThinking?: (text: string) => void
+  onThought?: (text: string) => void
 }
 
 export class VoiceClient {
@@ -135,6 +136,10 @@ export class VoiceClient {
 
       case 'thinking':
         if (msg.data) this.callbacks.onThinking?.(msg.data)
+        break
+
+      case 'thought':
+        if (msg.data) this.callbacks.onThought?.(msg.data)
         break
 
       case 'error':

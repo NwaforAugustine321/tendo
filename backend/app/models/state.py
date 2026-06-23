@@ -22,3 +22,7 @@ class GraphState(TypedDict, total=False):
     response: dict | None
     messages: Annotated[list[dict], operator.add]
     error: str | None
+    # Call-stack architecture fields
+    current_agent: str | None
+    workflow_owner: str | None
+    return_to: str | None

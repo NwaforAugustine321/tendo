@@ -42,25 +42,39 @@ def _clean_text(text: str) -> str:
     return text.strip()
 
 
+def _extract_thought(content: str) -> str:
+    """Extract 'Thought:' text from agent ReAct format output."""
+    if not content or "Thought:" not in content:
+        return ""
+    try:
+        idx = content.index("Thought:")
+        after = content[idx + 8:].strip()
+        for marker in ["Action:", "Final Answer:", "\n\n"]:
+            pos = after.find(marker)
+            if pos != -1:
+                after = after[:pos].strip()
+                break
+        return after[:200] if after else ""
+    except (ValueError, IndexError):
+        return ""
+
+
 async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket=None, user_id: str = "anonymous", send_fn=None) -> dict:
     from app.graph.workflow import get_graph
 
     graph = get_graph()
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 25}
 
-    NODE_THINKING = {
-        "bsga": "Understanding...",
-        "moa": "Thinking...",
-        "tool_planner": "Planning...",
-        "db_oracle": "Fetching data...",
-        "db_translator": "Processing results...",
-        "domain_router": "Deciding...",
-    }
+    from app.lib.thinking_status import get_thinking_status
 
     async def _send_thinking_msg(msg: str):
         if send_fn:
             try:
-                await send_fn({"type": "thinking", "data": msg})
+                if msg.startswith("__THOUGHT__:"):
+                    thought_text = msg[12:]
+                    await send_fn({"type": "thought", "data": thought_text})
+                else:
+                    await send_fn({"type": "thinking", "data": msg})
             except Exception:
                 pass
         elif websocket:
@@ -72,13 +86,32 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
     async def _stream_invoke(input_data):
         """Stream graph execution and send thinking updates."""
         result = {}
-        async for event in graph.astream(input_data, config=config, stream_mode="updates"):
-            for node_name, node_output in event.items():
-                if node_name != "response":
-                    msg = NODE_THINKING.get(node_name, "Thinking...")
-                    await _send_thinking_msg(msg)
-                if isinstance(node_output, dict):
-                    result.update(node_output)
+        try:
+            async for event in graph.astream(input_data, config=config, stream_mode="updates"):
+                for node_name, node_output in event.items():
+                    if node_name != "response":
+                        msg = get_thinking_status(node_name)
+                        await _send_thinking_msg(msg)
+
+                    if isinstance(node_output, dict):
+                        result.update(node_output)
+
+                        # Extract and send thought text from agent raw output
+                        messages = node_output.get("messages", [])
+                        for m in messages:
+                            if isinstance(m, dict) and m.get("role") == "assistant":
+                                content = m.get("content", "")
+                                thought = _extract_thought(content)
+                                if thought:
+                                    if send_fn:
+                                        try:
+                                            await send_fn({"type": "thought", "data": thought})
+                                        except Exception:
+                                            pass
+        except Exception as e:
+            logger.error(f"Graph execution error: {e}", exc_info=True)
+            if send_fn:
+                await send_fn({"type": "error", "data": "Something went wrong."})
         return result
 
     # Fresh invocation every time

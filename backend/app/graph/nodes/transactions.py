@@ -1,19 +1,22 @@
-"""Transactions agent node — handles transaction-related operations."""
+"""Transactions agent node — handles transaction-related operations.
+
+Call-stack architecture: transactions owns its workflow. When it needs DB data
+via tool_planner, it sets return_to to itself. When re-entered with domain_result,
+it processes the returned data and continues.
+"""
 
 import asyncio
 import json
 import logging
 
+from app.db.tools.transaction_tools import TRANSACTION_TOOLS
 from app.lib.tool_schema import registry_tools_to_prompt
 from app.llm.client import get_client as get_llm
 from app.llm.specs import load
-from app.lib.prompt_trimmer import trim_and_archive
-from app.memory.tools import MEMORY_TOOLS
 from app.models.state import GraphState
 
 logger = logging.getLogger(__name__)
 
-TRANSACTION_TOOLS = MEMORY_TOOLS
 MAX_TOOL_ITERATIONS = 3
 
 
@@ -22,6 +25,30 @@ async def transactions_node(state: GraphState) -> dict:
     user_message = event.get("text", "")
     business_id = state.get("business_id") or event.get("business_id", "")
     thread_id = state.get("thread_id") or event.get("thread_id", "")
+
+    from app.lib.field_formatter import format_user_input
+    user_message = format_user_input(user_message)
+
+    # Check if returning from a tool call (db_translator just ran)
+    domain_result = state.get("domain_result")
+    if domain_result and state.get("return_to") == "transactions":
+        summary = domain_result.get("summary", "")
+        logger.info(f"Transactions: got tool results back — {summary[:100]}")
+
+        # The DB operation completed — respond with the translated result
+        response_data = {"mode": "conversation", "text": summary}
+        return {
+            "response": response_data,
+            "output_mode": "conversation",
+            "domain_result": None,
+            "return_to": None,
+            "workflow_owner": None,
+            "current_agent": None,
+            "tool_requests": None,
+            "messages": [
+                {"role": "assistant", "content": summary},
+            ],
+        }
 
     config = load("domain/transactions", tools=TRANSACTION_TOOLS)
     llm = get_llm()
@@ -38,8 +65,6 @@ async def transactions_node(state: GraphState) -> dict:
     prompt = [{"role": "system", "content": system_content}]
     prompt.extend(history[-10:])
     prompt.append({"role": "user", "content": user_message})
-
-    prompt = await trim_and_archive(prompt, business_id, thread_id)
 
     raw = ""
     for iteration in range(MAX_TOOL_ITERATIONS):
@@ -67,31 +92,35 @@ async def transactions_node(state: GraphState) -> dict:
         raw = llm_response.content.strip()
         break
     else:
-        raw = llm_response.content.strip() if llm_response.content else '{"response": "How can I help with your transactions?", "type": "answer"}'
+        raw = llm_response.content.strip() if llm_response.content else '{"response": "How can I help with your transactions?", "workflow_status": "completed"}'
 
     logger.info(f"Transactions raw output: {raw[:200]}")
 
     parsed = _parse_response(raw)
     text = parsed.get("response", raw)
-    questions = parsed.get("questions")
+    fields = parsed.get("fields")
 
     response_data = {"mode": "conversation", "text": text}
-    if questions:
-        response_data["input"] = questions
+    if fields:
+        response_data["input"] = {"fields": fields}
 
     result = {
         "response": response_data,
         "output_mode": "conversation",
-        "routed_domain": None,
+        "workflow_owner": "transactions",
+        "current_agent": "transactions",
         "messages": [
             {"role": "user", "content": user_message},
             {"role": "assistant", "content": raw},
         ],
     }
 
+    # If the specialist needs DB operations via tool_planner
     tool_requests = parsed.get("tool_requests")
     if tool_requests and isinstance(tool_requests, list):
         result["tool_requests"] = tool_requests
+        result["return_to"] = "transactions"
+        result["workflow_owner"] = "transactions"
 
     return result
 
@@ -114,15 +143,20 @@ def _parse_response(raw: str) -> dict:
         clean = raw.strip()
         if clean.startswith("```"):
             clean = clean.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-        if clean.startswith("{"):
+        # Find JSON object anywhere in the string
+        start = clean.find("{")
+        if start != -1:
             depth = 0
-            for i, ch in enumerate(clean):
-                if ch == "{":
+            for i in range(start, len(clean)):
+                if clean[i] == "{":
                     depth += 1
-                elif ch == "}":
+                elif clean[i] == "}":
                     depth -= 1
                     if depth == 0:
-                        return json.loads(clean[: i + 1])
+                        parsed = json.loads(clean[start: i + 1])
+                        if "response" in parsed:
+                            return parsed
+                        break
         return json.loads(clean)
     except (json.JSONDecodeError, IndexError, ValueError):
-        return {"response": raw, "type": "answer"}
+        return {"response": raw.strip(), "workflow_status": "completed"}

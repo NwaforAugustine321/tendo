@@ -13,6 +13,9 @@ frontend/dist/
 # Sigmoid reference (not part of tendo)
 sigmoid.ai/
 
+# CrewAI reference (local only)
+crewAI/
+
 # Python
 __pycache__/
 *.pyc

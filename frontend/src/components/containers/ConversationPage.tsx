@@ -14,11 +14,11 @@ import { TalkingCharacter } from './TalkingCharacter'
 
 export type InputSpec = {
   fields: Array<{
-    type: 'radio' | 'text'
-    name?: string
+    id?: string
+    name: string
+    label?: string
     placeholder?: string
     description?: string
-    options?: Array<{ id: string; name: string; label: string; description?: string }>
   }>
 }
 
@@ -54,6 +54,7 @@ type Props = {
   messages: MessageItem[]
   isTyping: boolean
   thinkingText?: string
+  thoughtText?: string
   onSendText: (text: string) => void
   onVoiceRecorded: (blob: Blob) => void
   onVoiceToggle?: () => void
@@ -93,6 +94,7 @@ export function ConversationPage({
   headerSubtitle = 'Your AI Business Assistant',
   fullScreen = true,
   thinkingText,
+  thoughtText,
   transparentBg = false,
   flipCharacter = false,
   characterRightOffset = 0,
@@ -183,7 +185,7 @@ export function ConversationPage({
                 />
               )
             })}
-            {isTyping && <TypingIndicator text={thinkingText} />}
+            {isTyping && <TypingIndicator text={thinkingText} thoughtText={thoughtText} />}
           </div>
         )}
       </div>

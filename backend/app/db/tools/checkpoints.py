@@ -1,9 +1,6 @@
 """Operation checkpoint tools."""
 
-from app.db.registry import register
 
-
-@register("create_checkpoint")
 def create_checkpoint(
     business_id: str,
     session_id: str,
@@ -19,7 +16,6 @@ def create_checkpoint(
     return {"status": "created"}
 
 
-@register("get_checkpoints")
 def get_checkpoints(business_id: str, session_id: str = "", time_range: dict | None = None) -> dict:
     """Retrieve operation checkpoints for a session or business."""
     # TODO: implement
