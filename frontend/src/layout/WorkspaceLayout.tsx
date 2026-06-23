@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { IconRail } from '../components/containers'
-import { SecondaryNav } from '../components/containers'
 import { TopBar } from '../components/containers'
 import { ChatPanel } from '../components/containers/ChatPanel'
+import { FolderNavigation } from '../components/containers/FolderNavigation'
+import { RadialMenu } from '../components/containers/RadialMenu'
+import { WorkspaceContent } from '../components/containers/WorkspaceContent'
+import { QuickActionButton } from '../components/atoms/QuickActionButton'
+import { useWorkspaceStore } from '../store/workspace'
 import { primaryFromPathname, type PrimarySection } from '../lib/navigation'
 
 export function WorkspaceLayout() {
   const location = useLocation()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const [secondaryPinned, setSecondaryPinned] = useState(true)
-  const [secondaryHover, setSecondaryHover] = useState(false)
+  const [folderNavPinned, setFolderNavPinned] = useState(true)
   const hoverClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const { radialMenuOpen, openRadialMenu, activeRecordId } = useWorkspaceStore()
 
   const routePrimary: PrimarySection = useMemo(
     () => primaryFromPathname(location.pathname),
@@ -28,21 +33,12 @@ export function WorkspaceLayout() {
   const scheduleHoverClear = useCallback(() => {
     cancelHoverClear()
     hoverClearTimer.current = setTimeout(() => {
-      setSecondaryHover(false)
       hoverClearTimer.current = null
     }, 220)
   }, [cancelHoverClear])
 
-  const secondaryVisible = secondaryPinned
-
-  const handleExplorerColumnEnter = useCallback(() => {
-    if (!secondaryPinned) return
-    cancelHoverClear()
-    setSecondaryHover(true)
-  }, [cancelHoverClear, secondaryPinned])
-
   const onPrimaryClick = useCallback(() => {
-    setSecondaryPinned(true)
+    setFolderNavPinned(true)
     cancelHoverClear()
   }, [cancelHoverClear])
 
@@ -54,7 +50,7 @@ export function WorkspaceLayout() {
       <TopBar onMenuClick={() => setMobileNavOpen(true)} />
 
       <div className="flex min-h-0 min-w-0 flex-1">
-        {/* Primary icon rail + Secondary nav — desktop */}
+        {/* Primary icon rail + Folder Navigation — desktop */}
         <div
           className="relative hidden min-h-0 max-h-full md:flex"
           onMouseEnter={cancelHoverClear}
@@ -64,19 +60,24 @@ export function WorkspaceLayout() {
             <IconRail
               activePrimary={routePrimary}
               onPrimaryClick={onPrimaryClick}
-              onToggleSecondary={() => setSecondaryPinned(!secondaryPinned)}
-              secondaryVisible={secondaryVisible}
+              onToggleSecondary={() => setFolderNavPinned(!folderNavPinned)}
+              secondaryVisible={folderNavPinned}
             />
           </div>
-          {secondaryVisible && (
-            <SecondaryNav primary={routePrimary} onPanelEnter={handleExplorerColumnEnter} />
+          {folderNavPinned && (
+            <div className="w-[260px] min-h-0 overflow-hidden border-r border-zinc-800/60 bg-[#0f0f0f]">
+              <FolderNavigation />
+            </div>
           )}
+
+          {/* Quick Action Button — positioned at right edge of sidebar panel */}
+          <QuickActionButton onClick={openRadialMenu} visible={!radialMenuOpen} />
         </div>
 
-        {/* Main content */}
+        {/* Main content — either workspace content or route outlet */}
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto border-l border-zinc-800/60 bg-[#0a0a0a] px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
-          <div className="flex min-h-0 w-full min-w-0 max-w-4xl flex-col justify-start">
-            <Outlet />
+          <div className="flex min-h-0 w-full min-w-0 max-w-4xl flex-col justify-start h-full">
+            {activeRecordId ? <WorkspaceContent /> : <Outlet />}
           </div>
         </main>
 
@@ -103,15 +104,14 @@ export function WorkspaceLayout() {
               onNavigate={() => setMobileNavOpen(false)}
             />
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <SecondaryNav
-                primary={routePrimary}
-                fullWidth
-                onNavigate={() => setMobileNavOpen(false)}
-              />
+              <FolderNavigation />
             </div>
           </div>
         </>
       )}
+
+      {/* Radial Hub Menu */}
+      <RadialMenu />
     </div>
   )
 }

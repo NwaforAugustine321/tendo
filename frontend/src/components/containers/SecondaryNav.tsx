@@ -56,40 +56,40 @@ function ConversationsBody({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
-function BusinessBody({ onNavigate }: { onNavigate?: () => void }) {
+function HomeBody({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 py-2">
-      {sectionLabel('Business')}
+      {sectionLabel('Home')}
       <div className="mt-1 space-y-0.5">
-        <Link to="/app/business" onClick={onNavigate} className={navClass(false)}>Profile</Link>
-        <Link to="/app/business" onClick={onNavigate} className={navClass(false)}>Understanding</Link>
-        <Link to="/app/business" onClick={onNavigate} className={navClass(false)}>Settings</Link>
+        <Link to="/app/home" onClick={onNavigate} className={navClass(false)}>Dashboard</Link>
+        <Link to="/app/home" onClick={onNavigate} className={navClass(false)}>Profile</Link>
+        <Link to="/app/home" onClick={onNavigate} className={navClass(false)}>Settings</Link>
       </div>
     </div>
   )
 }
 
-function InventoryBody({ onNavigate }: { onNavigate?: () => void }) {
+function InsightsBody({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 py-2">
-      {sectionLabel('Inventory')}
+      {sectionLabel('Insights')}
       <div className="mt-1 space-y-0.5">
-        <Link to="/app/inventory" onClick={onNavigate} className={navClass(false)}>All products</Link>
-        <Link to="/app/inventory" onClick={onNavigate} className={navClass(false)}>Low stock</Link>
-        <Link to="/app/inventory" onClick={onNavigate} className={navClass(false)}>Movements</Link>
+        <Link to="/app/insights" onClick={onNavigate} className={navClass(false)}>Business Insights</Link>
+        <Link to="/app/insights" onClick={onNavigate} className={navClass(false)}>Recommendations</Link>
+        <Link to="/app/insights" onClick={onNavigate} className={navClass(false)}>Trends</Link>
       </div>
     </div>
   )
 }
 
-function CustomersBody({ onNavigate }: { onNavigate?: () => void }) {
+function RecentBody({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 py-2">
-      {sectionLabel('Customers')}
+      {sectionLabel('Recent')}
       <div className="mt-1 space-y-0.5">
-        <Link to="/app/customers" onClick={onNavigate} className={navClass(false)}>All customers</Link>
-        <Link to="/app/customers" onClick={onNavigate} className={navClass(false)}>Outstanding debts</Link>
-        <Link to="/app/customers" onClick={onNavigate} className={navClass(false)}>Suppliers</Link>
+        <Link to="/app/recent" onClick={onNavigate} className={navClass(false)}>Recent actions</Link>
+        <Link to="/app/recent" onClick={onNavigate} className={navClass(false)}>Activity log</Link>
+        <Link to="/app/recent" onClick={onNavigate} className={navClass(false)}>History</Link>
       </div>
     </div>
   )
@@ -121,10 +121,8 @@ export function SecondaryNav({ primary, onNavigate, fullWidth, onPanelEnter }: P
         <h2 className="min-w-0 flex-1 truncate text-xs font-medium tracking-wide text-zinc-400">{title}</h2>
       </div>
 
-      {primary === 'conversations' && <ConversationsBody onNavigate={onNavigate} />}
-      {primary === 'business' && <BusinessBody onNavigate={onNavigate} />}
-      {primary === 'inventory' && <InventoryBody onNavigate={onNavigate} />}
-      {primary === 'customers' && <CustomersBody onNavigate={onNavigate} />}
+      {primary === 'insights' && <InsightsBody onNavigate={onNavigate} />}
+      {primary === 'recent' && <RecentBody onNavigate={onNavigate} />}
       {primary === 'analytics' && <AnalyticsBody onNavigate={onNavigate} />}
     </aside>
   )

@@ -43,20 +43,39 @@ def _clean_text(text: str) -> str:
 
 
 def _extract_thought(content: str) -> str:
-    """Extract 'Thought:' text from agent ReAct format output."""
-    if not content or "Thought:" not in content:
+    """Extract thought/reasoning text from agent output.
+
+    Handles both ReAct format (Thought: ...) and native tool calling
+    where the content is the agent's reasoning before making tool calls.
+    """
+    if not content:
         return ""
-    try:
-        idx = content.index("Thought:")
-        after = content[idx + 8:].strip()
-        for marker in ["Action:", "Final Answer:", "\n\n"]:
-            pos = after.find(marker)
-            if pos != -1:
-                after = after[:pos].strip()
-                break
-        return after[:200] if after else ""
-    except (ValueError, IndexError):
+
+    # Try ReAct format first
+    if "Thought:" in content:
+        try:
+            idx = content.index("Thought:")
+            after = content[idx + 8:].strip()
+            for marker in ["Action:", "Final Answer:", "\n\n"]:
+                pos = after.find(marker)
+                if pos != -1:
+                    after = after[:pos].strip()
+                    break
+            return after[:200] if after else ""
+        except (ValueError, IndexError):
+            pass
+
+    # For native tool calling: the content before tool calls is the reasoning
+    # Skip if it looks like a final JSON response
+    stripped = content.strip()
+    if stripped.startswith("{") or stripped.startswith("```"):
         return ""
+
+    # Return first 200 chars of reasoning content as the thought
+    if len(stripped) > 10:
+        return stripped[:200]
+
+    return ""
 
 
 async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket=None, user_id: str = "anonymous", send_fn=None) -> dict:
@@ -103,11 +122,7 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
                                 content = m.get("content", "")
                                 thought = _extract_thought(content)
                                 if thought:
-                                    if send_fn:
-                                        try:
-                                            await send_fn({"type": "thought", "data": thought})
-                                        except Exception:
-                                            pass
+                                    await _send_thinking_msg(f"__THOUGHT__:{thought}")
         except Exception as e:
             logger.error(f"Graph execution error: {e}", exc_info=True)
             if send_fn:

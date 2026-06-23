@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { MessageSquare, Home, Package, Users, BarChart3, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Lightbulb, History, BarChart3, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useAuth } from '../../context/auth'
 import type { PrimarySection } from '../../lib/navigation'
 
@@ -37,10 +37,8 @@ const railItemLabelClass =
   'pointer-events-none max-w-0 truncate whitespace-nowrap text-left text-xs font-medium text-zinc-400 opacity-0 transition-[max-width,opacity] duration-200 ease-out group-hover/rail:max-w-[7.5rem] group-hover/rail:opacity-100'
 
 const NAV_ITEMS: { id: PrimarySection; to: string; label: string; icon: ReactNode }[] = [
-  { id: 'conversations', to: '/app', label: 'Conversations', icon: <MessageSquare size={20} /> },
-  { id: 'business', to: '/app/business', label: 'Business', icon: <Home size={20} /> },
-  { id: 'inventory', to: '/app/inventory', label: 'Inventory', icon: <Package size={20} /> },
-  { id: 'customers', to: '/app/customers', label: 'Customers', icon: <Users size={20} /> },
+  { id: 'insights', to: '/app/insights', label: 'Insights', icon: <Lightbulb size={20} /> },
+  { id: 'recent', to: '/app/recent', label: 'Recent', icon: <History size={20} /> },
   { id: 'analytics', to: '/app/analytics', label: 'Analytics', icon: <BarChart3 size={20} /> },
 ]
 
