@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Type, Image, Mic, FileText, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useWorkspaceStore } from '../../store/workspace'
+import { InsightsFeed } from './InsightsFeed'
 import { BREADCRUMB_MAX_TITLE_LENGTH } from '../../lib/workspace/constants'
 import type { Record, RecordEntry, EntryType } from '../../lib/workspace/types'
 
@@ -151,11 +152,7 @@ export function WorkspaceContent() {
 
   // Empty state
   if (!activeRecordId) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-zinc-500">Select a record to get started</p>
-      </div>
-    )
+    return <InsightsFeed />
   }
 
   // Error state
@@ -205,7 +202,7 @@ export function WorkspaceContent() {
             <ChevronRight size={12} className="shrink-0 text-zinc-600" />
             <span className="truncate text-zinc-200">{truncatedTitle}</span>
           </div>
-          {/* Input type buttons — top right */}
+          {/* Input type buttons + close button — top right */}
           <div className="flex items-center gap-1.5">
             {ENTRY_TYPE_ICONS.map(({ type, label, icon: Icon }) => (
               <button
@@ -224,6 +221,20 @@ export function WorkspaceContent() {
                 <span className="text-[10px] font-medium">{label}</span>
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => useWorkspaceStore.getState().setActiveRecord(null)}
+              aria-label="Close record"
+              className={clsx(
+                'flex items-center gap-1 rounded-md px-2 py-1 transition-all duration-150',
+                'border border-zinc-700 text-zinc-500',
+                'hover:border-red-500/50 hover:text-red-400 hover:bg-red-500/5',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60'
+              )}
+            >
+              <X size={12} />
+              <span className="text-[10px] font-medium">Close</span>
+            </button>
           </div>
         </div>
       )}

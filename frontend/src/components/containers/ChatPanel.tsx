@@ -87,14 +87,6 @@ export function ChatPanel() {
         >
           <History size={14} />
         </button>
-
-        <button
-          onClick={() => setCollapsed(true)}
-          className="rounded p-1 text-zinc-400 hover:text-zinc-300"
-          title="Close panel"
-        >
-          <X size={14} />
-        </button>
       </div>
 
       {/* History dropdown */}

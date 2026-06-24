@@ -163,3 +163,14 @@ body {
     @apply inline-flex items-center justify-center rounded-lg bg-[#3ecf8e] px-6 py-2.5 text-sm font-semibold text-[#0a0a0a] shadow-sm shadow-[#3ecf8e]/25 transition hover:bg-[#5ee9b0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:pointer-events-none disabled:opacity-45;
   }
 }
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

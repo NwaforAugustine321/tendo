@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
+import { MessageSquare } from 'lucide-react'
 import { IconRail } from '../components/containers'
 import { TopBar } from '../components/containers'
 import { ChatPanel } from '../components/containers/ChatPanel'
@@ -13,6 +14,7 @@ import { primaryFromPathname, type PrimarySection } from '../lib/navigation'
 export function WorkspaceLayout() {
   const location = useLocation()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [chatPanelVisible, setChatPanelVisible] = useState(true)
   const [folderNavPinned, setFolderNavPinned] = useState(true)
   const hoverClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -77,13 +79,25 @@ export function WorkspaceLayout() {
         {/* Main content — either workspace content or route outlet */}
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto border-l border-zinc-800/60 bg-[#0a0a0a] px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
           <div className="flex min-h-0 w-full min-w-0 max-w-4xl flex-col justify-start h-full">
-            {activeRecordId ? <WorkspaceContent /> : <Outlet />}
+            <WorkspaceContent />
           </div>
         </main>
 
-        {/* Chat panel — right side */}
-        <div className="hidden min-h-0 lg:flex">
-          <ChatPanel />
+        {/* Chat panel — right side (toggleable via edge border button) */}
+        <div className="hidden min-h-0 lg:flex relative">
+          <button
+            type="button"
+            onClick={() => setChatPanelVisible(!chatPanelVisible)}
+            className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 bg-[#1a1a1a] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200"
+            title={chatPanelVisible ? 'Close chat' : 'Open chat'}
+          >
+            <MessageSquare size={10} />
+          </button>
+          {chatPanelVisible ? (
+            <ChatPanel />
+          ) : (
+            <div className="w-5 border-l border-zinc-800/60 bg-[#0f0f0f]" />
+          )}
         </div>
       </div>
 
