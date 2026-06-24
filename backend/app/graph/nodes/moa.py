@@ -106,7 +106,7 @@ async def moa_node(state: GraphState) -> dict:
 
     logger.info(f"MOA raw output: {raw[:200]}")
 
-    # Check if delegation tool was called — detect __ROUTE__ signal in raw output
+    # Check if delegation tool was called — detect __ROUTE__ signal
     route_target = _extract_route_signal(raw)
     if route_target:
         logger.info(f"MOA: delegation detected → routing to {route_target}")
@@ -124,14 +124,37 @@ async def moa_node(state: GraphState) -> dict:
             ],
         }
 
+    # Check if delegation happened but route signal wasn't extracted
+    # (the raw contains Action: delegate_ patterns — try to infer route)
+    if "Action: delegate_" in raw or "delegate_work" in raw:
+        inferred_target = _infer_route_from_delegation(raw)
+        if inferred_target:
+            logger.info(f"MOA: inferred delegation → routing to {inferred_target}")
+            return {
+                "routed_domain": inferred_target,
+                "current_agent": "moa",
+                "workflow_owner": inferred_target,
+                "return_to": inferred_target,
+                "tool_requests": None,
+                "response": {"mode": "conversation", "text": ""},
+                "output_mode": "conversation",
+                "messages": [
+                    {"role": "user", "content": user_message},
+                    {"role": "assistant", "content": f"Routing to {inferred_target}"},
+                ],
+            }
+
     decision = _parse_decision(raw)
 
-    # If parsing failed, retry once with stronger JSON enforcement
     if decision.get("_retry"):
         logger.warning("MOA: invalid JSON output, using raw as response")
         decision = {"response": raw, "workflow_status": "completed"}
 
     text = decision.get("response", raw)
+
+    # Strip internal reasoning from the text (never expose Thought/Action/Observation)
+    text = _strip_internal_reasoning(text)
+
     target = decision.get("target")
     fields = decision.get("fields")
     tool_requests = decision.get("tool_requests")
@@ -189,6 +212,57 @@ async def moa_node(state: GraphState) -> dict:
     }
 
     return result
+
+
+def _strip_internal_reasoning(text: str) -> str:
+    """Remove internal agent reasoning markers from text shown to users."""
+    if not text:
+        return text
+
+    # If text contains Thought:/Action:/Observation: patterns, extract only clean response
+    if "Thought:" in text or "Action:" in text or "Observation:" in text:
+        # Try to extract Final Answer content
+        if "Final Answer:" in text:
+            after = text.split("Final Answer:", 1)[1].strip()
+            # If it's JSON, try to extract .response from it
+            if after.startswith("{"):
+                try:
+                    data = json.loads(after)
+                    return data.get("response", after)
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            return after
+
+        # If no Final Answer, try extracting Observation (specialist response)
+        if "Observation:" in text:
+            parts = text.split("Observation:")
+            last_obs = parts[-1].strip()
+            # Clean up any trailing Thought/Action
+            for marker in ["Thought:", "Action:", "Action Input:"]:
+                idx = last_obs.find(marker)
+                if idx != -1:
+                    last_obs = last_obs[:idx].strip()
+            if last_obs:
+                return last_obs
+
+        # Last resort: remove everything before "Final Answer" or return cleaned
+        return ""
+
+    return text
+
+
+def _infer_route_from_delegation(raw: str) -> str | None:
+    """Infer routing target from delegation tool usage in raw output."""
+    raw_lower = raw.lower()
+
+    if "business profile" in raw_lower or "onboarding" in raw_lower:
+        return "onboarding"
+    if "transaction" in raw_lower or "sale" in raw_lower or "payment" in raw_lower:
+        return "transactions"
+    if "inventory" in raw_lower or "product" in raw_lower or "stock" in raw_lower:
+        return "inventory"
+
+    return None
 
 
 def _parse_decision(raw: str) -> dict:

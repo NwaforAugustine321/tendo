@@ -1,87 +1,77 @@
-"""LangChain tools for Neo4j retrieval (agent uses these via bind_tools)."""
-
 import json
 import logging
 
 from langchain_core.tools import tool
 
+from app.lib.i18n import _get_i18n
+from app.memory.memory import Memory
+
 logger = logging.getLogger(__name__)
 
 
+def _get_insight_memory(business_id: str) -> Memory:
+    return Memory(scope=f"/insights/{business_id}")
+
+
+def _slice(key: str) -> str:
+    i18n = _get_i18n()
+    return i18n.get(f"slices.{key}")
+
+
+async def _rewrite_query(query: str, insight: str, business_id: str) -> str:
+    try:
+        from app.llm.client import get_client
+
+        llm = get_client()
+        system_prompt = _slice("knowledge_search_query_system_prompt")
+        query_template = _slice("knowledge_search_query")
+        combined = f"business_id: {business_id}\nquery: {query}\ninsight: {insight}"
+        formatted = query_template.format(task_prompt=combined)
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": formatted},
+        ]
+
+        response = await llm.ainvoke(messages)
+        rewritten = response.content.strip() if response.content else query or insight
+        return rewritten if rewritten else query or insight
+    except Exception as e:
+        logger.warning(f"Query rewrite failed: {e}")
+        return query or insight
+
+
 @tool
-async def query_entities(
-    entity_type: str = "", entity_id: str = "", properties: str = ""
+async def search_insights(
+    query: str = "", insight: str = "", business_id: str = "", limit: int = 5
 ) -> str:
-    """Query existing entities from the knowledge graph. Filter by entity_type, entity_id, or properties (JSON string)."""
-    from app.db.graph_client import get_graph_client
+    """Search existing business insights by semantic similarity. Provide a query and/or insight text. Uses LLM to rewrite into an optimized search query."""
+    try:
+        memory = _get_insight_memory(business_id)
+        search_query = await _rewrite_query(query, insight, business_id)
 
-    client = get_graph_client()
+        matches = await memory.recall(
+            query=search_query,
+            limit=limit,
+        )
 
-    if entity_id:
-        query = "MATCH (n {entity_id: $entity_id}) RETURN n LIMIT 10"
-        params = {"entity_id": entity_id}
-    elif entity_type:
-        query = f"MATCH (n:{entity_type}) RETURN n LIMIT 20"
-        params = {}
-    else:
-        query = "MATCH (n) RETURN n LIMIT 20"
-        params = {}
+        if not matches:
+            return json.dumps({"matches": [], "count": 0})
 
-    results = await client.execute_read(query, params)
-    return json.dumps(results, default=str)
+        results = []
+        for m in matches:
+            results.append({
+                "insight": m.record.content,
+                "metadata": m.record.metadata,
+                "score": m.score,
+                "importance": m.record.importance,
+                "created_at": m.record.created_at.isoformat() if m.record.created_at else "",
+            })
 
-
-@tool
-async def query_relationships(
-    source_id: str = "", target_id: str = "", relationship_type: str = ""
-) -> str:
-    """Query relationships between entities in the knowledge graph."""
-    from app.db.graph_client import get_graph_client
-
-    client = get_graph_client()
-
-    if source_id and target_id:
-        query = "MATCH (a {entity_id: $source})-[r]->(b {entity_id: $target}) RETURN type(r) as type, properties(r) as props"
-        params = {"source": source_id, "target": target_id}
-    elif source_id:
-        query = "MATCH (a {entity_id: $source})-[r]->(b) RETURN type(r) as type, properties(r) as props, b.entity_id as target LIMIT 20"
-        params = {"source": source_id}
-    else:
-        query = "MATCH (a)-[r]->(b) RETURN a.entity_id as source, type(r) as type, b.entity_id as target LIMIT 20"
-        params = {}
-
-    results = await client.execute_read(query, params)
-    return json.dumps(results, default=str)
+        return json.dumps({"matches": results, "count": len(results)}, default=str)
+    except Exception as e:
+        logger.warning(f"search_insights failed: {e}")
+        return json.dumps({"matches": [], "count": 0, "note": "No existing insights found"})
 
 
-@tool
-async def search_similar(text: str, entity_type: str = "", limit: int = 5) -> str:
-    """Search for entities with similar content using text matching."""
-    from app.db.graph_client import get_graph_client
-
-    client = get_graph_client()
-
-    if entity_type:
-        query = f"MATCH (n:{entity_type}) WHERE toLower(n._payload) CONTAINS toLower($text) RETURN n LIMIT $limit"
-    else:
-        query = "MATCH (n) WHERE toLower(n._payload) CONTAINS toLower($text) RETURN n LIMIT $limit"
-
-    results = await client.execute_read(query, {"text": text, "limit": limit})
-    return json.dumps(results, default=str)
-
-
-@tool
-async def get_entity_neighbors(entity_id: str, depth: int = 1) -> str:
-    """Get all entities connected to a given entity up to a specified depth."""
-    from app.db.graph_client import get_graph_client
-
-    client = get_graph_client()
-
-    safe_depth = min(depth, 3)
-    query = f"MATCH (n {{entity_id: $id}})-[r*1..{safe_depth}]-(m) RETURN DISTINCT m.entity_id as entity_id, labels(m) as labels, m._payload as payload LIMIT 30"
-    results = await client.execute_read(query, {"id": entity_id})
-    return json.dumps(results, default=str)
-
-
-# All tools available to the intelligence agent
-INTELLIGENCE_TOOLS = [query_entities, query_relationships, search_similar, get_entity_neighbors]
+INTELLIGENCE_TOOLS = [search_insights]

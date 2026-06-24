@@ -1,35 +1,24 @@
-"""Business Intelligence Agent — main reasoning loop."""
-
 import json
 import logging
 
+from app.agents.models import Agent
 from app.events.models import BusinessEvent, Job
 from app.intelligence.config import get_intelligence_config
-from app.intelligence.models import AgentError, AgentStatus, KnowledgeChangeSet
-from app.db.graph_client import get_graph_client
-from app.intelligence.persistence import PersistenceLayer
+from app.intelligence.models import AgentStatus, InsightOutput
+from app.intelligence.persistence import InsightPersistence
 from app.intelligence.tools import INTELLIGENCE_TOOLS
-from app.llm.specs import load
 
 logger = logging.getLogger(__name__)
 
+_bla_agent = Agent.from_spec("bla")
+
 
 async def process_events(job: Job, events: list[BusinessEvent]) -> None:
-    """Main entry point: analyze events, reason with tools, persist knowledge."""
+    from app.lib.agent_executor import execute_task
+
     config = get_intelligence_config()
+    business_id = job.stream_key.split(":")[0]
 
-    # Load system prompt from agent spec files
-    agent_config = load("bla", tools=INTELLIGENCE_TOOLS)
-
-    # Get LLM
-    from app.llm.client import get_client as get_llm
-
-    llm = get_llm()
-
-    # Bind tools
-    llm_with_tools = llm.bind_tools(INTELLIGENCE_TOOLS)
-
-    # Build prompt with events
     events_summary = json.dumps(
         [
             {
@@ -37,94 +26,50 @@ async def process_events(job: Job, events: list[BusinessEvent]) -> None:
                 "entity_type": e.entity_type,
                 "entity_id": e.entity_id,
                 "source": e.source,
-                "payload": e.payload,
-                "metadata": e.metadata,
+                **(e.payload or {}),
+                **(e.metadata or {}),
             }
             for e in events
         ],
         default=str,
     )
 
-    prompt = [
-        {"role": "system", "content": agent_config.system_prompt},
-        {
-            "role": "user",
-            "content": f"Process these business events for business_id={job.stream_key.split(':')[0]}:\n\n{events_summary}",
-        },
-    ]
+    description = (
+        f"Process these business events and operations and records for business_id={business_id}:\n\n"
+        f"{events_summary}"
+    )
 
-    # Reasoning loop with tool calls
-    max_iterations = config.max_iterations
-    raw = ""
+    context = f"business_id: {business_id}\njob_id: {job.id}"
 
-    for iteration in range(max_iterations):
-        response = await llm_with_tools.ainvoke(prompt)
+    raw = await execute_task(
+        agent=_bla_agent,
+        description=description,
+        tools=INTELLIGENCE_TOOLS,
+        expected_output=_bla_agent.expected_output,
+        context=context,
+        output_pydantic=InsightOutput,
+        use_system_prompt=True,
+        max_iter=config.max_iterations,
+    )
 
-        # If LLM wants to call tools
-        if response.tool_calls:
-            logger.info(
-                f"BLA iteration {iteration}: calling {len(response.tool_calls)} tools"
-            )
-            prompt.append(
-                {
-                    "role": "assistant",
-                    "content": response.content or "",
-                    "tool_calls": response.tool_calls,
-                }
-            )
+    logger.info(f"BLA raw output: {raw}")
 
-            # Execute tools
-            for tc in response.tool_calls:
-                tool_map = {t.name: t for t in INTELLIGENCE_TOOLS}
-                tool_fn = tool_map.get(tc["name"])
-                if tool_fn:
-                    try:
-                        result = await tool_fn.ainvoke(tc["args"])
-                    except Exception as e:
-                        result = f"Tool error: {e}"
-                else:
-                    result = f"Unknown tool: {tc['name']}"
+    insight_output = _parse_insight_output(raw, job)
 
-                prompt.append(
-                    {"role": "tool", "tool_call_id": tc["id"], "content": str(result)}
-                )
-            continue
-
-        # No tool calls — LLM is ready to produce output
-        raw = response.content.strip() if response.content else ""
-        break
-    else:
-        raise AgentError(
-            f"Max iterations ({max_iterations}) exceeded", iteration=max_iterations
-        )
-
-    # Parse the KnowledgeChangeSet
-    logger.info(f"BLA raw output: {raw[:300]}")
-    change_set = _parse_change_set(raw, job)
-
-    # Handle status-based flow
-    if change_set.status == AgentStatus.NO_CHANGES:
+    if insight_output.status == AgentStatus.NO_CHANGES:
         logger.info("BLA: no changes detected")
         return
 
-    if change_set.status == AgentStatus.NEEDS_RETRIEVAL:
-        logger.info(f"BLA: needs retrieval — {len(change_set.tool_requests)} requests")
-        # Tool requests are handled during the reasoning loop above;
-        # if we reach here, the agent could not resolve within max_iterations
+    if insight_output.status == AgentStatus.NEEDS_RETRIEVAL:
+        logger.info("BLA: needs retrieval")
         return
 
-    # Persist (status == completed)
-    graph = get_graph_client()
-    persistence = PersistenceLayer(graph)
-    result = await persistence.persist(change_set)
-
-    logger.info(
-        f"BLA persisted: {result.operations_applied} ops, {result.nodes_created} nodes created"
-    )
+    persistence = InsightPersistence(business_id)
+    count = await persistence.persist(insight_output)
+    logger.info(f"BLA persisted: {count} insights stored")
 
 
-def _parse_change_set(raw: str, job: Job) -> KnowledgeChangeSet:
-    """Parse LLM output into a validated KnowledgeChangeSet."""
+def _parse_insight_output(raw: str, job: Job) -> InsightOutput:
     try:
         clean = raw.strip()
         if clean.startswith("```"):
@@ -145,13 +90,13 @@ def _parse_change_set(raw: str, job: Job) -> KnowledgeChangeSet:
         data = json.loads(clean)
         data["business_id"] = job.stream_key.split(":")[0]
         data["job_id"] = str(job.id)
-        return KnowledgeChangeSet(**data)
+        return InsightOutput(**data)
     except Exception as e:
-        logger.warning(f"BLA: failed to parse change set: {e}")
-        return KnowledgeChangeSet(
+        logger.warning(f"BLA: failed to parse insight output: {e}")
+        return InsightOutput(
             business_id=job.stream_key.split(":")[0],
             job_id=str(job.id),
-            operations=[],
+            insights=[],
             reasoning_summary=raw[:500],
             status=AgentStatus.NO_CHANGES,
         )

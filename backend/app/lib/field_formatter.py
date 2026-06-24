@@ -1,5 +1,3 @@
-"""Format structured field responses from the frontend for the agent."""
-
 import json
 import logging
 
@@ -9,15 +7,12 @@ logger = logging.getLogger(__name__)
 def format_user_input(raw_input: str) -> str:
     """
     If the user input is a JSON array of field responses (from InputCard),
-    reformat it into a readable string for the agent.
+    reformat it into readable key-value text for the agent.
 
-    Input format (from frontend):
-    [{"name": "business_name", "label": "Business Name", "description": "hint", "answer": "Flivana"}]
-
-    Output format (for agent):
-    Label: Business Name
-    Description: hint
-    User answer: Flivana
+    Input: [{"name":"business_name","answer":"Mario store"},{"name":"location","answer":"Maryland"}]
+    Output:
+    business_name: Mario store
+    location: Maryland
     """
     if not raw_input or not raw_input.strip().startswith("["):
         return raw_input
@@ -27,25 +22,20 @@ def format_user_input(raw_input: str) -> str:
         if not isinstance(responses, list) or not responses:
             return raw_input
 
-        # Verify it's structured field data
         if not all(isinstance(r, dict) and "answer" in r for r in responses):
             return raw_input
 
         lines = []
         for resp in responses:
-            label = resp.get("label")
+            name = resp.get("label") or resp.get("name", "")
             description = resp.get("description", "")
             answer = resp.get("answer", "")
 
-            if label:
-                # Option/choice response — include context
-                lines.append(f"Label: {label}")
+            if name:
+                lines.append(f"{name}: {answer}")
                 if description:
-                    lines.append(f"Description: {description}")
-                lines.append(f"User answer: {answer}")
-                lines.append("")
+                    lines.append(f"  ({description})")
             else:
-                # Plain text response — just the answer
                 lines.append(answer)
 
         return "\n".join(lines).strip()

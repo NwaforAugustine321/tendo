@@ -112,10 +112,24 @@ function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
   )
 }
 
+function formatDisplayContent(content: string): string {
+  if (!content.trim().startsWith('[')) return content
+  try {
+    const responses = JSON.parse(content)
+    if (!Array.isArray(responses) || !responses.every((r: any) => r && typeof r === 'object' && 'answer' in r)) {
+      return content
+    }
+    return responses.map((r: any) => r.answer).join('\n')
+  } catch {
+    return content
+  }
+}
+
 export function MessageBubble({ role, content, audioUrl }: Props) {
   const isUser = role === 'user'
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   const isVoice = content === '🎤 Voice message'
+  const displayContent = isUser ? formatDisplayContent(content) : content
 
   return (
     <div className={clsx('flex gap-2', isUser ? 'flex-row-reverse' : 'flex-row')}>
@@ -144,7 +158,7 @@ export function MessageBubble({ role, content, audioUrl }: Props) {
           {isVoice ? (
             <VoiceWaveform audioUrl={audioUrl} />
           ) : (
-            content.split('\n').map((line, i) => (
+            displayContent.split('\n').map((line, i) => (
               <p key={i} className={i > 0 ? 'mt-0.5' : ''}>
                 {line}
               </p>
