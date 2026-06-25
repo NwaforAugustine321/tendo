@@ -62,7 +62,7 @@ const radialActions = [
   { label: 'Import Data', icon: <Download size={20} />, type: 'import-data' as const },
 ]
 
-export function RadialMenu() {
+export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
   const {
     radialMenuOpen,
     radialMenuView,
@@ -405,7 +405,7 @@ export function RadialMenu() {
           scaleClass
         )}
         style={{
-          left: '325px',
+          left: sidebarOpen ? '325px' : '65px',
           bottom: '25%',
           marginBottom: '0px',
         }}

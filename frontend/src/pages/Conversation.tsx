@@ -57,6 +57,32 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
     navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {})
   }, [currentProfile?.id])
 
+  // Listen for voice toggle from the insights big mic circle
+  useEffect(() => {
+    const handleVoiceToggleEvent = async () => {
+      if (voice.isListening) {
+        const audioUrl = await voice.stopListening()
+        setMessages((prev) => [...prev, {
+          id: `user-${Date.now()}`,
+          role: 'user',
+          content: '🎤 Voice message',
+          type: 'text',
+          audioUrl: audioUrl ?? undefined,
+        }])
+      } else {
+        if (!voice.isConnected) {
+          await voice.connect()
+        }
+        await voice.startListening()
+      }
+      window.dispatchEvent(new CustomEvent('tendo:recording-state', {
+        detail: { recording: !voice.isListening }
+      }))
+    }
+    window.addEventListener('tendo:voice-toggle', handleVoiceToggleEvent)
+    return () => window.removeEventListener('tendo:voice-toggle', handleVoiceToggleEvent)
+  }, [voice.isListening, voice.isConnected])
+
   // When voice connects successfully, mark as active
   useEffect(() => {
     if (voice.isConnected) {

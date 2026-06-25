@@ -4,9 +4,10 @@ import clsx from 'clsx'
 type Props = {
   onClick: () => void
   visible: boolean
+  sidebarOpen?: boolean
 }
 
-export function QuickActionButton({ onClick, visible }: Props) {
+export function QuickActionButton({ onClick, visible, sidebarOpen = true }: Props) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
@@ -17,19 +18,18 @@ export function QuickActionButton({ onClick, visible }: Props) {
   return (
     <div
       className={clsx(
-        'absolute bottom-10 right-0 z-50 translate-x-1/2',
+        'absolute bottom-10 z-50',
         'transition-all duration-300 ease-in-out',
+        sidebarOpen ? 'right-0 translate-x-1/2' : 'right-0 translate-x-[calc(100%+16px)]',
         visible
           ? 'scale-100 opacity-100'
           : 'pointer-events-none scale-75 opacity-0'
       )}
     >
-      {/* Dashed orbit ring */}
       <div
         className="absolute inset-[-12px] rounded-full border-[1.5px] border-dashed border-[#3ecf8e]/40"
         aria-hidden="true"
       />
-      {/* Main button */}
       <button
         type="button"
         onClick={onClick}

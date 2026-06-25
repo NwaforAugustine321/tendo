@@ -46,6 +46,12 @@ export function WorkspaceLayout() {
 
   useEffect(() => () => cancelHoverClear(), [cancelHoverClear])
 
+  useEffect(() => {
+    const handleOpenChat = () => setChatPanelVisible(true)
+    window.addEventListener('tendo:open-chat', handleOpenChat)
+    return () => window.removeEventListener('tendo:open-chat', handleOpenChat)
+  }, [])
+
   return (
     <div className="flex h-dvh max-h-dvh flex-col overflow-hidden bg-[#0a0a0a] text-zinc-100">
       {/* Top bar */}
@@ -73,12 +79,12 @@ export function WorkspaceLayout() {
           )}
 
           {/* Quick Action Button — positioned at right edge of sidebar panel */}
-          <QuickActionButton onClick={openRadialMenu} visible={!radialMenuOpen} />
+          <QuickActionButton onClick={openRadialMenu} visible={!radialMenuOpen} sidebarOpen={folderNavPinned} />
         </div>
 
         {/* Main content — either workspace content or route outlet */}
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto border-l border-zinc-800/60 bg-[#0a0a0a] px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
-          <div className="flex min-h-0 w-full min-w-0 max-w-4xl flex-col justify-start h-full">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto border-l border-zinc-800/60 bg-[#0a0a0a]">
+          <div className="flex min-h-0 w-full min-w-0 flex-col justify-start h-full">
             <WorkspaceContent />
           </div>
         </main>
@@ -125,7 +131,7 @@ export function WorkspaceLayout() {
       )}
 
       {/* Radial Hub Menu */}
-      <RadialMenu />
+      <RadialMenu sidebarOpen={folderNavPinned} />
     </div>
   )
 }
