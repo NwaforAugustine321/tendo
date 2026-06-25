@@ -41,7 +41,7 @@ export function RadialMenuItem({
       aria-setsize={total}
       onClick={onClick}
       className={clsx(
-        'group absolute flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-2',
+        'group absolute flex min-h-[44px] min-w-[44px] items-center gap-3',
         'rounded-lg p-2 transition-all duration-200 ease-out',
         'hover:scale-110',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/60'
@@ -52,12 +52,13 @@ export function RadialMenuItem({
         pointerEvents: arcOpacity < 0.3 ? 'none' : 'auto',
       }}
     >
-      {/* Dark circle background with colored icon */}
-      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#1a1a1a] border border-white/10 text-[#3ecf8e] shadow-md group-hover:border-[#3ecf8e]/40 transition-colors">
-        {icon}
-      </span>
+      {/* Label on left side of icon */}
       <span className="whitespace-nowrap text-[11px] font-medium text-zinc-400 group-hover:text-white transition-colors">
         {label}
+      </span>
+      {/* Icon circle */}
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#1a1a1a] border border-white/10 text-[#3ecf8e] shadow-md group-hover:border-[#3ecf8e]/40 transition-colors">
+        {icon}
       </span>
     </button>
   )

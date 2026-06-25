@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, Type, Image, Mic, FileText, X } from 'lucide-react'
+import { ChevronRight, Type, Image, Mic, FileText, X, Plus, Camera, AudioLines } from 'lucide-react'
 import clsx from 'clsx'
 import { useWorkspaceStore } from '../../store/workspace'
 import { InsightsFeed } from './InsightsFeed'
@@ -15,6 +15,11 @@ const ENTRY_TYPE_ICONS: { type: EntryType; label: string; icon: typeof Type }[] 
   { type: 'pdf', label: 'PDF', icon: FileText },
 ]
 
+const MORE_ENTRY_TYPES: { type: EntryType; label: string; icon: typeof Type }[] = [
+  { type: 'camera', label: 'Camera', icon: Camera },
+  { type: 'voice', label: 'Voice', icon: AudioLines },
+]
+
 export function WorkspaceContent() {
   const {
     folders,
@@ -27,7 +32,7 @@ export function WorkspaceContent() {
   const [transitioning, setTransitioning] = useState(false)
   const [error, setError] = useState(false)
   const [localEntries, setLocalEntries] = useState<RecordEntry[]>([])
-
+  const [showMoreTypes, setShowMoreTypes] = useState(false)
   const textareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map())
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevRecordIdRef = useRef<string | null>(null)
@@ -179,7 +184,7 @@ export function WorkspaceContent() {
   return (
     <div
       className={clsx(
-        'flex h-full flex-col',
+        'flex h-full flex-col p-5',
         !prefersReducedMotion.current && 'transition-opacity duration-300',
         transitioning ? 'opacity-0' : 'opacity-100'
       )}
@@ -221,6 +226,46 @@ export function WorkspaceContent() {
                 <span className="text-[10px] font-medium">{label}</span>
               </button>
             ))}
+            {/* More button */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowMoreTypes(!showMoreTypes)}
+                className={clsx(
+                  'flex items-center gap-1 rounded-md px-2 py-1 transition-all duration-150',
+                  'border border-dashed text-zinc-500',
+                  showMoreTypes
+                    ? 'border-[#3ecf8e]/40 text-zinc-200 bg-white/5'
+                    : 'border-zinc-700 hover:border-zinc-500 hover:text-zinc-200 hover:bg-white/5',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/60'
+                )}
+                aria-label="More input types"
+              >
+                <Plus size={12} />
+                <span className="text-[10px] font-medium">More</span>
+              </button>
+              {showMoreTypes && (
+                <div className="absolute right-0 top-full mt-1 z-50 flex flex-col gap-1 rounded-lg border border-white/10 bg-[#1a1a1a] p-2 shadow-xl min-w-[120px]">
+                  {MORE_ENTRY_TYPES.map(({ type, label, icon: Icon }) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => { handleAddEntry(type); setShowMoreTypes(false) }}
+                      className={clsx(
+                        'flex items-center gap-2 rounded-md px-3 py-2 w-full text-left transition-all duration-150',
+                        'text-zinc-400',
+                        'hover:text-zinc-200 hover:bg-white/5',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/60'
+                      )}
+                      aria-label={`Add ${label}`}
+                    >
+                      <Icon size={14} />
+                      <span className="text-[11px] font-medium">{label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button
               type="button"
               onClick={() => useWorkspaceStore.getState().setActiveRecord(null)}

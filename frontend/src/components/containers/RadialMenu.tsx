@@ -3,11 +3,6 @@ import {
   X,
   FolderOpen,
   FolderPlus,
-  FilePlus,
-  Download,
-  Upload,
-  LayoutGrid,
-  StickyNote,
   Plus,
   Folder,
   Briefcase,
@@ -21,15 +16,20 @@ import {
   Zap,
   Globe,
   Code,
+  Cable,
+  Settings,
+  Lightbulb,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { RadialMenuItem } from '../atoms'
 import { useWorkspaceStore } from '../../store/workspace'
 import { getHubPosition, isInVisibleArc } from '../../lib/workspace/radial-utils'
 import { RADIAL_ANIMATION_MS, FOLDER_COLOR_CLASSES } from '../../lib/workspace/constants'
+import { DATA_SOURCES, type DataSource } from '../../lib/workspace/data-sources'
+import { showToast } from '../../lib/workspace/toast'
 import type { Folder as FolderType, FolderIcon, Record as RecordType } from '../../lib/workspace/types'
 
-const HUB_RADIUS = 140
+const HUB_RADIUS = 130
 const SCROLL_SENSITIVITY = 0.4
 const TOUCH_SENSITIVITY = 0.6
 
@@ -54,12 +54,10 @@ function getFolderIcon(iconName: FolderIcon, size: number = 28) {
 
 const radialActions = [
   { label: 'New Folder', icon: <FolderPlus size={20} />, type: 'new-folder' as const },
-  { label: 'New Record', icon: <FilePlus size={20} />, type: 'new-record' as const },
-  { label: 'Upload File', icon: <Upload size={20} />, type: 'upload-file' as const },
   { label: 'Browse Folders', icon: <FolderOpen size={20} />, type: 'browse-folders' as const },
-  { label: 'Quick Note', icon: <StickyNote size={20} />, type: 'quick-note' as const },
-  { label: 'Templates', icon: <LayoutGrid size={20} />, type: 'templates' as const },
-  { label: 'Import Data', icon: <Download size={20} />, type: 'import-data' as const },
+  { label: 'Connect Sources', icon: <Cable size={20} />, type: 'connect-sources' as const },
+  { label: 'Insights', icon: <Lightbulb size={20} />, type: 'insights' as const },
+  { label: 'Settings', icon: <Settings size={20} />, type: 'settings' as const },
 ]
 
 export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
@@ -115,6 +113,7 @@ export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
   }, [radialMenuOpen])
 
   const getItemCount = useCallback(() => {
+    if (radialMenuView.view === 'sources') return DATA_SOURCES.length
     if (radialMenuView.view === 'folders') {
       const viewFolders = radialMenuView.folders || []
       return viewFolders.length + 2
@@ -128,12 +127,14 @@ export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
   const clampRotation = useCallback((offset: number): number => {
     const total = getItemCount()
     if (total <= 1) return 0
-    const spacing = total > 1 ? 180 / (total - 1) : 0
-    // Keep at least 2 items visible in the arc at all times
-    // The visible arc is -90° to +90° (180° total)
-    // We want the second-to-last item to stay at the edge when scrolling to the end
-    const minItemsVisible = Math.min(2, total)
-    const maxScroll = (total - minItemsVisible) * spacing
+    // Match the spacing logic in getHubPosition
+    const MIN_SPACING = 35
+    const arcSize = 180
+    const naturalSpacing = total > 1 ? arcSize / (total - 1) : 0
+    const spacing = Math.max(MIN_SPACING, naturalSpacing)
+    // Allow full rotation — items can scroll until last reaches top position
+    // and first reaches bottom position
+    const maxScroll = spacing * (total - 1)
     return Math.max(-maxScroll, Math.min(maxScroll, offset))
   }, [getItemCount])
 
@@ -143,20 +144,18 @@ export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
     setRotationOffset((prev) => clampRotation(prev - e.deltaY * SCROLL_SENSITIVITY))
   }, [clampRotation])
 
-  // Attach native wheel listener with passive: false to prevent browser back/forward navigation
+  // Attach wheel listener to the document when menu is open so scrolling works anywhere over the overlay
   useEffect(() => {
-    const el = containerRef.current
-    if (!el || !radialMenuOpen) return
+    if (!radialMenuOpen) return
 
     const nativeWheelHandler = (e: WheelEvent) => {
       e.preventDefault()
-      e.stopPropagation()
       setRotationOffset((prev) => clampRotation(prev - e.deltaY * SCROLL_SENSITIVITY))
     }
 
-    el.addEventListener('wheel', nativeWheelHandler, { passive: false })
+    document.addEventListener('wheel', nativeWheelHandler, { passive: false })
     return () => {
-      el.removeEventListener('wheel', nativeWheelHandler)
+      document.removeEventListener('wheel', nativeWheelHandler)
     }
   }, [radialMenuOpen, clampRotation])
 
@@ -224,24 +223,27 @@ export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
         case 'browse-folders':
           setRadialView({ view: 'folders', folders })
           break
+        case 'connect-sources':
+          setRadialView({ view: 'sources' })
+          break
         case 'new-folder':
           createFolder('New Folder')
           closeRadialMenu()
           break
-        case 'new-record':
-          if (folders.length > 0) createRecord(folders[0].id, 'note')
+        case 'insights':
           closeRadialMenu()
+          window.location.href = '/app/insights'
           break
-        case 'quick-note':
-          if (folders.length > 0) createRecord(folders[0].id, 'note', 'Quick Note')
+        case 'settings':
           closeRadialMenu()
+          window.location.href = '/app/settings'
           break
         default:
           closeRadialMenu()
           break
       }
     },
-    [folders, setRadialView, createFolder, createRecord, closeRadialMenu]
+    [folders, setRadialView, createFolder, closeRadialMenu]
   )
 
   const handleFolderClick = useCallback(
@@ -265,6 +267,14 @@ export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
     setRadialView({ view: 'actions' })
   }, [setRadialView])
 
+  const handleSourceClick = useCallback(
+    (source: DataSource) => {
+      showToast(`${source.label} selected — connection coming soon`)
+      closeRadialMenu()
+    },
+    [closeRadialMenu]
+  )
+
   if (!visible) return null
 
   const isOpen = radialMenuOpen && !animating
@@ -276,6 +286,7 @@ export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
   const isFoldersView = radialMenuView.view === 'folders'
   const isRecordsView = radialMenuView.view === 'records'
   const isActionsView = radialMenuView.view === 'actions'
+  const isSourcesView = radialMenuView.view === 'sources'
 
   const renderItems = () => {
     if (isActionsView) {
@@ -292,6 +303,28 @@ export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
             onClick={() => handleActionClick(action.type)}
             index={index}
             total={radialActions.length}
+            arcOpacity={opacity}
+            arcVisible={arcVisible}
+          />
+        )
+      })
+    }
+
+    if (isSourcesView) {
+      return DATA_SOURCES.map((source, index) => {
+        const { angleDeg } = getHubPosition(index, DATA_SOURCES.length, HUB_RADIUS, rotationOffset)
+        const { visible: arcVisible, opacity } = isInVisibleArc(angleDeg)
+        const Icon = source.icon
+        return (
+          <RadialMenuItem
+            key={source.id}
+            icon={<Icon size={20} />}
+            label={source.label}
+            angle={angleDeg}
+            radius={HUB_RADIUS}
+            onClick={() => handleSourceClick(source)}
+            index={index}
+            total={DATA_SOURCES.length}
             arcOpacity={opacity}
             arcVisible={arcVisible}
           />
@@ -327,36 +360,41 @@ export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
           const colorClasses = FOLDER_COLOR_CLASSES[folder.color]
           return (
             <button key={folder.id} type="button" role="menuitem" onClick={() => handleFolderClick(folder)}
-              className="absolute flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-1.5 rounded-lg p-2 transition-all duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/60"
+              className="group absolute flex min-h-[44px] min-w-[44px] items-center gap-3 rounded-lg p-2 transition-all duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/60"
               style={style}
             >
-              <span className={colorClasses.text}>
-                {getFolderIcon(folder.icon, 28)}
+              <span className="whitespace-nowrap text-[11px] font-medium text-zinc-400 group-hover:text-white transition-colors">
+                {folder.name}
               </span>
-              <span className="whitespace-nowrap text-[11px] font-medium text-zinc-300">{folder.name}</span>
-              <span className="text-[10px] text-zinc-500">{folder.recordCount} Items</span>
+              <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#1a1a1a] border border-white/10 shadow-md group-hover:border-[#3ecf8e]/40 transition-colors ${colorClasses.text}`}>
+                {getFolderIcon(folder.icon, 18)}
+              </span>
             </button>
           )
         }
         if (item.kind === 'new-folder') {
           return (
             <button key="hub-new-folder" type="button" role="menuitem" onClick={() => createFolder('New Folder')}
-              className="absolute flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-1.5 rounded-lg p-2 transition-all duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/60"
+              className="group absolute flex min-h-[44px] min-w-[44px] items-center gap-3 rounded-lg p-2 transition-all duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/60"
               style={style}
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#3ecf8e] text-white"><Plus size={20} /></span>
-              <span className="whitespace-nowrap text-[11px] font-medium text-zinc-300">New Folder</span>
+              <span className="whitespace-nowrap text-[11px] font-medium text-zinc-400 group-hover:text-white transition-colors">
+                New Folder
+              </span>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#3ecf8e] text-white"><Plus size={18} /></span>
             </button>
           )
         }
         if (item.kind === 'new-record') {
           return (
             <button key="hub-new-record" type="button" role="menuitem" onClick={() => { if (folders.length > 0) createRecord(folders[0].id, 'note'); closeRadialMenu() }}
-              className="absolute flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-1.5 rounded-lg p-2 transition-all duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/60"
+              className="group absolute flex min-h-[44px] min-w-[44px] items-center gap-3 rounded-lg p-2 transition-all duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/60"
               style={style}
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#3ecf8e] text-white"><Plus size={20} /></span>
-              <span className="whitespace-nowrap text-[11px] font-medium text-zinc-300">New Record</span>
+              <span className="whitespace-nowrap text-[11px] font-medium text-zinc-400 group-hover:text-white transition-colors">
+                New Record
+              </span>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#3ecf8e] text-white"><Plus size={18} /></span>
             </button>
           )
         }
@@ -375,11 +413,15 @@ export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
         const y = HUB_RADIUS * Math.sin(angleRad)
         return (
           <button key={record.id} type="button" role="menuitem" onClick={() => handleRecordClick(record)}
-            className="absolute flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-1 rounded-lg p-2 transition-all duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/60"
+            className="group absolute flex min-h-[44px] min-w-[44px] items-center gap-3 rounded-lg p-2 transition-all duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/60"
             style={{ transform: `translate(${x}px, ${y}px) translate(-50%, -50%)`, opacity, pointerEvents: opacity < 0.3 ? 'none' : 'auto' }}
           >
-            <span className="h-2 w-2 rounded-full bg-[#3ecf8e]" />
-            <span className="max-w-[90px] truncate text-[11px] font-medium text-zinc-300">{record.title}</span>
+            <span className="max-w-[70px] truncate whitespace-nowrap text-[11px] font-medium text-zinc-400 group-hover:text-white transition-colors">
+              {record.title}
+            </span>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#1a1a1a] border border-white/10 shadow-md group-hover:border-[#3ecf8e]/40 transition-colors">
+              <span className="h-2 w-2 rounded-full bg-[#3ecf8e]" />
+            </span>
           </button>
         )
       })
@@ -392,7 +434,6 @@ export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
     <div
       className="fixed inset-0 z-[100]"
       onClick={handleBackdropClick}
-      onWheel={(e) => { e.preventDefault(); e.stopPropagation() }}
       aria-hidden={!radialMenuOpen}
     >
       <div
@@ -418,9 +459,9 @@ export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
         <div
           className="absolute rounded-r-full bg-[#111111]/95 border border-white/10 border-l-0 shadow-2xl pointer-events-none"
           style={{
-            width: HUB_RADIUS + 80,
-            height: (HUB_RADIUS + 80) * 2,
-            top: -(HUB_RADIUS + 80),
+            width: HUB_RADIUS + 70,
+            height: (HUB_RADIUS + 70) * 2,
+            top: -(HUB_RADIUS + 70),
             left: -10,
           }}
           aria-hidden="true"
@@ -463,9 +504,11 @@ export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
           <X size={20} />
         </button>
 
-        {/* Items positioned relative to center (0,0) */}
-        <div className="absolute" style={{ left: 0, top: 0 }}>
-          {renderItems()}
+        {/* Items positioned relative to center (0,0) — clip left side */}
+        <div className="absolute z-[105] overflow-hidden pointer-events-none" style={{ left: -10, top: -(HUB_RADIUS + 70), width: HUB_RADIUS + 80, height: (HUB_RADIUS + 70) * 2 }}>
+          <div className="absolute pointer-events-auto" style={{ left: 10, top: HUB_RADIUS + 70 }}>
+            {renderItems()}
+          </div>
         </div>
 
         {/* Scroll hints */}

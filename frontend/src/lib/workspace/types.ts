@@ -9,7 +9,7 @@ export type FolderIcon = 'folder' | 'briefcase' | 'wallet' | 'shopping-bag' | 'u
 export type RecordType = 'note' | 'imported' | 'uploaded' | 'template'
 
 /** Content entry types within a record */
-export type EntryType = 'text' | 'image' | 'audio' | 'pdf'
+export type EntryType = 'text' | 'image' | 'audio' | 'pdf' | 'camera' | 'voice'
 
 export interface RecordEntry {
   id: string
@@ -52,6 +52,7 @@ export type RadialViewState =
   | { view: 'actions' }
   | { view: 'folders'; folders: Folder[] }
   | { view: 'records'; folderId: string; records: Record[] }
+  | { view: 'sources' }
 
 export interface DragState {
   recordId: string
