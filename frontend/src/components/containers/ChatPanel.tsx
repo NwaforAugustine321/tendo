@@ -118,7 +118,6 @@ export function ChatPanel() {
             key={activeSession}
             fullScreen={false}
             showHeader={false}
-            flipCharacter
             characterRightOffset={290}
           />
         )}

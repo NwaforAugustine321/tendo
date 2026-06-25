@@ -15,7 +15,7 @@ export function WorkspaceLayout() {
   const location = useLocation()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [chatPanelVisible, setChatPanelVisible] = useState(true)
-  const [folderNavPinned, setFolderNavPinned] = useState(true)
+  const [folderNavPinned, setFolderNavPinned] = useState(false)
   const hoverClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const { radialMenuOpen, openRadialMenu, activeRecordId } = useWorkspaceStore()
@@ -60,7 +60,7 @@ export function WorkspaceLayout() {
       <div className="flex min-h-0 min-w-0 flex-1">
         {/* Primary icon rail + Folder Navigation — desktop */}
         <div
-          className="relative hidden min-h-0 max-h-full md:flex"
+          className="group/sidebar relative hidden min-h-0 max-h-full md:flex"
           onMouseEnter={cancelHoverClear}
           onMouseLeave={scheduleHoverClear}
         >
@@ -77,10 +77,10 @@ export function WorkspaceLayout() {
               <FolderNavigation />
             </div>
           )}
-
-          {/* Quick Action Button — positioned at right edge of sidebar panel */}
-          <QuickActionButton onClick={openRadialMenu} visible={!radialMenuOpen} sidebarOpen={folderNavPinned} />
         </div>
+
+        {/* Quick Action Button — fixed position, independent of sidebar hover */}
+        <QuickActionButton onClick={openRadialMenu} visible={!radialMenuOpen} sidebarOpen={folderNavPinned} />
 
         {/* Main content — either workspace content or route outlet */}
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto border-l border-zinc-800/60 bg-[#0a0a0a]">

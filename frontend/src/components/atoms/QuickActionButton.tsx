@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -8,6 +9,19 @@ type Props = {
 }
 
 export function QuickActionButton({ onClick, visible, sidebarOpen = true }: Props) {
+  const [railHovered, setRailHovered] = useState(false)
+
+  useEffect(() => {
+    const onRailEnter = () => setRailHovered(true)
+    const onRailLeave = () => setRailHovered(false)
+    window.addEventListener('tendo:rail-enter', onRailEnter)
+    window.addEventListener('tendo:rail-leave', onRailLeave)
+    return () => {
+      window.removeEventListener('tendo:rail-enter', onRailEnter)
+      window.removeEventListener('tendo:rail-leave', onRailLeave)
+    }
+  }, [])
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
@@ -15,16 +29,24 @@ export function QuickActionButton({ onClick, visible, sidebarOpen = true }: Prop
     }
   }
 
+  // Sidebar open: after full width (52 + 260 = 312, centered on edge)
+  // Sidebar closed + rail hovered: shift past expanded rail (176px + gap)
+  // Sidebar closed + rail not hovered: just past the 52px rail
+  let leftPosition = '305px'
+  if (!sidebarOpen) {
+    leftPosition = railHovered ? '190px' : '68px'
+  }
+
   return (
     <div
       className={clsx(
-        'absolute bottom-10 z-50',
-        'transition-all duration-300 ease-in-out',
-        sidebarOpen ? 'right-0 translate-x-1/2' : 'right-0 translate-x-[calc(100%+16px)]',
+        'fixed bottom-10 z-50 hidden md:block',
+        'transition-[left] duration-300 ease-in-out',
         visible
           ? 'scale-100 opacity-100'
           : 'pointer-events-none scale-75 opacity-0'
       )}
+      style={{ left: leftPosition }}
     >
       <div
         className="absolute inset-[-12px] rounded-full border-[1.5px] border-dashed border-[#3ecf8e]/40"

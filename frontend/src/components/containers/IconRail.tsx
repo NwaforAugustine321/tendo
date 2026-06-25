@@ -83,6 +83,8 @@ export function IconRail({ orientation = 'vertical', onNavigate, activePrimary, 
     <aside
       className="group/rail pointer-events-auto absolute inset-y-0 left-0 z-30 flex w-[52px] flex-col overflow-visible border-r border-zinc-800/90 bg-[#0f0f0f] shadow-none transition-[width,box-shadow] duration-200 ease-out hover:w-44 hover:shadow-2xl"
       aria-label="Primary navigation"
+      onMouseEnter={() => window.dispatchEvent(new Event('tendo:rail-enter'))}
+      onMouseLeave={() => window.dispatchEvent(new Event('tendo:rail-leave'))}
     >
       <div className="flex w-full flex-col overflow-visible py-2">
         {core}
