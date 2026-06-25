@@ -148,7 +148,7 @@ class StreamWorker(ABC):
 
 class BusinessEventWorker(StreamWorker):
     async def process_job(self, job: Job, events: list[BusinessEvent]) -> None:
-        from app.intelligence.agent import process_events
+        from app.business_knowledge.agent import process_events
         await process_events(job, events)
 
 

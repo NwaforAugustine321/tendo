@@ -71,17 +71,7 @@ CREATE TABLE IF NOT EXISTS inventory (
     last_updated TIMESTAMPTZ DEFAULT now()
 );
 
--- Inventory movements
-CREATE TABLE IF NOT EXISTS inventory_movements (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    business_id UUID NOT NULL REFERENCES business_profiles(id),
-    inventory_id UUID NOT NULL REFERENCES inventory(id),
-    movement_type TEXT NOT NULL DEFAULT 'in',
-    quantity NUMERIC(12,2) NOT NULL DEFAULT 0,
-    reference TEXT DEFAULT '',
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT now()
-);
+
 
 -- Transactions
 CREATE TABLE IF NOT EXISTS transactions (
@@ -110,17 +100,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Invoice line items
-CREATE TABLE IF NOT EXISTS invoice_line_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    business_id UUID NOT NULL REFERENCES business_profiles(id),
-    invoice_id UUID NOT NULL REFERENCES invoices(id),
-    description TEXT NOT NULL DEFAULT '',
-    quantity NUMERIC(12,2) NOT NULL DEFAULT 0,
-    unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
-    total NUMERIC(12,2) NOT NULL DEFAULT 0,
-    metadata JSONB DEFAULT '{}'
-);
+
 
 -- Payments
 CREATE TABLE IF NOT EXISTS payments (
@@ -135,44 +115,7 @@ CREATE TABLE IF NOT EXISTS payments (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Ledger entries
-CREATE TABLE IF NOT EXISTS ledger_entries (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    business_id UUID NOT NULL REFERENCES business_profiles(id),
-    transaction_id UUID NOT NULL REFERENCES transactions(id),
-    entry_type TEXT NOT NULL DEFAULT 'debit',
-    amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-    account TEXT NOT NULL DEFAULT '',
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT now()
-);
 
--- AI Business Understanding
-CREATE TABLE IF NOT EXISTS ai_business_understanding (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    business_id UUID NOT NULL REFERENCES business_profiles(id),
-    summary TEXT NOT NULL,
-    confidence FLOAT NOT NULL DEFAULT 0.5 CHECK (confidence >= 0.0 AND confidence <= 1.0),
-    evidence_count INTEGER DEFAULT 0,
-    evidence_references JSONB DEFAULT '[]',
-    correction_history JSONB DEFAULT '[]',
-    evolution_history JSONB DEFAULT '[]',
-    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'retired')),
-    created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now()
-);
-
-
--- Business evidence
-CREATE TABLE IF NOT EXISTS business_evidence (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    business_id UUID NOT NULL REFERENCES business_profiles(id),
-    understanding_id UUID NOT NULL REFERENCES ai_business_understanding(id),
-    evidence_type TEXT NOT NULL CHECK (evidence_type IN ('confirmation', 'correction', 'observation')),
-    source_reference JSONB NOT NULL,
-    description TEXT NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT now()
-);
 
 -- Conversation sessions
 CREATE TABLE IF NOT EXISTS conversation_sessions (
@@ -225,6 +168,20 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Business insights (produced by intelligence sub-agents)
+CREATE TABLE IF NOT EXISTS business_insights (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    business_id UUID NOT NULL REFERENCES business_profiles(id),
+    insight TEXT NOT NULL,
+    source_agent TEXT DEFAULT '',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+
+CREATE INDEX IF NOT EXISTS idx_business_insights_business_id ON business_insights(business_id);
+CREATE INDEX IF NOT EXISTS idx_business_insights_created_at ON business_insights(created_at DESC);
+
 -- Enable RLS on all tables
 ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE business_profiles ENABLE ROW LEVEL SECURITY;
@@ -232,18 +189,14 @@ ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE services ENABLE ROW LEVEL SECURITY;
 ALTER TABLE inventory ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inventory_movements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
-ALTER TABLE invoice_line_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE ledger_entries ENABLE ROW LEVEL SECURITY;
-ALTER TABLE ai_business_understanding ENABLE ROW LEVEL SECURITY;
-ALTER TABLE business_evidence ENABLE ROW LEVEL SECURITY;
 ALTER TABLE conversation_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE conversation_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE operation_checkpoints ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE business_insights ENABLE ROW LEVEL SECURITY;
 
 -- RLS policies (service role bypasses, but these protect direct access)
 CREATE POLICY "users_own_profile" ON user_profiles FOR ALL USING (id = auth.uid());
@@ -252,15 +205,12 @@ CREATE POLICY "business_scope" ON customers FOR ALL USING (business_id IN (SELEC
 CREATE POLICY "business_scope" ON products FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
 CREATE POLICY "business_scope" ON services FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
 CREATE POLICY "business_scope" ON inventory FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "business_scope" ON inventory_movements FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
 CREATE POLICY "business_scope" ON transactions FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
 CREATE POLICY "business_scope" ON invoices FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "business_scope" ON invoice_line_items FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
 CREATE POLICY "business_scope" ON payments FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "business_scope" ON ledger_entries FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "business_scope" ON ai_business_understanding FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "business_scope" ON business_evidence FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
 CREATE POLICY "business_scope" ON conversation_sessions FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
 CREATE POLICY "business_scope" ON conversation_messages FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
 CREATE POLICY "business_scope" ON operation_checkpoints FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
 CREATE POLICY "business_scope" ON audit_logs FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
+
+CREATE POLICY "business_scope" ON business_insights FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));

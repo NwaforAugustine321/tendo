@@ -1,4 +1,4 @@
-"""Intelligence module configuration."""
+"""Business Knowledge module configuration."""
 
 from app.config.settings import settings
 

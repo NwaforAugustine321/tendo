@@ -147,3 +147,68 @@ class AgentTools:
         )
 
         return [delegate_tool, ask_tool]
+
+
+class QueueingAgentTools:
+    """Delegation tools that queue agents for parallel execution.
+
+    Unlike AgentTools (which returns __ROUTE__ signals for graph routing),
+    this class collects delegated agents into a pending list for later
+    concurrent execution.
+
+    Usage:
+        tools = QueueingAgentTools(agents=sub_agents)
+        # ... agent uses delegate_work_to_coworker during ReAct loop ...
+        pending = tools.pending_agents  # agents queued for execution
+    """
+
+    def __init__(self, agents: Sequence[Any]) -> None:
+        self.agents = agents
+        self._pending: list[Any] = []
+
+    @property
+    def pending_agents(self) -> list[Any]:
+        return self._pending
+
+    def clear_pending(self) -> None:
+        self._pending.clear()
+
+    def tools(self) -> list[BaseTool]:
+        coworkers = ", ".join(f"{agent.role}" for agent in self.agents)
+        delegate_description = _i18n_tools("delegate_work").format(coworkers=coworkers)
+        ask_description = _i18n_tools("ask_question").format(coworkers=coworkers)
+        agents = self.agents
+
+        async def do_delegate(task: str, context: str, coworker: str) -> str:
+            agent = _find_agent(agents, coworker)
+            if not agent:
+                return _i18n_errors("agent_tool_unexisting_coworker").format(
+                    coworkers=_coworker_list(agents)
+                )
+            self._pending.append(agent)
+            return f"Queued '{agent.role}' for parallel execution."
+
+        async def do_ask(question: str, context: str, coworker: str) -> str:
+            agent = _find_agent(agents, coworker)
+            if not agent:
+                return _i18n_errors("agent_tool_unexisting_coworker").format(
+                    coworkers=_coworker_list(agents)
+                )
+            self._pending.append(agent)
+            return f"Queued '{agent.role}' for parallel execution."
+
+        delegate_tool = StructuredTool.from_function(
+            coroutine=do_delegate,
+            name="delegate_work_to_coworker",
+            description=delegate_description,
+            args_schema=DelegateWorkInput,
+        )
+
+        ask_tool = StructuredTool.from_function(
+            coroutine=do_ask,
+            name="ask_question_to_coworker",
+            description=ask_description,
+            args_schema=AskQuestionInput,
+        )
+
+        return [delegate_tool, ask_tool]

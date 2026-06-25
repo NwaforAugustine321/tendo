@@ -3,10 +3,10 @@ import logging
 
 from app.agents.models import Agent
 from app.events.models import BusinessEvent, Job
-from app.intelligence.config import get_intelligence_config
-from app.intelligence.models import AgentStatus, InsightOutput
-from app.intelligence.persistence import InsightPersistence
-from app.intelligence.tools import INTELLIGENCE_TOOLS
+from app.business_knowledge.config import get_intelligence_config
+from app.business_knowledge.models import AgentStatus, InsightOutput
+from app.business_knowledge.persistence import InsightPersistence
+from app.business_knowledge.tools import INTELLIGENCE_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,10 @@ async def process_events(job: Job, events: list[BusinessEvent]) -> None:
     persistence = InsightPersistence(business_id)
     count = await persistence.persist(insight_output)
     logger.info(f"BLA persisted: {count} insights stored")
+
+    if insight_output.reasoning_summary:
+        from app.insight_recommender.dispatcher import dispatch_insights
+        await dispatch_insights(insight_output.reasoning_summary, business_id)
 
 
 def _parse_insight_output(raw: str, job: Job) -> InsightOutput:

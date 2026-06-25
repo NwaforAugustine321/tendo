@@ -50,10 +50,7 @@ async def search_insights(
         memory = _get_insight_memory(business_id)
         search_query = await _rewrite_query(query, insight, business_id)
 
-        matches = await memory.recall(
-            query=search_query,
-            limit=limit,
-        )
+        matches = await memory.recall(query=search_query, limit=limit)
 
         if not matches:
             return json.dumps({"matches": [], "count": 0})
@@ -71,7 +68,7 @@ async def search_insights(
         return json.dumps({"matches": results, "count": len(results)}, default=str)
     except Exception as e:
         logger.warning(f"search_insights failed: {e}")
-        return json.dumps({"matches": [], "count": 0, "note": "No existing insights found"})
+        return json.dumps({"matches": [], "count": 0})
 
 
-INTELLIGENCE_TOOLS = [search_insights]
+BUSINESS_KNOWLEDGE_TOOLS = [search_insights]

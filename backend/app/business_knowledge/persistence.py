@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from app.intelligence.models import InsightOutput
+from app.business_knowledge.models import InsightOutput
 from app.memory.memory import Memory
 
 logger = logging.getLogger(__name__)

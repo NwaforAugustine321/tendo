@@ -48,7 +48,7 @@ from app.db.tools.inventory import (
 from app.db.tools.storage import (
     upload_business_logo,
 )
-from app.db.tools.understanding import (
+from app.db.tools.business_insight import (
     get_business_understanding,
     add_evidence,
     update_confidence,

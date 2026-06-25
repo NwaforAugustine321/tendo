@@ -1,0 +1,1 @@
+Search business knowledge for inventory and product signals. Identify low stock, fast-moving items, dead stock, and supply timing patterns. Produce insights that prevent stockouts and optimize inventory.

@@ -1,0 +1,1 @@
+Search business knowledge for patterns that suggest improvements. Recommend pricing changes, process optimizations, marketing tactics, staffing adjustments, or product decisions. Each recommendation must be specific and actionable.

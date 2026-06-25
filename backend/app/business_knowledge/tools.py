@@ -1,0 +1,3 @@
+from app.db.tools.insight_tools import  BUSINESS_KNOWLEDGE_TOOLS
+
+INTELLIGENCE_TOOLS = BUSINESS_KNOWLEDGE_TOOLS

@@ -1,0 +1,1 @@
+Search business knowledge for financial risk signals. Identify overdue patterns, growing debts, declining revenue segments, and operational risks. Produce clear risk-level insights the business owner can act on.
