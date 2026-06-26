@@ -54,7 +54,7 @@ export function RecordInsightPanel() {
   if (!activeRecordId) return null
 
   return (
-    <div className="w-[280px] shrink-0 border-r border-zinc-800/60 bg-[#0f0f0f] flex flex-col min-h-0 overflow-hidden">
+    <div className="w-[400px] shrink-0 border-r border-zinc-800/60 bg-[#0f0f0f] flex flex-col min-h-0 overflow-hidden">
       <div className="flex items-center gap-2 border-b border-zinc-800/60 px-4 py-3">
         <Sparkles size={14} className="text-[#3ecf8e]" />
         <span className="text-xs font-medium text-zinc-300">{import.meta.env.VITE_AGENT_NAME || 'Jay'} Insights</span>
