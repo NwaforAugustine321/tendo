@@ -12,6 +12,7 @@ from app.models.event import UnifiedUserEvent
 from app.routes.auth import router as auth_router
 from app.routes.business import router as business_router
 from app.routes.upload import router as upload_router
+from app.routes.records import router as records_router
 from app.lib.errors import register_error_handlers
 
 import socketio
@@ -26,21 +27,23 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """App lifespan — initialize graph + connections on startup, cleanup on shutdown."""
     from app.graph.workflow import init_graph
     from app.events.worker import start_scheduler, stop_scheduler
+    from app.memory.knowledge import _get_client
+    from app.record_knowledge.store import _get_storage
 
     try:
         await init_graph()
         start_scheduler()
-        logger.info("Application ready — graph + event scheduler initialized")
+        _get_client()
+        _get_storage()
+        logger.info("Application ready")
     except Exception as e:
         logger.critical("STARTUP FAILED: %s", e)
         raise
 
     yield
 
-    # Cleanup on shutdown
     stop_scheduler()
     logger.info("Application shutdown — connections closed")
 
@@ -58,6 +61,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(business_router)
 app.include_router(upload_router)
+app.include_router(records_router)
 register_error_handlers(app)
 
 # Mount Socket.IO on /ws/voice path

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useRef, useEffect, type ReactNode } from 'react'
 import { ChevronRight, Folder, Briefcase, Wallet, ShoppingBag, Users, FileText, Archive, Star, Heart, Zap, Globe, Code } from 'lucide-react'
 import clsx from 'clsx'
 import type { Folder as FolderType, FolderIcon } from '../../lib/workspace/types'
@@ -27,10 +27,22 @@ type Props = {
   isExpanded: boolean
   onToggle: () => void
   onContextMenu: (e: React.MouseEvent) => void
+  renaming?: { name: string; onChange: (name: string) => void; onSave: () => void; onCancel: () => void }
   children?: ReactNode
 }
 
-export function FolderItem({ folder, isExpanded, onToggle, onContextMenu, children }: Props) {
+export function FolderItem({ folder, isExpanded, onToggle, onContextMenu, renaming, children }: Props) {
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (renaming) {
+      setTimeout(() => {
+        inputRef.current?.focus()
+        inputRef.current?.select()
+      }, 0)
+    }
+  }, [!!renaming])
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault()
@@ -42,9 +54,9 @@ export function FolderItem({ folder, isExpanded, onToggle, onContextMenu, childr
     <div>
       <button
         type="button"
-        onClick={onToggle}
+        onClick={renaming ? undefined : onToggle}
         onContextMenu={onContextMenu}
-        onKeyDown={handleKeyDown}
+        onKeyDown={renaming ? undefined : handleKeyDown}
         aria-expanded={isExpanded}
         className={clsx(
           'flex w-full items-center gap-3 rounded-lg px-2.5 py-1.5 text-left',
@@ -55,16 +67,32 @@ export function FolderItem({ folder, isExpanded, onToggle, onContextMenu, childr
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/60'
         )}
       >
-        {/* Folder icon in zinc color */}
         <span className="shrink-0 text-zinc-400">
           {getFolderIcon(folder.icon, 16)}
         </span>
-        {/* Folder name and count */}
         <div className="flex flex-1 flex-col min-w-0">
-          <span className="truncate text-sm font-medium text-zinc-200">{folder.name}</span>
-          <span className="text-[11px] text-zinc-500">{folder.recordCount} Items</span>
+          {renaming ? (
+            <input
+              ref={inputRef}
+              type="text"
+              value={renaming.name}
+              onChange={(e) => renaming.onChange(e.target.value)}
+              onBlur={renaming.onSave}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === 'Enter') renaming.onSave()
+                if (e.key === 'Escape') renaming.onCancel()
+              }}
+              className="w-full rounded border border-[#3ecf8e]/40 bg-[#0a0a0a] px-2 py-0.5 text-sm text-zinc-200 outline-none"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <>
+              <span className="truncate text-sm font-medium text-zinc-200">{folder.name}</span>
+              <span className="text-[11px] text-zinc-500">{folder.recordCount} Items</span>
+            </>
+          )}
         </div>
-        {/* Chevron */}
         <ChevronRight
           size={14}
           className={clsx(

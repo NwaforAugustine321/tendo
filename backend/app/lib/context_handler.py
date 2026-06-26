@@ -251,10 +251,6 @@ async def handle_context_length(
 ) -> None:
     """Handle context length exceeded by summarizing or raising.
 
-    Call this when an LLM invocation raises a context length error.
-    If respect_context_window is True, summarizes messages in-place.
-    Otherwise raises SystemExit.
-
     Args:
         messages: List of messages to summarize (modified in-place).
         respect_context_window: Whether to summarize or raise.
@@ -269,3 +265,54 @@ async def handle_context_length(
         raise SystemExit(
             "Context length exceeded. Consider enabling respect_context_window=True."
         )
+
+
+async def handle_text_context_length(content: str, max_chunk_tokens: int = 4000) -> str:
+    """Handle long text content by splitting into chunks and summarizing progressively.
+
+    If content fits within max_chunk_tokens, returns it as-is.
+    Otherwise splits using langchain text splitter, summarizes each via LLM, and merges.
+
+    Args:
+        content: Raw text content to fit within context limits.
+        max_chunk_tokens: Max estimated tokens per chunk.
+
+    Returns:
+        Content that fits within context limits (original or summarized).
+    """
+    from app.llm.client import get_client
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+    if not content or not content.strip():
+        return content
+
+    estimated_tokens = len(content) // 4
+    if estimated_tokens <= max_chunk_tokens:
+        return content
+
+    max_chars = max_chunk_tokens * 4
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=max_chars,
+        chunk_overlap=200,
+        separators=["\n\n", "\n", ". ", " ", ""],
+    )
+    chunks = splitter.split_text(content)
+
+    llm = get_client()
+    summarized_parts: list[str] = []
+
+    for chunk in chunks:
+        messages = [
+            {"role": "system", "content": "You are a text summarizer. Produce a concise summary preserving all key facts, names, amounts, dates, and business-relevant details."},
+            {"role": "user", "content": f"Summarize this text:\n\n{chunk}"},
+        ]
+
+        try:
+            response = await llm.ainvoke(messages)
+            summary = response.content.strip() if response.content else chunk[:1000]
+            summarized_parts.append(summary)
+        except Exception as e:
+            logger.warning(f"Failed to summarize text chunk: {e}")
+            summarized_parts.append(chunk[:1000])
+
+    return "\n\n".join(summarized_parts)

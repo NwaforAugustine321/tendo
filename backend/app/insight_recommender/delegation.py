@@ -4,7 +4,7 @@ import logging
 from app.agents.models import Agent
 from app.lib.agent_tools import QueueingAgentTools
 from app.insight_recommender.config import get_dispatcher_config
-from app.insight_recommender.insight_tools import get_insight_search_tools
+from app.insight_recommender.tools import get_insight_search_tools
 
 logger = logging.getLogger(__name__)
 

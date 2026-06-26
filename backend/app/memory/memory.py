@@ -213,9 +213,6 @@ class Memory:
     ) -> list[MemoryMatch]:
         """Retrieve relevant memories using semantic search with composite scoring.
 
-        Embeds the query, searches LanceDB, then applies composite scoring
-        (semantic + recency + importance weighting).
-
         Args:
             query: Natural language query.
             limit: Maximum number of results.
@@ -228,17 +225,16 @@ class Memory:
         if not query or not query.strip():
             return []
 
-        embedding = await self._embed(query)
-        if not embedding:
+        query_embedding = await self._embed(query)
+        if not query_embedding:
             return []
 
         effective_scope = self._scope
         if scope:
             effective_scope = f"{self._scope}/{scope.strip('/')}"
 
-        # Search with oversample to allow filtering/scoring
         raw_results = self._storage.search(
-            query_embedding=embedding,
+            query_embedding=query_embedding,
             scope_prefix=effective_scope,
             limit=limit * 2,
             min_score=0.0,

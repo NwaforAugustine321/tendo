@@ -11,7 +11,6 @@ type Props = {
 }
 
 const items: { action: Action; label: string; icon: React.ReactNode; danger?: boolean }[] = [
-  { action: 'move', label: 'Move', icon: <FolderInput size={14} /> },
   { action: 'organise', label: 'Organise', icon: <FolderTree size={14} /> },
   { action: 'rename', label: 'Rename', icon: <Pencil size={14} /> },
   { action: 'delete', label: 'Delete', icon: <Trash2 size={14} />, danger: true },
@@ -42,7 +41,7 @@ export function RecordActionBar({ position, onAction, onClose }: Props) {
       data-record-action-bar
       role="menu"
       className={clsx(
-        'absolute z-50 min-w-[140px] rounded-lg border border-white/10',
+        'fixed z-50 min-w-[140px] rounded-lg border border-white/10',
         'bg-[#1a1a1a] py-1 shadow-xl'
       )}
       style={{ left: position.x, top: position.y }}

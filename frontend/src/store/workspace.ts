@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { toast } from 'sonner'
 import type {
   Folder,
   FolderIcon,
@@ -13,6 +14,7 @@ import {
   generateUniqueName,
   getNextFolderColor,
 } from '../lib/workspace/folder-utils'
+import * as recordsApi from '../lib/services/records'
 
 export interface WorkspaceState {
   // Folder state
@@ -36,6 +38,10 @@ export interface WorkspaceState {
 
   // Search
   searchQuery: string
+
+  // Loading
+  foldersLoading: boolean
+  recordsLoading: Map<string, boolean>
 
   // Actions — radial menu
   openRadialMenu: () => void
@@ -81,6 +87,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   dragState: null,
   contextMenu: null,
   searchQuery: '',
+  foldersLoading: false,
+  recordsLoading: new Map(),
 
   // Radial menu
   openRadialMenu: () => set({ radialMenuOpen: true, radialMenuView: { view: 'actions' } }),
@@ -95,8 +103,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const color = getNextFolderColor(folders)
     const now = new Date().toISOString()
 
+    const tempId = crypto.randomUUID()
     const newFolder: Folder = {
-      id: crypto.randomUUID(),
+      id: tempId,
       name: uniqueName,
       color,
       icon: icon || 'folder',
@@ -106,6 +115,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
 
     set({ folders: [...folders, newFolder] })
+
+    recordsApi.createFolder(uniqueName, icon || 'folder', color).then((apiFolder) => {
+      const { folders: current } = get()
+      set({ folders: current.map((f) => f.id === tempId ? { ...f, id: apiFolder.id } : f) })
+      toast.success('Folder created')
+    }).catch(() => { toast.error('Failed to create folder') })
   },
 
   renameFolder: (folderId, name) => {
@@ -146,8 +161,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   createRecord: (folderId, type, title) => {
     const { records, folders } = get()
     const now = new Date().toISOString()
+    const tempId = crypto.randomUUID()
     const newRecord: Record = {
-      id: crypto.randomUUID(),
+      id: tempId,
       folderId,
       title: title || 'Untitled',
       content: '',
@@ -163,12 +179,21 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     set({
       records: newRecords,
-      activeRecordId: newRecord.id,
+      activeRecordId: tempId,
       activeFolderId: folderId,
       folders: folders.map((f) =>
         f.id === folderId ? { ...f, recordCount: f.recordCount + 1 } : f
       ),
     })
+
+    recordsApi.createRecord(folderId, title || 'Untitled').then((apiRecord) => {
+      const { records: current } = get()
+      const newRecs = new Map(current)
+      const folderRecs = newRecs.get(folderId) || []
+      newRecs.set(folderId, folderRecs.map((r) => r.id === tempId ? { ...r, id: apiRecord.id } : r))
+      set({ records: newRecs, activeRecordId: apiRecord.id })
+      toast.success('Record created')
+    }).catch(() => { toast.error('Failed to create record') })
   },
 
   moveRecord: (recordId, sourceFolderId, targetFolderId) => {
@@ -250,16 +275,72 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setContextMenu: (state) => set({ contextMenu: state }),
   setSearchQuery: (query) => set({ searchQuery: query }),
 
-  // Async — stubs for API integration
+  // Async — API integration
   fetchFolders: async () => {
-    // TODO: wire to backend API
+    set({ foldersLoading: true })
+    try {
+      const apiFolders = await recordsApi.getFolders()
+      console.log('[workspace] fetchFolders response:', apiFolders)
+      const folders: Folder[] = apiFolders.map((f: any) => ({
+        id: f.id,
+        name: f.name,
+        color: (f.color || 'blue') as any,
+        icon: (f.icon || 'folder') as any,
+        recordCount: f.record_count || 0,
+        createdAt: f.created_at,
+        updatedAt: f.updated_at,
+      }))
+
+      const newRecords = new Map<string, Record[]>()
+      for (const f of apiFolders) {
+        const folderRecords = (f.records || []).map((r: any) => ({
+          id: r.id,
+          folderId: f.id,
+          title: r.title,
+          content: '',
+          entries: [],
+          type: 'note' as RecordType,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        }))
+        newRecords.set(f.id, folderRecords)
+      }
+
+      set({ folders, records: newRecords, foldersLoading: false })
+    } catch {
+      set({ foldersLoading: false })
+    }
   },
-  fetchRecords: async () => {
-    // TODO: wire to backend API
+  fetchRecords: async (folderId) => {
+    const { recordsLoading } = get()
+    const newLoading = new Map(recordsLoading)
+    newLoading.set(folderId, true)
+    set({ recordsLoading: newLoading })
+    try {
+      const apiRecords = await recordsApi.getRecords(folderId)
+      const records = get().records
+      const newRecords = new Map(records)
+      newRecords.set(folderId, apiRecords.map((r) => ({
+        id: r.id,
+        folderId: r.folder_id,
+        title: r.title,
+        content: '',
+        entries: [],
+        type: 'note' as RecordType,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      })))
+      const loadingAfter = new Map(get().recordsLoading)
+      loadingAfter.set(folderId, false)
+      set({ records: newRecords, recordsLoading: loadingAfter })
+    } catch {
+      const loadingAfter = new Map(get().recordsLoading)
+      loadingAfter.set(folderId, false)
+      set({ recordsLoading: loadingAfter })
+    }
   },
   saveRecord: async (recordId, content) => {
     const { records } = get()
-    // Optimistic update
     const newRecords = new Map(records)
     for (const [folderId, folderRecords] of newRecords) {
       const updated = folderRecords.map((r) =>
@@ -268,6 +349,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       newRecords.set(folderId, updated)
     }
     set({ records: newRecords })
-    // TODO: persist to backend
+
+    try {
+      await recordsApi.addRecordContent(recordId, 'text', content)
+    } catch {
+      // optimistic update already applied
+    }
   },
 }))

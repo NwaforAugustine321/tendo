@@ -1,11 +1,10 @@
 import { useEffect } from 'react'
-import { X } from 'lucide-react'
+import { X, Folder } from 'lucide-react'
 import clsx from 'clsx'
-import type { Folder } from '../../lib/workspace/types'
-import { FOLDER_COLOR_CLASSES } from '../../lib/workspace/constants'
+import type { Folder as FolderType } from '../../lib/workspace/types'
 
 type Props = {
-  folders: Folder[]
+  folders: FolderType[]
   excludeFolderId: string
   onMoveToFolder: (targetFolderId: string) => void
   onClose: () => void
@@ -23,61 +22,57 @@ export function MovePanel({ folders, excludeFolderId, onMoveToFolder, onClose }:
   }, [onClose])
 
   return (
-    <div
-      className={clsx(
-        'w-full max-w-xs rounded-lg border border-white/10',
-        'bg-[#1a1a1a] p-3 shadow-xl'
-      )}
-    >
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm font-medium text-zinc-200">Move to folder</span>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close move panel"
-          className={clsx(
-            'rounded p-1 text-zinc-500 transition-colors',
-            'hover:bg-white/5 hover:text-zinc-300',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/60'
-          )}
-        >
-          <X size={14} />
-        </button>
-      </div>
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div
+        className="w-full max-w-xl rounded-xl border border-white/10 bg-[#1a1a1a] p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <span className="text-base font-medium text-zinc-200">Move to folder</span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded p-1.5 text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+          >
+            <X size={16} />
+          </button>
+        </div>
 
-      {availableFolders.length === 0 ? (
-        <p className="py-2 text-center text-xs text-zinc-500">No other folders available</p>
-      ) : (
-        <ul className="space-y-1">
-          {availableFolders.map((folder) => {
-            const colorClasses = FOLDER_COLOR_CLASSES[folder.color]
-            return (
+        {availableFolders.length === 0 ? (
+          <p className="py-6 text-center text-sm text-zinc-500">No other folders available</p>
+        ) : (
+          <ul className="max-h-[400px] space-y-1.5 overflow-y-auto">
+            {availableFolders.map((folder) => (
               <li
                 key={folder.id}
                 className={clsx(
-                  'flex items-center gap-2 rounded-md px-2 py-1.5',
-                  'hover:bg-white/5'
+                  'flex items-center gap-3 rounded-lg px-3 py-2.5',
+                  'border border-transparent',
+                  'hover:border-dashed hover:border-zinc-600'
                 )}
               >
-                <span className={clsx('h-2.5 w-2.5 shrink-0 rounded-sm', colorClasses.bg)} />
+                <span className="shrink-0 text-zinc-400">
+                  <Folder size={18} />
+                </span>
                 <span className="flex-1 truncate text-sm text-zinc-300">{folder.name}</span>
+                <span className="text-[11px] text-zinc-600">{folder.recordCount} items</span>
                 <button
                   type="button"
                   onClick={() => onMoveToFolder(folder.id)}
                   className={clsx(
-                    'shrink-0 rounded px-2 py-0.5 text-[11px] font-medium',
+                    'shrink-0 rounded-md px-3 py-1 text-xs font-medium',
                     'border border-[#3ecf8e]/40 text-[#3ecf8e]',
-                    'transition-colors hover:border-[#3ecf8e] hover:bg-[#3ecf8e]/10',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/60'
+                    'transition-colors hover:border-[#3ecf8e] hover:bg-[#3ecf8e]/10'
                   )}
                 >
-                  Move here
+                  Move
                 </button>
               </li>
-            )
-          })}
-        </ul>
-      )}
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   )
 }

@@ -6,6 +6,8 @@ import { useWorkspaceStore } from '../../store/workspace'
 import { filterByQuery } from '../../lib/workspace/search-utils'
 import { SEARCH_DEBOUNCE_MS, FOLDER_ICONS_LIST } from '../../lib/workspace/constants'
 import type { Folder as FolderType, FolderIcon, Record as WorkspaceRecord, ContextMenuState } from '../../lib/workspace/types'
+import * as recordsApi from '../../lib/services/records'
+import { toast } from 'sonner'
 
 const ICON_PICKER_MAP: { [key in FolderIcon]: typeof Folder } = {
   'folder': Folder,
@@ -47,6 +49,9 @@ export function FolderNavigation({ onRecordSelect }: Props) {
     setSearchQuery,
   } = useWorkspaceStore()
 
+  const foldersLoading = useWorkspaceStore((s) => s.foldersLoading)
+  const recordsLoading = useWorkspaceStore((s) => s.recordsLoading)
+
   const [localQuery, setLocalQuery] = useState(searchQuery)
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
@@ -65,10 +70,15 @@ export function FolderNavigation({ onRecordSelect }: Props) {
     folderId: string
     currentName: string
   } | null>(null)
+  const [renamingFolder, setRenamingFolder] = useState<{
+    folderId: string
+    currentName: string
+  } | null>(null)
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null)
 
   const newFolderInputRef = useRef<HTMLInputElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const renameFolderInputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const folderListRef = useRef<HTMLDivElement>(null)
 
@@ -97,6 +107,18 @@ export function FolderNavigation({ onRecordSelect }: Props) {
       renameInputRef.current?.select()
     }
   }, [renamingRecord])
+
+  useEffect(() => {
+    if (renamingFolder) {
+      renameFolderInputRef.current?.focus()
+      renameFolderInputRef.current?.select()
+    }
+  }, [renamingFolder])
+
+  // Fetch folders from API on mount
+  useEffect(() => {
+    useWorkspaceStore.getState().fetchFolders()
+  }, [])
 
   // Filter folders by search
   const filteredFolders = useMemo(
@@ -175,7 +197,7 @@ export function FolderNavigation({ onRecordSelect }: Props) {
       if (!actionBar) return
 
       switch (action) {
-        case 'move':
+        case 'organise':
           setMovePanel({ recordId: actionBar.recordId, folderId: actionBar.folderId })
           setActionBar(null)
           break
@@ -194,6 +216,7 @@ export function FolderNavigation({ onRecordSelect }: Props) {
         }
         case 'delete':
           deleteRecord(actionBar.recordId, actionBar.folderId)
+          toast.promise(recordsApi.deleteRecord(actionBar.recordId), { loading: "Deleting record...", success: "Record deleted", error: "Failed to delete record" })
           setActionBar(null)
           break
         default:
@@ -208,6 +231,7 @@ export function FolderNavigation({ onRecordSelect }: Props) {
     (targetFolderId: string) => {
       if (!movePanel) return
       moveRecord(movePanel.recordId, movePanel.folderId, targetFolderId)
+      recordsApi.moveRecord(movePanel.recordId, targetFolderId).then(() => toast.success("Record moved")).catch(() => toast.error("Failed to move record"))
       setMovePanel(null)
     },
     [movePanel, moveRecord]
@@ -216,11 +240,13 @@ export function FolderNavigation({ onRecordSelect }: Props) {
   const handleRenameSave = useCallback(() => {
     if (!renamingRecord) return
     renameRecord(renamingRecord.recordId, renamingRecord.folderId, renamingRecord.currentName)
+    recordsApi.updateRecord(renamingRecord.recordId, renamingRecord.currentName).then(() => toast.success("Record renamed")).catch(() => toast.error("Failed to rename record"))
     setRenamingRecord(null)
   }, [renamingRecord, renameRecord])
 
   const handleRenameKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      e.stopPropagation()
       if (e.key === 'Enter') {
         handleRenameSave()
       } else if (e.key === 'Escape') {
@@ -298,8 +324,20 @@ export function FolderNavigation({ onRecordSelect }: Props) {
             onClick: () => createRecord(folderId, 'note'),
           },
           {
+            label: 'Rename Folder',
+            onClick: () => {
+              const folder = folders.find((f) => f.id === folderId)
+              if (folder) {
+                setRenamingFolder({ folderId, currentName: folder.name })
+              }
+            },
+          },
+          {
             label: 'Delete Folder',
-            onClick: () => useWorkspaceStore.getState().deleteFolder(folderId),
+            onClick: () => {
+              useWorkspaceStore.getState().deleteFolder(folderId)
+              toast.promise(recordsApi.deleteFolder(folderId), { loading: "Deleting folder...", success: "Folder deleted", error: "Failed to delete folder" })
+            },
             danger: true,
           },
         ]
@@ -317,17 +355,20 @@ export function FolderNavigation({ onRecordSelect }: Props) {
           },
         },
         {
-          label: 'Move',
+          label: 'Organise',
           onClick: () => setMovePanel({ recordId, folderId }),
         },
         {
           label: 'Delete',
-          onClick: () => deleteRecord(recordId, folderId),
+          onClick: () => {
+            deleteRecord(recordId, folderId)
+            toast.promise(recordsApi.deleteRecord(recordId), { loading: "Deleting record...", success: "Record deleted", error: "Failed to delete record" })
+          },
           danger: true,
         },
       ]
     },
-    [createRecord, deleteRecord, records]
+    [createRecord, deleteRecord, records, folders]
   )
 
   // Keyboard navigation
@@ -457,7 +498,7 @@ export function FolderNavigation({ onRecordSelect }: Props) {
             placeholder="Folder name..."
             aria-label="New folder name"
             className={clsx(
-              'w-full rounded-lg border border-[#3ecf8e]/40 bg-[#161616] px-3 py-2',
+              'w-full rounded-lg border border-[#3ecf8e]/40 bg-[#0a0a0a] px-3 py-2',
               'text-sm text-zinc-200 placeholder-zinc-600',
               'focus:border-[#3ecf8e] focus:outline-none'
             )}
@@ -474,6 +515,10 @@ export function FolderNavigation({ onRecordSelect }: Props) {
         {visibleFolders.length === 0 && searchQuery.trim() ? (
           <div className="px-3 py-8 text-center">
             <p className="text-sm text-zinc-500">No results found</p>
+          </div>
+        ) : foldersLoading ? (
+          <div className="px-3 py-8 text-center">
+            <p className="text-xs text-zinc-500 animate-pulse">Loading folders...</p>
           </div>
         ) : (
           <div className="space-y-1">
@@ -497,27 +542,55 @@ export function FolderNavigation({ onRecordSelect }: Props) {
                   <FolderItem
                     folder={folder}
                     isExpanded={isExpanded}
-                    onToggle={() => toggleFolderExpanded(folder.id)}
+                    onToggle={() => {
+                      toggleFolderExpanded(folder.id)
+                      if (!expandedFolderIds.has(folder.id)) {
+                        useWorkspaceStore.getState().fetchRecords(folder.id)
+                      }
+                    }}
                     onContextMenu={(e) => handleFolderContextMenu(e, folder)}
+                    renaming={renamingFolder?.folderId === folder.id ? {
+                      name: renamingFolder.currentName,
+                      onChange: (name) => setRenamingFolder((prev) => prev ? { ...prev, currentName: name } : prev),
+                      onSave: () => {
+                        if (renamingFolder.currentName.trim()) {
+                          useWorkspaceStore.getState().renameFolder(folder.id, renamingFolder.currentName.trim())
+                          recordsApi.updateFolder(folder.id, renamingFolder.currentName.trim(), folder.icon, folder.color).then(() => toast.success("Folder renamed")).catch(() => toast.error("Failed to rename folder"))
+                        }
+                        setRenamingFolder(null)
+                      },
+                      onCancel: () => setRenamingFolder(null),
+                    } : undefined}
                   >
-                    {folderRecords.map((record) => (
+                    {recordsLoading.get(folder.id) ? (
+                      <p className="px-2 py-2 text-xs text-zinc-500 animate-pulse">Loading records...</p>
+                    ) : folderRecords.map((record) => (
                       <div key={record.id}>
                         {renamingRecord?.recordId === record.id ? (
                           <div className="px-2 py-1">
                             <input
                               ref={renameInputRef}
                               type="text"
-                              value={renamingRecord.currentName}
-                              onChange={(e) =>
-                                setRenamingRecord({
-                                  ...renamingRecord,
-                                  currentName: e.target.value,
-                                })
-                              }
-                              onBlur={handleRenameSave}
-                              onKeyDown={handleRenameKeyDown}
+                              defaultValue={renamingRecord.currentName}
+                              onBlur={(e) => {
+                                const val = e.target.value.trim()
+                                if (val) {
+                                  renameRecord(renamingRecord.recordId, renamingRecord.folderId, val)
+                                  recordsApi.updateRecord(renamingRecord.recordId, val).then(() => toast.success("Record renamed")).catch(() => toast.error("Failed to rename record"))
+                                }
+                                setRenamingRecord(null)
+                              }}
+                              onKeyDown={(e) => {
+                                e.stopPropagation()
+                                if (e.key === 'Enter') {
+                                  (e.target as HTMLInputElement).blur()
+                                } else if (e.key === 'Escape') {
+                                  setRenamingRecord(null)
+                                }
+                              }}
+                              autoComplete="off"
                               className={clsx(
-                                'w-full rounded border border-[#3ecf8e]/40 bg-[#161616] px-2 py-1',
+                                'w-full rounded border border-[#3ecf8e]/40 bg-[#0a0a0a] px-2 py-1',
                                 'text-sm text-zinc-200 focus:border-[#3ecf8e] focus:outline-none'
                               )}
                             />

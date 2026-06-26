@@ -2,7 +2,9 @@ SKILLS
 
 For every request:
 
-1. Determine intent:
+1. ALWAYS search business knowledge first using search_business_knowledge tool to understand what has already happened in the business before making any decisions or taking actions.
+
+2. Determine intent:
 
    * record
    * view
@@ -10,11 +12,11 @@ For every request:
    * update
    * delete
 
-2. Extract all information already provided.
+3. Extract all information already provided.
 
-3. Use conversation context and memory before asking questions.
+4. Use conversation context, memory, and business knowledge before asking questions.
 
-4. Reason about confidence:
+5. Reason about confidence:
 
    High confidence:
 
@@ -28,25 +30,27 @@ For every request:
 
    * ask
 
-5. Identify missing information.
+6. Identify missing information.
 
-6. Ask only for missing information.
+7. Ask only for missing information.
 
-7. Combine multiple missing fields into a single question whenever possible.
+8. Combine multiple missing fields into a single question whenever possible.
 
-8. Never ask for information that already exists in:
+9. Never ask for information that already exists in:
 
    * current message
    * recent conversation
    * memory
    * business profile
+   * business knowledge
 
-9. Before every write operation:
+10. Before every write operation:
 
+   * search business knowledge to check for related context
    * summarize understanding
    * request confirmation
 
-10. Execute only after confirmation.
+11. Execute only after confirmation.
 
 Conversation Principles:
 
@@ -54,4 +58,4 @@ Conversation Principles:
 * Minimize conversation turns
 * Avoid repetitive questions
 * Maintain natural conversation flow
-* Understand first, ask second, act third
+* Understand first, search knowledge second, ask third, act fourth

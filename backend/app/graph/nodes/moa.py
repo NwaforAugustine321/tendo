@@ -268,22 +268,8 @@ def _infer_route_from_delegation(raw: str) -> str | None:
 def _parse_decision(raw: str) -> dict:
     """Parse MOA JSON output."""
     try:
-        clean = raw.strip()
-        if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-        if clean.startswith("{"):
-            return json.loads(clean)
-        start = clean.find("{")
-        if start != -1:
-            depth = 0
-            for i in range(start, len(clean)):
-                if clean[i] == "{":
-                    depth += 1
-                elif clean[i] == "}":
-                    depth -= 1
-                    if depth == 0:
-                        return json.loads(clean[start:i + 1])
-        return json.loads(clean)
+        from app.lib.json_parser import parse_json_output
+        return parse_json_output(raw)
     except (json.JSONDecodeError, IndexError, ValueError):
         return {"_retry": True}
 

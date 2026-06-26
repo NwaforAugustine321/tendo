@@ -63,6 +63,10 @@ export class WSClient {
         this.callbacks.onMessage(msg)
       })
 
+      this.socket.on('record_processing_status', (data: any) => {
+        window.dispatchEvent(new CustomEvent('tendo:record-processing', { detail: data }))
+      })
+
       this.socket.on('disconnect', (reason) => {
         console.log('[Socket.IO] disconnected:', reason)
         this.callbacks.onClose?.()

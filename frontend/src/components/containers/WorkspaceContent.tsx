@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Type, Image, Mic, FileText, X, Plus, Camera, AudioLines } from 'lucide-react'
 import clsx from 'clsx'
+import { toast } from 'sonner'
 import { useWorkspaceStore } from '../../store/workspace'
 import { InsightsFeed } from './InsightsFeed'
 import { BREADCRUMB_MAX_TITLE_LENGTH } from '../../lib/workspace/constants'
@@ -63,28 +64,34 @@ export function WorkspaceContent() {
   // Load entries when record changes
   useEffect(() => {
     if (activeRecordId !== prevRecordIdRef.current) {
-      if (prevRecordIdRef.current !== null && !prefersReducedMotion.current) {
-        setTransitioning(true)
-        const timer = setTimeout(() => setTransitioning(false), 300)
-        prevRecordIdRef.current = activeRecordId
-        if (activeRecord) {
-          setLocalEntries(activeRecord.entries || [])
-          setError(false)
-        } else if (activeRecordId) {
-          setError(true)
-        }
-        return () => clearTimeout(timer)
-      } else {
-        prevRecordIdRef.current = activeRecordId
-        if (activeRecord) {
-          setLocalEntries(activeRecord.entries || [])
-          setError(false)
-        } else if (activeRecordId) {
-          setError(true)
-        }
+      prevRecordIdRef.current = activeRecordId
+      if (!activeRecordId) {
+        setLocalEntries([])
+        return
       }
+
+      if (!prefersReducedMotion.current) {
+        setTransitioning(true)
+        setTimeout(() => setTransitioning(false), 300)
+      }
+
+      setLocalEntries([])
+      setError(false)
+
+      import('../../lib/services/records').then(({ getRecordContents }) => {
+        getRecordContents(activeRecordId).then((contents) => {
+          const entries: RecordEntry[] = contents.map((c) => ({
+            id: c.id,
+            type: (c.content_type || 'text') as EntryType,
+            content: c.content,
+            createdAt: c.created_at,
+          }))
+          setLocalEntries(entries)
+          setCapturedIds(new Set(entries.map((e) => e.id)))
+        }).catch(() => setError(true))
+      })
     }
-  }, [activeRecordId, activeRecord])
+  }, [activeRecordId])
 
   // Auto-save with debounce
   const triggerSave = useCallback(() => {
@@ -107,8 +114,7 @@ export function WorkspaceContent() {
     setLocalEntries((prev) =>
       prev.map((e) => (e.id === entryId ? { ...e, content: newContent } : e))
     )
-    triggerSave()
-  }, [triggerSave])
+  }, [])
 
   const handleAddEntry = useCallback((type: EntryType) => {
     const newEntry: RecordEntry = {
@@ -118,19 +124,37 @@ export function WorkspaceContent() {
       createdAt: new Date().toISOString(),
     }
     setLocalEntries((prev) => [...prev, newEntry])
-    triggerSave()
-    // Focus the new entry if text
     if (type === 'text') {
       setTimeout(() => {
         textareaRefs.current.get(newEntry.id)?.focus()
       }, 50)
     }
-  }, [triggerSave])
+  }, [])
+
+  const [capturedIds, setCapturedIds] = useState<Set<string>>(new Set())
+  const [capturingIds, setCapturingIds] = useState<Set<string>>(new Set())
+
+  const handleCapture = useCallback(async (entryId: string) => {
+    if (!activeRecordId) return
+    const entry = localEntries.find((e) => e.id === entryId)
+    if (!entry || !entry.content.trim()) return
+
+    setCapturingIds((prev) => new Set(prev).add(entryId))
+    try {
+      const { addRecordContent } = await import('../../lib/services/records')
+      await addRecordContent(activeRecordId, entry.type, entry.content)
+      setCapturedIds((prev) => new Set(prev).add(entryId))
+      toast.success('Content captured')
+    } catch {
+      toast.error('Failed to capture content')
+    } finally {
+      setCapturingIds((prev) => { const n = new Set(prev); n.delete(entryId); return n })
+    }
+  }, [activeRecordId, localEntries])
 
   const handleRemoveEntry = useCallback((entryId: string) => {
     setLocalEntries((prev) => prev.filter((e) => e.id !== entryId))
-    triggerSave()
-  }, [triggerSave])
+  }, [])
 
   const handleBreadcrumbFolderClick = useCallback(() => {
     if (activeFolder) {
@@ -298,7 +322,8 @@ export function WorkspaceContent() {
             key={entry.id}
             className="group relative rounded-lg border border-white/5 bg-[#0f0f0f] p-3"
           >
-            {/* Remove button */}
+            {/* Remove button — only for uncaptured entries */}
+            {!capturedIds.has(entry.id) && (
             <button
               type="button"
               onClick={() => handleRemoveEntry(entry.id)}
@@ -311,6 +336,7 @@ export function WorkspaceContent() {
             >
               <X size={12} />
             </button>
+            )}
 
             {/* Entry type indicator */}
             <div className="mb-2 flex items-center gap-1.5">
@@ -325,20 +351,35 @@ export function WorkspaceContent() {
 
             {/* Entry content */}
             {entry.type === 'text' && (
+              capturedIds.has(entry.id) ? (
+                <p className="text-sm text-zinc-300 leading-relaxed">
+                  {entry.content.length > 250 ? entry.content.slice(0, 250) + '...' : entry.content}
+                </p>
+              ) : (
               <textarea
                 ref={(el) => {
-                  if (el) textareaRefs.current.set(entry.id, el)
-                  else textareaRefs.current.delete(entry.id)
+                  if (el) {
+                    textareaRefs.current.set(entry.id, el)
+                    el.style.height = 'auto'
+                    el.style.height = el.scrollHeight + 'px'
+                  } else {
+                    textareaRefs.current.delete(entry.id)
+                  }
                 }}
                 value={entry.content}
-                onChange={(e) => handleEntryChange(entry.id, e.target.value)}
+                onChange={(e) => {
+                  handleEntryChange(entry.id, e.target.value)
+                  e.target.style.height = 'auto'
+                  e.target.style.height = e.target.scrollHeight + 'px'
+                }}
                 placeholder="Type something..."
                 className={clsx(
-                  'w-full min-h-[60px] resize-none bg-transparent text-sm leading-relaxed',
+                  'w-full min-h-[60px] resize-none overflow-hidden bg-transparent text-sm leading-relaxed',
                   'text-zinc-200 placeholder-zinc-600',
                   'focus:outline-none'
                 )}
               />
+              )
             )}
 
             {entry.type === 'image' && (
@@ -413,6 +454,24 @@ export function WorkspaceContent() {
                   </label>
                 )}
               </div>
+            )}
+
+            {/* Capture button — always visible if not captured, disabled if no content */}
+            {!capturedIds.has(entry.id) && (
+              <button
+                type="button"
+                onClick={() => handleCapture(entry.id)}
+                disabled={!entry.content.trim()}
+                className={clsx(
+                  'mt-2 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium',
+                  'border transition-colors',
+                  entry.content.trim()
+                    ? 'border-[#3ecf8e]/40 text-[#3ecf8e] hover:border-[#3ecf8e] hover:bg-[#3ecf8e]/10 cursor-pointer'
+                    : 'border-zinc-700 text-zinc-600 cursor-not-allowed opacity-50'
+                )}
+              >
+                Capture
+              </button>
             )}
           </div>
         ))}

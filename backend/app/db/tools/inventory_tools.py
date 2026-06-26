@@ -49,4 +49,20 @@ async def create_product(business_id: str, name: str, unit_price: float = 0, uni
     return json.dumps(result, default=str)
 
 
-INVENTORY_TOOLS = [fetch_inventory, fetch_products, add_inventory_item, record_movement, create_product]
+@tool
+async def search_business_knowledge(query: str = "", business_id: str = "", limit: int = 10) -> str:
+    """Search business-level knowledge. Always use this first to understand business context pf what already happened in the business"""
+    from app.memory.memory import Memory
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        memory = Memory(scope=f"/insights/{business_id}")
+        results = await memory.recall(query=query, limit=limit)
+        entries = [{"summary": m.record.content} for m in results]
+        return json.dumps(entries, default=str)
+    except Exception as e:
+        logger.warning(f"search_business_knowledge failed: {e}")
+        return json.dumps([])
+
+
+INVENTORY_TOOLS = [fetch_inventory, fetch_products, add_inventory_item, record_movement, create_product, search_business_knowledge]

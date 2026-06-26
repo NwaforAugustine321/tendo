@@ -75,23 +75,9 @@ async def process_events(job: Job, events: list[BusinessEvent]) -> None:
 
 def _parse_insight_output(raw: str, job: Job) -> InsightOutput:
     try:
-        clean = raw.strip()
-        if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        from app.lib.json_parser import parse_json_output
 
-        start = clean.find("{")
-        if start != -1:
-            depth = 0
-            for i in range(start, len(clean)):
-                if clean[i] == "{":
-                    depth += 1
-                elif clean[i] == "}":
-                    depth -= 1
-                if depth == 0:
-                    clean = clean[start : i + 1]
-                    break
-
-        data = json.loads(clean)
+        data = parse_json_output(raw)
         data["business_id"] = job.stream_key.split(":")[0]
         data["job_id"] = str(job.id)
         return InsightOutput(**data)

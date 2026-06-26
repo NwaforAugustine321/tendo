@@ -136,6 +136,15 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
     }
   }, [voice.errorMessage])
 
+  useEffect(() => {
+    const handleChatMessage = (e: Event) => {
+      const text = (e as CustomEvent).detail?.text
+      if (text) handleSendText(text)
+    }
+    window.addEventListener('tendo:send-chat-message', handleChatMessage)
+    return () => window.removeEventListener('tendo:send-chat-message', handleChatMessage)
+  })
+
   const handleSendText = (text: string) => {
     // Find option context if this was a radio select
     const optionContext = findOptionContext(text)

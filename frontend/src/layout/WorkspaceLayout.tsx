@@ -7,7 +7,9 @@ import { ChatPanel } from '../components/containers/ChatPanel'
 import { FolderNavigation } from '../components/containers/FolderNavigation'
 import { RadialMenu } from '../components/containers/RadialMenu'
 import { WorkspaceContent } from '../components/containers/WorkspaceContent'
+import { RecordInsightPanel } from '../components/containers/RecordInsightPanel'
 import { QuickActionButton } from '../components/atoms/QuickActionButton'
+import { ProcessingNotification } from '../components/atoms/ProcessingNotification'
 import { useWorkspaceStore } from '../store/workspace'
 import { primaryFromPathname, type PrimarySection } from '../lib/navigation'
 
@@ -52,6 +54,12 @@ export function WorkspaceLayout() {
     return () => window.removeEventListener('tendo:open-chat', handleOpenChat)
   }, [])
 
+  useEffect(() => {
+    const handleOpenSidebar = () => setFolderNavPinned(true)
+    window.addEventListener('tendo:open-sidebar', handleOpenSidebar)
+    return () => window.removeEventListener('tendo:open-sidebar', handleOpenSidebar)
+  }, [])
+
   return (
     <div className="flex h-dvh max-h-dvh flex-col overflow-hidden bg-[#0a0a0a] text-zinc-100">
       {/* Top bar */}
@@ -72,15 +80,17 @@ export function WorkspaceLayout() {
               secondaryVisible={folderNavPinned}
             />
           </div>
-          {folderNavPinned && (
+          {activeRecordId ? (
+            <RecordInsightPanel />
+          ) : folderNavPinned ? (
             <div className="w-[260px] min-h-0 overflow-hidden border-r border-zinc-800/60 bg-[#0f0f0f]">
               <FolderNavigation />
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Quick Action Button — fixed position, independent of sidebar hover */}
-        <QuickActionButton onClick={openRadialMenu} visible={!radialMenuOpen} sidebarOpen={folderNavPinned} />
+        <QuickActionButton onClick={openRadialMenu} visible={!radialMenuOpen} sidebarOpen={folderNavPinned || !!activeRecordId} />
 
         {/* Main content — either workspace content or route outlet */}
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto border-l border-zinc-800/60 bg-[#0a0a0a]">
@@ -132,6 +142,9 @@ export function WorkspaceLayout() {
 
       {/* Radial Hub Menu */}
       <RadialMenu sidebarOpen={folderNavPinned} />
+
+      {/* Processing notifications — top right corner */}
+      <ProcessingNotification />
     </div>
   )
 }

@@ -87,6 +87,14 @@ class Settings(BaseSettings):
     event_dispatcher_interval: int
     event_idle_eviction_cycles: int
 
+    # Record Knowledge Engine
+    record_knowledge_max_entries: int = 20
+    record_knowledge_max_folder_entries: int = 200
+    record_knowledge_max_summary_length: int = 2000
+    record_knowledge_token_limit: int = 8000
+    record_knowledge_max_retries: int = 3
+    record_knowledge_llm_timeout: int = 30
+
     @field_validator("max_message_token_size")
     @classmethod
     def validate_token_size(cls, v: int) -> int:

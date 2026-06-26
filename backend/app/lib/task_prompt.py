@@ -177,33 +177,19 @@ async def retrieve_knowledge_context(
     if knowledge is None:
         return task_prompt
 
-    from app.llm.client import get_client
+    from app.lib.query_rewriter import rewrite_query
 
     try:
-        # Step 1: Use LLM to rewrite the query for better vector search
-        llm = get_client()
-        rewriter_prompt = _slice("knowledge_search_query_system_prompt")
-        query_template = _slice("knowledge_search_query")
-        query = query_template.format(task_prompt=task_prompt)
-
-        messages = [
-            {"role": "system", "content": rewriter_prompt},
-            {"role": "user", "content": query},
-        ]
-
-        response = await llm.ainvoke(messages)
-        search_query = response.content.strip() if response.content else task_prompt
+        search_query = await rewrite_query(task_prompt)
 
         if not search_query:
             return task_prompt
 
-        # Step 2: Query knowledge store with rewritten query
         results = await knowledge.query(search_query, n_results=n_results)
 
         if not results:
             return task_prompt
 
-        # Step 3: Extract knowledge context 
         valid_snippets = [
             item["text"]
             for item in results

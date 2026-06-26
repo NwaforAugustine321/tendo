@@ -222,6 +222,7 @@ export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
       switch (actionType) {
         case 'browse-folders':
           setRadialView({ view: 'folders', folders })
+          window.dispatchEvent(new Event('tendo:open-sidebar'))
           break
         case 'connect-sources':
           setRadialView({ view: 'sources' })
@@ -229,6 +230,7 @@ export function RadialMenu({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
         case 'new-folder':
           createFolder('New Folder')
           closeRadialMenu()
+          window.dispatchEvent(new Event('tendo:open-sidebar'))
           break
         case 'insights':
           closeRadialMenu()
