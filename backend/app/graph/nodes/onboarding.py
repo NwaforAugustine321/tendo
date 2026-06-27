@@ -96,26 +96,6 @@ async def onboarding_node(state: GraphState) -> dict:
         ],
     }
 
-    # When onboarding completes, save the profile via tool_planner
-    if is_complete:
-        logo = business_data["logo_url"]
-        result["tool_requests"] = [{
-            "tool": "update_business_profile",
-            "arguments": {
-                "business_id": business_id,
-                "name": business_data["business_name"],
-                "category": business_data["business_type"],
-                "description": business_data["description"],
-                "phone": business_data["phone_number"],
-                "location": business_data["location"],
-                "logo_url": logo if isinstance(logo, str) and logo.startswith("http") else "",
-                "onboarding_completed": True,
-                "metadata": business_data["metadata"],
-            }
-        }]
-        result["return_to"] = "onboarding"
-        result["workflow_owner"] = "onboarding"
-
     return result
 
 

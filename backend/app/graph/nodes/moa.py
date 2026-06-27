@@ -11,7 +11,6 @@ from app.db.tools.knowledge import search_business_knowledge
 from app.lib.i18n import _get_i18n
 from app.models.state import GraphState
 from app.lib.json_parser import parse_json_output
-from app.lib.text_utils import strip_internal_reasoning
 
 logger = logging.getLogger(__name__)
 
@@ -111,8 +110,6 @@ async def moa_node(state: GraphState) -> dict:
 
     text = decision.get("response", raw)
 
-    # Strip internal reasoning from the text (never expose Thought/Action/Observation)
-    text = strip_internal_reasoning(text)
 
     fields = decision.get("fields")
     tool_requests = decision.get("tool_requests")

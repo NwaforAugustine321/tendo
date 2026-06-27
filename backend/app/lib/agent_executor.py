@@ -21,11 +21,11 @@ logger = logging.getLogger(__name__)
 
 FINAL_ANSWER_OPEN = "<Final_Answer>"
 FINAL_ANSWER_CLOSE = "</Final_Answer>"
-ACTION_INPUT_REGEX = re.compile(
-    r"<Action>(.*?)</Action>\s*<Action_Input>(.*?)</Action_Input>", re.DOTALL
-)
+ACTION_REGEX = re.compile(r"<Action>(.*?)</Action>", re.DOTALL)
+ACTION_INPUT_REGEX = re.compile(r"<Action_Input>(.*?)(?:</Action_Input>|$)", re.DOTALL)
 
 WAITING_USER_INPUT="awaiting_user_input"
+WORKFLOW=['completed']
 ROUTES_SUB_AGENT="__ROUTE__"
 
 
@@ -367,11 +367,13 @@ class AgentExecutor(BaseModel):
                 continue
 
             # --- Mode 2a: Check for XML <Action>/<Action_Input> tags ---
-            action_match = ACTION_INPUT_REGEX.search(raw)
+            # --- Mode 2a: Check for XML <Action>/<Action_Input> tags ---
+            action_name_match = ACTION_REGEX.search(raw)
+            action_input_match = ACTION_INPUT_REGEX.search(raw)
             await self._emit_status("Checking information...")
-            if action_match:
-                tool_name = action_match.group(1).strip()
-                tool_input_raw = action_match.group(2).strip()
+            if action_name_match and action_input_match:
+                tool_name = action_name_match.group(1).strip()
+                tool_input_raw = action_input_match.group(1).strip()
                 tool_args = self._parse_tool_input(tool_input_raw)
 
                 # If JSON parsing failed, ask LLM to retry with proper format
@@ -442,7 +444,7 @@ class AgentExecutor(BaseModel):
 
                         # If delegation/coworker tool returns routing signal, return immediately
                         if ROUTES_SUB_AGENT in result_str:
-                            await self._emit_status("delegating to co-workers...")
+                            await self._emit_status("Checking information...")
                             return result_str
                         
 
@@ -663,4 +665,8 @@ async def execute_task(
         thinking_callback=thinking_callback,
     )
 
-    return await executor.invoke(task_prompt)
+    raw = await executor.invoke(task_prompt)
+
+    # Strip internal reasoning XML tags before returning to caller
+    from app.lib.text_utils import strip_internal_reasoning
+    return strip_internal_reasoning(raw)
