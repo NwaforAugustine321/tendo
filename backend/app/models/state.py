@@ -1,7 +1,8 @@
 """Graph state definition."""
 
 import operator
-from typing import Annotated, Literal, TypedDict
+from collections.abc import Callable
+from typing import Annotated, Any, Literal, TypedDict
 
 
 class GraphState(TypedDict, total=False):
@@ -26,3 +27,5 @@ class GraphState(TypedDict, total=False):
     current_agent: str | None
     workflow_owner: str | None
     return_to: str | None
+    # Thinking callback for streaming thinking to frontend
+    thinking_callback: Any

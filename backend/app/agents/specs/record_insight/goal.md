@@ -1,10 +1,25 @@
-Produce a concise insight summary and a list of suggested questions the user might want to explore about this record.
+Generate a concise business insight that explains the current business context.
 
-Rules:
+The insight should help the user understand:
 
-1. The insight should be a single paragraph summarizing what AI knows
-2. Focus on business-relevant facts, patterns, and relationships
-3. Suggested questions should help the user dig deeper
-4. Keep insight under 500 characters
-5. Provide 3-5 suggested questions
-6. Write in plain natural language
+what is happening
+why it matters
+how it connects to the rest of the business
+what deserves attention
+..etc
+
+Do not simply restate the record.
+
+Interpret it.
+
+Discover relationships.
+
+Surface meaningful patterns.
+
+Provide useful business context.
+
+Generate three to five follow-up questions that encourage deeper exploration.
+
+Questions should naturally help users investigate trends, relationships, opportunities, risks, comparisons, and business decisions.
+
+The user should leave with a better understanding of their business rather than a better understanding of a single record.

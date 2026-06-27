@@ -19,18 +19,23 @@ async def create_folder(business_id: str, name: str, icon: str = "", color: str 
 async def get_folders(business_id: str) -> list[dict]:
     client = get_client()
     try:
-        result = client.table("folders").select("*").eq("business_id", business_id).order("created_at", desc=False).execute()
+        result = client.table("folders") \
+            .select("*, records(id, title, folder_id, created_at, updated_at)") \
+            .eq("business_id", business_id) \
+            .eq("records.business_id", business_id) \
+            .order("created_at", desc=False) \
+            .order("created_at", foreign_table="records", desc=False) \
+            .execute()
+            
         folders = result.data or []
         logger.info(f"get_folders business_id={business_id} returned {len(folders)} folders")
 
+        if not folders:
+            return []
+
         for f in folders:
-            try:
-                records_result = client.table("records").select("id, title, created_at, updated_at").eq("folder_id", f["id"]).order("created_at", desc=False).execute()
-                f["records"] = records_result.data or []
-                f["record_count"] = len(f["records"])
-            except Exception:
-                f["records"] = []
-                f["record_count"] = 0
+            folder_records = f.get("records") or []
+            f["record_count"] = len(folder_records)
 
         return folders
     except Exception as e:

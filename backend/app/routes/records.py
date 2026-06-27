@@ -18,9 +18,7 @@ router = APIRouter(tags=["records"])
 async def list_folders(business_id: str = Query(...), user=Depends(get_current_user)):
     import logging
     logger = logging.getLogger(__name__)
-    logger.info(f"list_folders called with business_id={business_id}")
     result = await get_folders(business_id)
-    logger.info(f"list_folders returning {len(result)} folders")
     return result
 
 

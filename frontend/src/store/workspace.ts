@@ -43,6 +43,10 @@ export interface WorkspaceState {
   foldersLoading: boolean
   recordsLoading: Map<string, boolean>
 
+  // Pending chat message (from insight suggested questions)
+  pendingChatMessage: string | null
+  setPendingChatMessage: (msg: string | null) => void
+
   // Actions — radial menu
   openRadialMenu: () => void
   closeRadialMenu: () => void
@@ -89,6 +93,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   searchQuery: '',
   foldersLoading: false,
   recordsLoading: new Map(),
+  pendingChatMessage: null,
+  setPendingChatMessage: (msg) => set({ pendingChatMessage: msg }),
 
   // Radial menu
   openRadialMenu: () => set({ radialMenuOpen: true, radialMenuView: { view: 'actions' } }),
@@ -281,6 +287,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const apiFolders = await recordsApi.getFolders()
       console.log('[workspace] fetchFolders response:', apiFolders)
+
+      if (!Array.isArray(apiFolders) || apiFolders.length === 0) {
+        set({ foldersLoading: false })
+        setTimeout(() => get().fetchFolders(), 2000)
+        return
+      }
+
       const folders: Folder[] = apiFolders.map((f: any) => ({
         id: f.id,
         name: f.name,

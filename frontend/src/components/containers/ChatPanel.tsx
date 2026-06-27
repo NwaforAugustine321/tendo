@@ -44,7 +44,7 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="flex h-full w-[380px] flex-shrink-0 flex-col border-l border-zinc-800/60 bg-[#0f0f0f]">
+    <div className="flex h-full flex-col bg-[#0f0f0f]">
       {/* Tab bar */}
       <div className="flex min-h-[36px] items-center gap-0.5 overflow-x-auto border-b border-zinc-800/60 bg-[#0a0a0a] px-1">
         {sessions.map((session) => (

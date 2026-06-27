@@ -54,12 +54,7 @@ export function RecordInsightPanel() {
   if (!activeRecordId) return null
 
   return (
-    <div className="w-[400px] shrink-0 border-r border-zinc-800/60 bg-[#0f0f0f] flex flex-col min-h-0 overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-zinc-800/60 px-4 py-3">
-        <Sparkles size={14} className="text-[#3ecf8e]" />
-        <span className="text-xs font-medium text-zinc-300">{import.meta.env.VITE_AGENT_NAME || 'Jay'} Insights</span>
-      </div>
-
+    <div className="flex flex-col h-full overflow-hidden">
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {loading && (
           <div className="flex items-center gap-2 py-4 justify-center">
@@ -92,7 +87,7 @@ export function RecordInsightPanel() {
                     key={i}
                     type="button"
                     onClick={() => {
-                      window.dispatchEvent(new CustomEvent('tendo:send-chat-message', { detail: { text: q } }))
+                      useWorkspaceStore.getState().setPendingChatMessage(q)
                     }}
                     className={clsx(
                       'flex items-center gap-1 rounded-full px-2.5 py-1',

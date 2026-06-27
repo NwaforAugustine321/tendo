@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
-import { MessageSquare } from 'lucide-react'
+import { MessageSquare, Sparkles } from 'lucide-react'
 import { IconRail } from '../components/containers'
 import { TopBar } from '../components/containers'
 import { ChatPanel } from '../components/containers/ChatPanel'
@@ -18,6 +18,7 @@ export function WorkspaceLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [chatPanelVisible, setChatPanelVisible] = useState(true)
   const [folderNavPinned, setFolderNavPinned] = useState(false)
+  const [rightTab, setRightTab] = useState<'chat' | 'insight'>('chat')
   const hoverClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const { radialMenuOpen, openRadialMenu, activeRecordId } = useWorkspaceStore()
@@ -60,6 +61,22 @@ export function WorkspaceLayout() {
     return () => window.removeEventListener('tendo:open-sidebar', handleOpenSidebar)
   }, [])
 
+  useEffect(() => {
+    if (activeRecordId) {
+      setRightTab('insight')
+      setChatPanelVisible(true)
+    }
+  }, [activeRecordId])
+
+  const pendingChatMessage = useWorkspaceStore((s) => s.pendingChatMessage)
+
+  useEffect(() => {
+    if (pendingChatMessage) {
+      setRightTab('chat')
+      setChatPanelVisible(true)
+    }
+  }, [pendingChatMessage])
+
   return (
     <div className="flex h-dvh max-h-dvh flex-col overflow-hidden bg-[#0a0a0a] text-zinc-100">
       {/* Top bar */}
@@ -80,17 +97,15 @@ export function WorkspaceLayout() {
               secondaryVisible={folderNavPinned}
             />
           </div>
-          {activeRecordId ? (
-            <RecordInsightPanel />
-          ) : folderNavPinned ? (
+          {folderNavPinned && (
             <div className="w-[260px] min-h-0 overflow-hidden border-r border-zinc-800/60 bg-[#0f0f0f]">
               <FolderNavigation />
             </div>
-          ) : null}
+          )}
         </div>
 
         {/* Quick Action Button — fixed position, independent of sidebar hover */}
-        <QuickActionButton onClick={openRadialMenu} visible={!radialMenuOpen} sidebarOpen={folderNavPinned || !!activeRecordId} />
+        <QuickActionButton onClick={openRadialMenu} visible={!radialMenuOpen} sidebarOpen={folderNavPinned} />
 
         {/* Main content — either workspace content or route outlet */}
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto border-l border-zinc-800/60 bg-[#0a0a0a]">
@@ -99,18 +114,42 @@ export function WorkspaceLayout() {
           </div>
         </main>
 
-        {/* Chat panel — right side (toggleable via edge border button) */}
+        {/* Right panel — Chat + Agent Insight tabs */}
         <div className="hidden min-h-0 lg:flex relative">
           <button
             type="button"
             onClick={() => setChatPanelVisible(!chatPanelVisible)}
             className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 bg-[#1a1a1a] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200"
-            title={chatPanelVisible ? 'Close chat' : 'Open chat'}
+            title={chatPanelVisible ? 'Close panel' : 'Open panel'}
           >
             <MessageSquare size={10} />
           </button>
           {chatPanelVisible ? (
-            <ChatPanel />
+            <div className="flex h-full w-[440px] flex-shrink-0 flex-col border-l border-zinc-800/60 bg-[#0f0f0f]">
+              {/* Tab bar */}
+              <div className="flex border-b border-zinc-800/60 bg-[#0a0a0a]">
+                <button
+                  type="button"
+                  onClick={() => setRightTab('chat')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-medium transition-colors ${rightTab === 'chat' ? 'text-zinc-200 border-b-2 border-[#3ecf8e]' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  <MessageSquare size={11} />
+                  Sessions
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRightTab('insight')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-medium transition-colors ${rightTab === 'insight' ? 'text-zinc-200 border-b-2 border-[#3ecf8e]' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  <Sparkles size={11} />
+                  Insight
+                </button>
+              </div>
+              {/* Tab content */}
+              <div className="min-h-0 flex-1">
+                {rightTab === 'chat' ? <ChatPanel /> : <RecordInsightPanel />}
+              </div>
+            </div>
           ) : (
             <div className="w-5 border-l border-zinc-800/60 bg-[#0f0f0f]" />
           )}

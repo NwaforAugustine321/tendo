@@ -45,42 +45,6 @@ def _clean_text(text: str) -> str:
     return text.strip()
 
 
-def _extract_thought(content: str) -> str:
-    """Extract thought/reasoning text from agent output.
-
-    Handles both ReAct format (Thought: ...) and native tool calling
-    where the content is the agent's reasoning before making tool calls.
-    """
-    if not content:
-        return ""
-
-    # Try ReAct format first
-    if "Thought:" in content:
-        try:
-            idx = content.index("Thought:")
-            after = content[idx + 8:].strip()
-            for marker in ["Action:", "Final Answer:", "\n\n"]:
-                pos = after.find(marker)
-                if pos != -1:
-                    after = after[:pos].strip()
-                    break
-            return after[:200] if after else ""
-        except (ValueError, IndexError):
-            pass
-
-    # For native tool calling: the content before tool calls is the reasoning
-    # Skip if it looks like a final JSON response
-    stripped = content.strip()
-    if stripped.startswith("{") or stripped.startswith("```"):
-        return ""
-
-    # Return first 200 chars of reasoning content as the thought
-    if len(stripped) > 10:
-        return stripped[:200]
-
-    return ""
-
-
 async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket=None, user_id: str = "anonymous", send_fn=None) -> dict:
     from app.graph.workflow import get_graph
 
@@ -94,19 +58,21 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
         _thread_histories[thread_id] = []
     thread_messages = _thread_histories[thread_id]
 
-    async def _send_thinking_msg(msg: str):
+    async def _send_thinking_msg(msg):
+        """Send thinking/thought to frontend. Accepts str or dict."""
         if send_fn:
             try:
-                if msg.startswith("__THOUGHT__:"):
-                    thought_text = msg[12:]
-                    await send_fn({"type": "thought", "data": thought_text})
-                else:
+                if isinstance(msg, dict):
+                    # From ThinkingStreamCallback — already formatted
+                    await send_fn(msg)
+                elif isinstance(msg, str):
                     await send_fn({"type": "thinking", "data": msg})
             except Exception:
                 pass
         elif websocket:
             try:
-                await send_thinking(websocket, msg)
+                text = msg.get("data", "") if isinstance(msg, dict) else msg
+                await send_thinking(websocket, text)
             except Exception:
                 pass
 
@@ -123,14 +89,7 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
                     if isinstance(node_output, dict):
                         result.update(node_output)
 
-                        # Extract and send thought text from agent raw output
-                        messages = node_output.get("messages", [])
-                        for m in messages:
-                            if isinstance(m, dict) and m.get("role") == "assistant":
-                                content = m.get("content", "")
-                                thought = _extract_thought(content)
-                                if thought:
-                                    await _send_thinking_msg(f"__THOUGHT__:{thought}")
+                        # Thought extraction is handled in agent executor via callback
         except Exception as e:
             logger.error(f"Graph execution error: {e}", exc_info=True)
             if send_fn:
@@ -144,6 +103,7 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
         "business_id": business_id,
         "user_id": user_id,
         "messages": thread_messages[-12:],
+        "thinking_callback": _send_thinking_msg,
     }
     result = await _stream_invoke(input_state)
 

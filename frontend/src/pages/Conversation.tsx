@@ -3,6 +3,7 @@ import { ConversationPage, type MessageItem } from '../components/containers'
 import type { InputSpec } from '../components/containers/ConversationPage'
 import { useVoiceSession } from '../hooks/useVoiceSession'
 import { useBusinessStore } from '../store/business'
+import { useWorkspaceStore } from '../store/workspace'
 import { resumeSession } from '../lib/services/business'
 
 type Props = {
@@ -136,15 +137,6 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
     }
   }, [voice.errorMessage])
 
-  useEffect(() => {
-    const handleChatMessage = (e: Event) => {
-      const text = (e as CustomEvent).detail?.text
-      if (text) handleSendText(text)
-    }
-    window.addEventListener('tendo:send-chat-message', handleChatMessage)
-    return () => window.removeEventListener('tendo:send-chat-message', handleChatMessage)
-  })
-
   const handleSendText = (text: string) => {
     // Find option context if this was a radio select
     const optionContext = findOptionContext(text)
@@ -167,6 +159,17 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
     setThinking(true)
     voice.sendText(sendText)
   }
+
+  const pendingMsg = useWorkspaceStore((s) => s.pendingChatMessage)
+  const pendingSentRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (pendingMsg && pendingMsg !== pendingSentRef.current) {
+      pendingSentRef.current = pendingMsg
+      handleSendText(pendingMsg)
+      useWorkspaceStore.getState().setPendingChatMessage(null)
+    }
+  }, [pendingMsg])
 
   const findPendingQuestion = (): string | null => {
     for (let i = messages.length - 1; i >= 0; i--) {

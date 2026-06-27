@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     msty_base_url: str = ""
     msty_num_ctx: int = 4096
 
+    # LMStudio (local OpenAI-compatible)
+    lmstudio_model: str = ""
+    lmstudio_base_url: str = ""
+
+    # Tool calling mode: whether LLM supports native function calling
+    # Set to false for local models (lmstudio, ollama, msty) that use ReAct text instead
+    native_tool_calling: bool = True
+
     # Embeddings
     embedding_provider: str = ""
     gemini_embedding_model: str = ""

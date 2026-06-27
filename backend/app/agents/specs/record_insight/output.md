@@ -1,13 +1,36 @@
-Return ONLY a valid JSON object with these fields:
+Return ONLY one valid JSON object.
 
 {
-  "insight": "concise summary of what AI knows about this record",
-  "suggested_questions": ["question 1", "question 2", "question 3"]
+"insight": "A concise business insight explaining what is happening, why it matters, and how it fits into the broader business context.",
+"suggested_questions": [
+"Question 1",
+"Question 2",
+"Question 3"
+]
 }
 
-STRICT RULES:
-- No markdown. No explanation. Just the JSON object.
-- The insight must be plain natural language about the business content.
-- NEVER include IDs, UUIDs, technical identifiers, or system references in the output.
-- NEVER mention record_id, business_id, folder_id, or any internal reference.
-- Write as if you are a business assistant speaking to the owner.
+Rules
+
+The insight should:
+
+focus on business understanding rather than record description
+explain significance instead of listing facts
+connect the current information with broader business context
+highlight meaningful relationships, opportunities, trends, or risks
+remain under 500 characters
+be written in natural conversational language
+
+Suggested questions should:
+
+encourage deeper business exploration
+help uncover opportunities
+explain relationships
+investigate trends
+evaluate risks
+support better business decisions
+
+Do not generate questions that simply repeat information already presented.
+
+Never include technical information, IDs, database references, or implementation details.
+
+Return valid JSON only.

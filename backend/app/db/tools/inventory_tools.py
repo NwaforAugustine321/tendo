@@ -8,6 +8,8 @@ import json
 
 from langchain_core.tools import tool
 
+from app.db.tools.knowledge import search_business_knowledge
+
 
 @tool
 async def fetch_inventory(business_id: str, product_id: str = "") -> str:
@@ -47,22 +49,6 @@ async def create_product(business_id: str, name: str, unit_price: float = 0, uni
     from app.db.tools.products import create_product as db_create_product
     result = await db_create_product(business_id, name, unit_price=unit_price, unit=unit, category=category)
     return json.dumps(result, default=str)
-
-
-@tool
-async def search_business_knowledge(query: str = "", business_id: str = "", limit: int = 10) -> str:
-    """Search business-level knowledge. Always use this first to understand business context pf what already happened in the business"""
-    from app.memory.memory import Memory
-    import logging
-    logger = logging.getLogger(__name__)
-    try:
-        memory = Memory(scope=f"/insights/{business_id}")
-        results = await memory.recall(query=query, limit=limit)
-        entries = [{"summary": m.record.content} for m in results]
-        return json.dumps(entries, default=str)
-    except Exception as e:
-        logger.warning(f"search_business_knowledge failed: {e}")
-        return json.dumps([])
 
 
 INVENTORY_TOOLS = [fetch_inventory, fetch_products, add_inventory_item, record_movement, create_product, search_business_knowledge]

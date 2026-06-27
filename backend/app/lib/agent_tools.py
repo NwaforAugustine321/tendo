@@ -39,11 +39,20 @@ def _sanitize_name(name: str) -> str:
 
 
 def _find_agent(agents: Sequence[Any], coworker: str) -> Any | None:
-    """Find an agent by role name (case-insensitive)."""
+    """Find an agent by role name (fuzzy matching).
+    """
     sanitized = _sanitize_name(coworker)
+    if not sanitized:
+        return None
+
+    # Strip trailing punctuation from coworker name
+    sanitized = sanitized.rstrip(".,!?;:")
+
+    # 1. Exact match
     for agent in agents:
-        if _sanitize_name(agent.role) == sanitized:
+        if _sanitize_name(agent) == sanitized:
             return agent
+
     return None
 
 
@@ -83,8 +92,8 @@ def _delegate_work(agents: Sequence[Any], task: str, context: str, coworker: str
         )
 
     # Return routing signal — MOA node will parse this and set routed_domain
-    role_key = _sanitize_name(agent.role).replace(" ", "_")
-    return f"__ROUTE__:{role_key}|task:{task}|context:{context}"
+    role_key = _sanitize_name(agent).replace(" ", "_")
+    return f"__ROUTE__:{role_key}"
 
 
 def _ask_question(agents: Sequence[Any], question: str, context: str, coworker: str) -> str:
@@ -98,8 +107,8 @@ def _ask_question(agents: Sequence[Any], question: str, context: str, coworker: 
             coworkers=_coworker_list(agents)
         )
 
-    role_key = _sanitize_name(agent.role).replace(" ", "_")
-    return f"__ROUTE__:{role_key}|task:{question}|context:{context}"
+    role_key = _sanitize_name(agent).replace(" ", "_")
+    return f"__ROUTE__:{role_key}"
 
 
 class AgentTools:
@@ -119,7 +128,7 @@ class AgentTools:
 
     def tools(self) -> list[BaseTool]:
         """Get all available agent tools."""
-        coworkers = ", ".join(f"{agent.role}" for agent in self.agents)
+        coworkers = ", ".join(f"{agent}" for agent in self.agents)
 
         delegate_description = _i18n_tools("delegate_work").format(coworkers=coworkers)
         ask_description = _i18n_tools("ask_question").format(coworkers=coworkers)

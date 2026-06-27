@@ -1,35 +1,105 @@
-"""LLM client — routes to configured provider."""
+"""LLM client — routes to configured provider and creates instances."""
 
 _client = None
 
 
-def get_client():
+def get_client(callbacks=None):
+    """Get the LLM client. If callbacks provided, returns a fresh instance with callbacks."""
     global _client
+
+    if callbacks:
+        return _create_client(callbacks=callbacks)
+
     if _client is not None:
         return _client
 
+    _client = _create_client()
+    return _client
+
+
+def _create_client(callbacks=None):
+    """Create an LLM client instance for the configured provider."""
     from app.config.settings import settings
 
-    if settings.llm_provider == "gemini":
-        from app.llm.gemini import get_client as get_gemini
-        _client = get_gemini()
-    elif settings.llm_provider == "ollama":
-        from app.llm.ollama import get_client as get_ollama
-        _client = get_ollama()
-    elif settings.llm_provider == "huggingface":
-        from app.llm.huggingface import get_client as get_hf
-        _client = get_hf()
-    elif settings.llm_provider == "grok":
-        from app.llm.grok import get_client as get_grok
-        _client = get_grok()
-    elif settings.llm_provider == "groq":
-        from app.llm.groq import get_client as get_groq
-        _client = get_groq()
-    elif settings.llm_provider == "msty":
-        from app.llm.msty import get_client as get_msty
-        _client = get_msty()
-    else:
-        from app.llm.anthropic import get_client as get_anthropic
-        _client = get_anthropic()
+    cb = callbacks or []
 
-    return _client
+    if settings.llm_provider == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(
+            model=settings.gemini_model,
+            google_api_key=settings.google_voice_api_key,
+            streaming=True,
+            callbacks=cb,
+        )
+
+    elif settings.llm_provider == "ollama":
+        from langchain_openai import ChatOpenAI
+       
+       
+        return ChatOpenAI(
+            model=settings.ollama_model,
+            base_url=f"{settings.ollama_base_url}/v1",
+            # base_url=f"{settings.ollama_base_url}/api/v1",
+            streaming=True,
+            api_key='ollama',
+            # api_key='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',
+            callbacks=cb,
+        )
+
+    elif settings.llm_provider == "huggingface":
+        from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+        llm = HuggingFaceEndpoint(
+            repo_id=settings.hf_model,
+            huggingfacehub_api_token=settings.hf_token,
+            task="text-generation",
+        )
+        return ChatHuggingFace(llm=llm, callbacks=cb)
+
+    elif settings.llm_provider == "grok":
+        from langchain_xai import ChatXAI
+        return ChatXAI(
+            model=settings.xai_model,
+            xai_api_key=settings.xai_api_key,
+            streaming=True,
+            callbacks=cb,
+        )
+
+    elif settings.llm_provider == "groq":
+        from langchain_groq import ChatGroq
+        return ChatGroq(
+            model=settings.groq_model,
+            api_key=settings.groq_api_key,
+            streaming=True,
+            callbacks=cb,
+        )
+
+    elif settings.llm_provider == "msty":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=settings.msty_model,
+            base_url=settings.msty_base_url,
+            api_key="msty",
+            streaming=True,
+            callbacks=cb,
+            extra_body={"options": {"num_ctx": settings.msty_num_ctx}},
+        )
+
+    elif settings.llm_provider == "lmstudio":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=settings.lmstudio_model,
+            base_url=settings.lmstudio_base_url,
+            api_key="lmstudio",
+            streaming=True,
+            callbacks=cb,
+        )
+
+    else:
+        # Default: Anthropic
+        from langchain_anthropic import ChatAnthropic
+        return ChatAnthropic(
+            model=settings.anthropic_model,
+            api_key=settings.anthropic_api_key,
+            streaming=True,
+            callbacks=cb,
+        )
