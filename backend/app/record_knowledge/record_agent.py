@@ -115,7 +115,8 @@ async def process_record_content(record_content: RecordContentInput) -> Processi
 
 
 async def get_record_understanding(business_id: str, record_id: str) -> AIUnderstanding:
-    from app.db.tools.records import get_record_knowledge_tools, get_record
+    from app.db.tools.record_tools import get_record_knowledge_tools
+    from app.db.tools.records import get_record
     from app.db.client import get_client
     from app.lib.agent_executor import execute_task
 

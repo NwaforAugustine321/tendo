@@ -9,6 +9,7 @@ import logging
 
 from app.agents.models import Agent, DomainAgentOutput
 from app.db.tools.onboarding_tools import ONBOARDING_TOOLS
+from app.memory.knowledge import search_business_knowledge
 from app.lib.agent_executor import execute_task
 from app.lib.user_input_tool import ask_user_question
 from app.memory.memory import Memory, get_memory
@@ -30,7 +31,8 @@ async def onboarding_node(state: GraphState) -> dict:
     thinking_callback = state.get("thinking_callback")
 
     from app.lib.field_formatter import format_user_input
-    user_message = format_user_input(user_message)
+    pending_question = state.get("pending_question")
+    user_message = format_user_input(user_message, pending_question=pending_question)
 
    
     agent = _onboarding_agent
@@ -38,7 +40,7 @@ async def onboarding_node(state: GraphState) -> dict:
     context = f"business_id: {business_id}\nthread_id: {thread_id}"
     memory = get_memory(f"/business/{business_id}")
 
-    all_tools = ONBOARDING_TOOLS 
+    all_tools = ONBOARDING_TOOLS + [search_business_knowledge]
     raw = await execute_task(
         agent=agent,
         description=user_message,
@@ -90,6 +92,7 @@ async def onboarding_node(state: GraphState) -> dict:
         "output_mode": "conversation",
         "workflow_owner": "onboarding",
         "current_agent": "onboarding",
+        "pending_question": text if workflow_status == "waiting_for_user" else None,
         "messages": [
             {"role": "user", "content": user_message},
             {"role": "assistant", "content": raw},

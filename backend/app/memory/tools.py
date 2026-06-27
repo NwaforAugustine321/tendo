@@ -40,5 +40,19 @@ async def get_profile(business_id: str) -> str:
         return "Could not retrieve profile."
 
 
+@tool
+async def save_to_memory(business_id: str, contents: list[str]) -> str:
+    """Store one or more important facts, decisions, observations, or lessons in memory so they can be recalled later. Pass multiple items at once when you have several things worth remembering."""
+    if not contents:
+        return "No items provided to save."
+    try:
+        memory = get_memory(f"/business/{business_id}")
+        await memory.remember_many(contents)
+        return f"Saved {len(contents)} item(s) to memory."
+    except Exception as e:
+        logger.warning(f"save_to_memory failed: {e}")
+        return f"Could not save to memory: {e}"
+
+
 # All memory tools available to agents
-MEMORY_TOOLS = [recall_memory, get_profile]
+MEMORY_TOOLS = [recall_memory, get_profile, save_to_memory]

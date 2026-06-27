@@ -19,7 +19,7 @@ from app.lib.json_parser import parse_json_output
 logger = logging.getLogger(__name__)
 
 # Load agent once at module level — not recomputed per request
-_transactions_agent = Agent.from_spec("domain/transactions")
+_transactions_agent = Agent.from_spec("domain/transactions", manager_request=True)
 
 
 async def transactions_node(state: GraphState) -> dict:
@@ -31,7 +31,8 @@ async def transactions_node(state: GraphState) -> dict:
     thinking_callback = state.get("thinking_callback")
 
     from app.lib.field_formatter import format_user_input
-    user_message = format_user_input(user_message)
+    pending_question = state.get("pending_question")
+    user_message = format_user_input(user_message, pending_question=pending_question)
 
     agent = _transactions_agent
 
@@ -42,7 +43,7 @@ async def transactions_node(state: GraphState) -> dict:
         agent=agent,
         description=user_message,
         tools=TRANSACTION_TOOLS + [ask_user_question],
-        expected_output=agent.expected_output,
+        expected_output=agent.get_expected_output(),
         chat_history=history[-12:],
         context=context,
         output_pydantic=DomainAgentOutput,
@@ -64,11 +65,15 @@ async def transactions_node(state: GraphState) -> dict:
     if fields:
         response_data["input"] = {"fields": fields}
 
+    # Set pending_question if agent is waiting for user input, clear otherwise
+    is_waiting = parsed.get("workflow_status") == "waiting_for_user"
+
     result = {
         "response": response_data,
         "output_mode": "conversation",
         "workflow_owner": "transactions",
         "current_agent": "transactions",
+        "pending_question": text if is_waiting else None,
         "messages": [
             {"role": "user", "content": user_message},
             {"role": "assistant", "content": raw},

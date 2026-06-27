@@ -11,9 +11,16 @@ export function TypingIndicator({ text, thoughtText }: Props) {
   const [displayedThought, setDisplayedThought] = useState('')
   const streamIndex = useRef(0)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const collapseTimer = useRef<NodeJS.Timeout | null>(null)
 
-  // Auto-open when new thought arrives, reset when cleared
+  // Auto-open when new thought arrives, auto-close when streaming done
   useEffect(() => {
+    // Clear any pending collapse timer
+    if (collapseTimer.current) {
+      clearTimeout(collapseTimer.current)
+      collapseTimer.current = null
+    }
+
     if (thoughtText) {
       setExpanded(true)
       setDisplayedThought('')
@@ -25,12 +32,16 @@ export function TypingIndicator({ text, thoughtText }: Props) {
         if (streamIndex.current >= (thoughtText?.length || 0)) {
           if (intervalRef.current) clearInterval(intervalRef.current)
           setDisplayedThought(thoughtText || '')
+          // Auto-collapse after streaming finishes (1.5s delay)
+          collapseTimer.current = setTimeout(() => {
+            setExpanded(false)
+          }, 1500)
         } else {
           setDisplayedThought(thoughtText!.slice(0, streamIndex.current))
         }
       }, 15)
     } else {
-      // Reset and close when thought is cleared (done or error)
+      // Reset and close when thought is cleared (new response arrived)
       setExpanded(false)
       setDisplayedThought('')
       streamIndex.current = 0
@@ -39,6 +50,7 @@ export function TypingIndicator({ text, thoughtText }: Props) {
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
+      if (collapseTimer.current) clearTimeout(collapseTimer.current)
     }
   }, [thoughtText])
 
@@ -62,7 +74,7 @@ export function TypingIndicator({ text, thoughtText }: Props) {
         )}
       </div>
       {thoughtText && expanded && (
-        <div className="ml-2 max-w-[85%] rounded-xl border border-zinc-800/60 bg-zinc-900/50 px-3 py-2 text-[11px] text-zinc-500 italic leading-relaxed">
+        <div className="ml-2 max-w-[85%] rounded-xl border border-zinc-800/60 bg-zinc-900/50 px-3 py-2 text-[11px] text-zinc-500 italic leading-relaxed transition-all duration-300">
           {displayedThought}
           {displayedThought.length < (thoughtText?.length || 0) && (
             <span className="animate-pulse">▊</span>

@@ -17,7 +17,7 @@ async def _execute_sub_agent(agent: Agent, business_id: str) -> str:
 
     raw = await execute_task(
         agent=agent,
-        description=f"Analyze business knowledge for business_id={business_id}. Use search_insights to retrieve relevant data.",
+        description=f"Analyze business knowledge for business_id={business_id}. Use search_business_knowledge to retrieve relevant data.",
         tools=tools,
         expected_output=agent.expected_output,
         context=f"business_id: {business_id}",

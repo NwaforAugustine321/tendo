@@ -210,6 +210,7 @@ class Memory:
         limit: int = 5,
         scope: str | None = None,
         min_score: float = 0.0,
+        use_query_analysis: bool = False,
     ) -> list[MemoryMatch]:
         """Retrieve relevant memories using semantic search with composite scoring.
 
@@ -218,6 +219,7 @@ class Memory:
             limit: Maximum number of results.
             scope: Optional sub-scope to search within.
             min_score: Minimum composite score threshold.
+            use_query_analysis: If True, use LLM to analyze and rewrite query (Req 6).
 
         Returns:
             List of MemoryMatch, ordered by composite relevance score.
@@ -225,7 +227,12 @@ class Memory:
         if not query or not query.strip():
             return []
 
-        query_embedding = await self._embed(query)
+    
+        search_query = query
+        if use_query_analysis:
+            search_query = await self._analyze_query(query)
+
+        query_embedding = await self._embed(search_query)
         if not query_embedding:
             return []
 
@@ -262,6 +269,45 @@ class Memory:
         matches.sort(key=lambda m: m.score, reverse=True)
         return matches[:limit]
 
+    async def _analyze_query(self, query: str) -> str:
+        """Analyze and rewrite a query using memory.query_system/query_user prompts (Req 6)."""
+        import json
+        from app.lib.i18n import _get_i18n
+        from app.llm.client import get_client
+
+        i18n = _get_i18n()
+        system_prompt = i18n.get("memory.query_system")
+        user_template = i18n.get("memory.query_user")
+
+        if not system_prompt or not user_template:
+            return query
+
+        try:
+            llm = get_client()
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_template.format(
+                    query=query,
+                    available_scopes=self._scope,
+                    scope_desc="",
+                )},
+            ]
+            response = await llm.ainvoke(messages)
+            raw = response.content.strip() if response.content else ""
+
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+            analysis = json.loads(raw)
+
+            # Use the recall_queries if available
+            recall_queries = analysis.get("recall_queries", [])
+            if recall_queries:
+                return " ".join(recall_queries)
+            return query
+        except Exception as e:
+            logger.debug(f"Query analysis failed, using original: {e}")
+            return query
+
     def forget(self, scope: str | None = None) -> int:
         """Delete memories in the given scope.
 
@@ -280,3 +326,175 @@ class Memory:
     def count(self) -> int:
         """Get the number of records in this memory scope."""
         return self._storage.count(scope_prefix=self._scope)
+
+    # --- Req 7: Extract memories from conversation ---
+    async def extract_and_remember(self, conversation_content: str) -> list[MemoryRecord]:
+        """Extract discrete facts from a conversation and store them.
+
+        Uses memory.extract_memories_system/user i18n prompts to LLM-extract
+        reusable memory statements from raw conversation content.
+
+        Args:
+            conversation_content: The raw conversation text to extract from.
+
+        Returns:
+            List of stored MemoryRecords (empty if nothing worth storing).
+        """
+        import json
+        from app.lib.i18n import _get_i18n
+        from app.llm.client import get_client
+
+        i18n = _get_i18n()
+        system_prompt = i18n.get("memory.extract_memories_system")
+        user_template = i18n.get("memory.extract_memories_user")
+
+        if not system_prompt or not user_template:
+            return []
+
+        try:
+            llm = get_client()
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_template.format(content=conversation_content)},
+            ]
+            response = await llm.ainvoke(messages)
+            content = response.content.strip() if response.content else ""
+
+            # Parse JSON response
+            if content.startswith("```"):
+                content = content.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+            data = json.loads(content)
+            memories = data.get("memories", [])
+
+            if not memories:
+                return []
+
+            return await self.remember_many(memories, source="auto_extraction")
+        except Exception as e:
+            logger.warning(f"Memory extraction failed: {e}")
+            return []
+
+    async def remember_with_analysis(
+        self,
+        content: str,
+        existing_scopes: list[str] | None = None,
+        existing_categories: list[str] | None = None,
+    ) -> MemoryRecord | None:
+        """Save content with LLM-analyzed scope, categories, and importance.
+
+        Args:
+            content: Text to remember.
+            existing_scopes: Available scope paths for context.
+            existing_categories: Available categories for context.
+
+        Returns:
+            The stored MemoryRecord with LLM-determined metadata.
+        """
+        import json
+        from app.lib.i18n import _get_i18n
+        from app.llm.client import get_client
+
+        i18n = _get_i18n()
+        system_prompt = i18n.get("memory.save_system")
+        user_template = i18n.get("memory.save_user")
+
+        if not system_prompt or not user_template:
+            return await self.remember(content)
+
+        try:
+            llm = get_client()
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_template.format(
+                    content=content,
+                    existing_scopes=", ".join(existing_scopes or [self._scope]),
+                    existing_categories=", ".join(existing_categories or []),
+                )},
+            ]
+            response = await llm.ainvoke(messages)
+            raw = response.content.strip() if response.content else ""
+
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+            analysis = json.loads(raw)
+
+            return await self.remember(
+                content=content,
+                scope=analysis.get("suggested_scope"),
+                categories=analysis.get("categories"),
+                metadata=analysis.get("extracted_metadata"),
+                importance=analysis.get("importance"),
+            )
+        except Exception as e:
+            logger.warning(f"Memory save analysis failed, saving without analysis: {e}")
+            return await self.remember(content)
+
+    async def remember_with_consolidation(self, content: str) -> MemoryRecord | None:
+        """Store content with deduplication/consolidation against existing memories.
+
+        Args:
+            content: Text to remember.
+
+        Returns:
+            The stored MemoryRecord, or None if consolidated into existing.
+        """
+        import json
+        from app.lib.i18n import _get_i18n
+        from app.llm.client import get_client
+
+        i18n = _get_i18n()
+        system_prompt = i18n.get("memory.consolidation_system")
+        user_template = i18n.get("memory.consolidation_user")
+
+        if not system_prompt or not user_template:
+            return await self.remember(content)
+
+        # Find similar existing memories
+        similar = await self.recall(content, limit=5)
+        if not similar:
+            return await self.remember(content)
+
+        # Build summary of existing records
+        records_summary = "\n".join(
+            f"- ID: {m.record.id} | Content: {m.record.content[:200]}"
+            for m in similar
+        )
+
+        try:
+            llm = get_client()
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_template.format(
+                    new_content=content,
+                    records_summary=records_summary,
+                )},
+            ]
+            response = await llm.ainvoke(messages)
+            raw = response.content.strip() if response.content else ""
+
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+            plan = json.loads(raw)
+
+            # Execute consolidation plan
+            actions = plan.get("actions", plan.get("existing_memories", []))
+            for action in actions:
+                record_id = action.get("id", "")
+                op = action.get("action", "keep")
+                if op == "delete" and record_id:
+                    self._storage.delete_by_id(record_id)
+                elif op == "update" and record_id:
+                    updated_content = action.get("content", action.get("updated_content", ""))
+                    if updated_content:
+                        self._storage.delete_by_id(record_id)
+                        await self.remember(updated_content)
+
+            # Insert new if plan says so
+            insert_new = plan.get("insert_new", True)
+            if insert_new:
+                return await self.remember(content)
+            return None
+
+        except Exception as e:
+            logger.warning(f"Memory consolidation failed, saving directly: {e}")
+            return await self.remember(content)

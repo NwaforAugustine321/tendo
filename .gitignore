@@ -23,6 +23,9 @@ __pycache__/
 .venv/
 *.egg-info/
 
+# Data (vector stores, local DB)
+backend/data/
+
 # IDE
 .vscode/
 .idea/

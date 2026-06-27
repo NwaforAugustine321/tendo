@@ -26,6 +26,31 @@ def _slice(key: str) -> str:
     return i18n.get(f"slices.{key}")
 
 
+async def rewrite_query(task_prompt: str) -> str:
+    """Rewrite a task prompt into an optimized vector search query using LLM."""
+    from app.llm.client import get_client
+
+    try:
+        i18n = _get_i18n()
+        rewriter_prompt = i18n.get("slices.knowledge_search_query_system_prompt")
+        query_template = i18n.get("slices.knowledge_search_query")
+        query = query_template.format(task_prompt=task_prompt)
+
+        llm = get_client()
+        messages = [
+            {"role": "system", "content": rewriter_prompt},
+            {"role": "user", "content": query},
+        ]
+        response = await llm.ainvoke(messages)
+        search_query = response.content.strip() if response.content else task_prompt
+
+        return search_query if search_query else task_prompt
+
+    except Exception as e:
+        logger.warning(f"Query rewriting failed: {e}")
+        return task_prompt
+
+
 def prompt(
     description: str,
     expected_output: str | None = None,
@@ -156,28 +181,9 @@ async def retrieve_knowledge_context(
     knowledge: Knowledge | None = None,
     n_results: int = 5,
 ) -> str:
-    """Handle knowledge retrieval for task execution using LLM query rewriting.
-
-    1. Use LLM to rewrite task_prompt into an optimized vector search query
-    2. Query knowledge store with the rewritten query
-    3. Extract and append knowledge context to prompt
-
-    The LLM rewrites the query using the "knowledge_search_query_system_prompt"
-    and "knowledge_search_query" i18n slices — stripping output format instructions
-    and focusing on key retrieval terms.
-
-    Args:
-        task_prompt: The current task prompt.
-        knowledge: A Knowledge instance to query. If None, returns unchanged.
-        n_results: Maximum number of knowledge results to retrieve.
-
-    Returns:
-        The task prompt potentially augmented with knowledge context.
-    """
+   
     if knowledge is None:
         return task_prompt
-
-    from app.lib.query_rewriter import rewrite_query
 
     try:
         search_query = await rewrite_query(task_prompt)
@@ -225,19 +231,6 @@ async def prepare_task_prompt(
     format_task_with_context, retrieve_memory_context, and
     retrieve_knowledge_context into a single entry point.
 
-    Args:
-        description: The task description (injected into "task" slice).
-        expected_output: Expected output criteria (optional).
-        chat_history: Conversation history messages (optional).
-        context: Context string to wrap the prompt with (optional).
-        output_json: Pydantic model for JSON output schema (optional).
-        output_pydantic: Pydantic model for structured output schema (optional).
-        response_model: If set, schema instructions are skipped (optional).
-        knowledge: Knowledge instance (ChromaDB) for LLM-rewritten knowledge retrieval (optional).
-        memory: Memory instance (LanceDB) for conversation memory retrieval (optional).
-        n_results: Max knowledge results to retrieve (default 5).
-        memory_limit: Max memory results to retrieve (default 5).
-
     Returns:
         The fully assembled task prompt ready for LLM execution.
     """
@@ -265,13 +258,6 @@ async def prepare_task_prompt(
         query=description,
         memory=memory,
         limit=memory_limit,
-    )
-
-    # 5. Retrieve and append knowledge context (ChromaDB — business knowledge)
-    task_prompt = await retrieve_knowledge_context(
-        task_prompt=task_prompt,
-        knowledge=knowledge,
-        n_results=n_results,
     )
 
     return task_prompt

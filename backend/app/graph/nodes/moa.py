@@ -7,7 +7,7 @@ import logging
 from app.agents.models import Agent, DomainAgentOutput
 from app.lib.agent_executor import execute_task
 from app.lib.agent_tools import AgentTools
-from app.db.tools.knowledge import search_business_knowledge
+from app.memory.knowledge import search_business_knowledge
 from app.lib.i18n import _get_i18n
 from app.models.state import GraphState
 from app.lib.json_parser import parse_json_output
@@ -53,18 +53,28 @@ async def moa_node(state: GraphState) -> dict:
     thinking_callback = state.get("thinking_callback")
 
     from app.lib.field_formatter import format_user_input
-    user_message = format_user_input(user_message)
+    from app.db.tools.messages import fetch_messages, save_messages, get_pending_question
 
-    logger.info(f"MOA: history has {len(history)} messages, business_id={business_id}")
+    # Fetch persisted messages from DB (reliable across invocations)
+    thread_id_for_db = thread_id or ""
+    db_messages = await fetch_messages(business_id, thread_id_for_db, limit=10) if business_id and thread_id_for_db else []
 
-    # Load MOA agent from translations
+    # Use DB messages if available, fallback to state messages
+    effective_history = db_messages if db_messages else history[-12:]
+
+    # Derive pending_question from last assistant message in persisted history
+    pending_question = get_pending_question(db_messages)
+    user_message = format_user_input(user_message, pending_question=pending_question)
+
+    logger.info(f"MOA: history has {len(effective_history)} messages, business_id={business_id}, pending_question={bool(pending_question)}, formatted_msg={user_message[:100]}")
+
     agent = _get_moa_agent()
 
-    # Load specialist agents and create delegation tools
     
-    moa_tools = AgentTools(agents=_SPECIALIST_SPECS).tools() 
+    from app.db.tools.profile_tools import get_business_profile
+    moa_tools = AgentTools(agents=_SPECIALIST_SPECS).tools() + [search_business_knowledge, get_business_profile]
 
-    # Context (business-specific only — tools are injected via prompts.py)
+
     context = f"business_id: {business_id}\nthread_id: {thread_id}"
 
     # Execute using our lib pipeline
@@ -73,7 +83,7 @@ async def moa_node(state: GraphState) -> dict:
         description=user_message,
         tools=moa_tools,
         expected_output=agent.expected_output,
-        chat_history=history[-12:],
+        chat_history=effective_history,
         context=context,
         output_pydantic=DomainAgentOutput,
         use_system_prompt=True,
@@ -111,6 +121,7 @@ async def moa_node(state: GraphState) -> dict:
     text = decision.get("response", raw)
 
 
+
     fields = decision.get("fields")
     tool_requests = decision.get("tool_requests")
 
@@ -124,15 +135,26 @@ async def moa_node(state: GraphState) -> dict:
     if fields:
         response_data["input"] = {"fields": fields}
 
+    # Set pending_question if MOA is waiting for user input
+    is_waiting = decision.get("workflow_status") == "waiting_for_user"
+
     result = {
         "routed_domain": None,
         "current_agent": None,
         "workflow_owner": None,
         "return_to": None,
+        "pending_question": text if is_waiting else None,
         "response": response_data,
         "output_mode": "conversation",
         "messages": new_messages,
     }
+
+    # Persist messages to DB for reliable history across invocations
+    if business_id and thread_id_for_db:
+        await save_messages(business_id, thread_id_for_db, [
+            {"role": "user", "content": event.get("text", "")},
+            {"role": "assistant", "content": raw},
+        ])
 
     return result
 
@@ -159,3 +181,21 @@ def _extract_route_signal(raw: str) -> str | None:
         pass
 
     return None
+
+
+# --- Req 3 & 4 helpers ---
+
+def _build_direct_response(user_message: str, text: str) -> dict:
+    """Build a direct response dict (no routing, no delegation)."""
+    return {
+        "routed_domain": None,
+        "current_agent": None,
+        "workflow_owner": None,
+        "return_to": None,
+        "response": {"mode": "conversation", "text": text},
+        "output_mode": "conversation",
+        "messages": [
+            {"role": "user", "content": user_message},
+            {"role": "assistant", "content": text},
+        ],
+    }

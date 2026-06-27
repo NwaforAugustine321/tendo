@@ -27,5 +27,7 @@ class GraphState(TypedDict, total=False):
     current_agent: str | None
     workflow_owner: str | None
     return_to: str | None
+    # Pending question from agent (set when waiting_for_user, cleared on next turn)
+    pending_question: str | None
     # Thinking callback for streaming thinking to frontend
     thinking_callback: Any

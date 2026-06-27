@@ -8,7 +8,8 @@ import json
 
 from langchain_core.tools import tool
 
-from app.db.tools.knowledge import search_business_knowledge
+from app.memory.knowledge import search_business_knowledge
+from app.db.tools.profile_tools import get_business_profile
 
 
 @tool
@@ -51,4 +52,4 @@ async def create_product(business_id: str, name: str, unit_price: float = 0, uni
     return json.dumps(result, default=str)
 
 
-INVENTORY_TOOLS = [fetch_inventory, fetch_products, add_inventory_item, record_movement, create_product, search_business_knowledge]
+INVENTORY_TOOLS = [fetch_inventory, fetch_products, add_inventory_item, record_movement, create_product, search_business_knowledge, get_business_profile]

@@ -110,7 +110,7 @@ export function ConversationPage({
         behavior: 'smooth',
       })
     }
-  }, [messages, isTyping])
+  }, [messages, isTyping, thinkingText, thoughtText])
 
   return (
     <div className={`relative flex flex-col overflow-hidden bg-[#0a0a0a] ${fullScreen ? 'h-dvh' : 'h-full'}`}>

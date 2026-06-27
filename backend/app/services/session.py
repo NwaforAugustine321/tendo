@@ -7,7 +7,7 @@ from app.db.tools.sessions import insert_session, find_active_session
 logger = logging.getLogger(__name__)
 
 
-async def create_session(business_id: str, user_id: str, title: str = "Onboarding") -> dict:
+async def create_session(business_id: str, user_id: str, title: str = "Session") -> dict:
     """Create a new conversation session linked to a business and user."""
     return await insert_session(business_id, user_id, title)
 

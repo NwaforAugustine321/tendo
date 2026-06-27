@@ -8,7 +8,8 @@ import json
 
 from langchain_core.tools import tool
 
-from app.db.tools.knowledge import search_business_knowledge
+from app.memory.knowledge import search_business_knowledge
+from app.db.tools.profile_tools import get_business_profile
 
 
 @tool
@@ -43,4 +44,4 @@ async def fetch_products(business_id: str, query: str = "") -> str:
     return json.dumps(result, default=str)
 
 
-TRANSACTION_TOOLS = [fetch_transactions, fetch_transactions_summary, fetch_customers, fetch_products, search_business_knowledge]
+TRANSACTION_TOOLS = [fetch_transactions, fetch_transactions_summary, fetch_customers, fetch_products, search_business_knowledge, get_business_profile]

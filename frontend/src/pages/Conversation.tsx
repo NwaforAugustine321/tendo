@@ -9,6 +9,7 @@ import { resumeSession } from '../lib/services/business'
 type Props = {
   initialMessages?: MessageItem[]
   sessionTitle?: string
+  sessionId?: string
   fullScreen?: boolean
   showHeader?: boolean
   transparentBg?: boolean
@@ -16,12 +17,19 @@ type Props = {
   characterRightOffset?: number
 }
 
-export function Conversation({ initialMessages, sessionTitle, fullScreen = false, showHeader = false, transparentBg = false, flipCharacter = false, characterRightOffset = 0 }: Props) {
+export function Conversation({ initialMessages, sessionTitle, sessionId, fullScreen = false, showHeader = false, transparentBg = false, flipCharacter = false, characterRightOffset = 0 }: Props) {
   const [messages, setMessages] = useState<MessageItem[]>(initialMessages ?? [])
   const [thinking, setThinking] = useState(false)
   const [wakeActive, setWakeActive] = useState(false)
   const { currentProfile } = useBusinessStore()
   const voice = useVoiceSession()
+
+  // Sync initialMessages when they change (e.g., switching sessions)
+  useEffect(() => {
+    if (initialMessages) {
+      setMessages(initialMessages)
+    }
+  }, [initialMessages])
   const connected = useRef(false)
   const lastMsgId = useRef('')
   const currentBusinessId = useRef<string | null>(null)
@@ -39,24 +47,29 @@ export function Conversation({ initialMessages, sessionTitle, fullScreen = false
     // Disconnect existing session
     if (connected.current) {
       voice.disconnect()
-      setMessages([])
       setThinking(false)
       connected.current = false
     }
 
     // Get or create a session for this business and connect
-    resumeSession(businessId).then(({ session_id }) => {
+    if (sessionId) {
+      // Use the session ID passed from parent (ChatPanel)
       connected.current = true
-      voice.connect({ sessionId: session_id, businessId })
-    }).catch((err) => {
-      console.error('Failed to resume session:', err)
-      // Fallback: connect without session_id
-      connected.current = true
-      voice.connect({ businessId })
-    })
+      voice.connect({ sessionId, businessId })
+    } else {
+      // Fallback: resume session from backend
+      resumeSession(businessId).then(({ session_id }) => {
+        connected.current = true
+        voice.connect({ sessionId: session_id, businessId })
+      }).catch((err) => {
+        console.error('Failed to resume session:', err)
+        connected.current = true
+        voice.connect({ businessId })
+      })
+    }
 
     navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {})
-  }, [currentProfile?.id])
+  }, [currentProfile?.id, sessionId])
 
   // Listen for voice toggle from the insights big mic circle
   useEffect(() => {

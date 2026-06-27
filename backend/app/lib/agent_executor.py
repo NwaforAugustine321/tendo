@@ -1,6 +1,3 @@
-"""Agent executor — manages the execution loop for agent task processing.
-"""
-
 from __future__ import annotations
 
 import json
@@ -8,9 +5,7 @@ import logging
 import re
 from collections.abc import Callable
 from typing import Any
-
 from pydantic import BaseModel, Field, PrivateAttr
-
 from app.lib.i18n import _get_i18n
 from app.lib.json_parser import parse_json_output
 from app.lib.prompts import StandardPromptResult, SystemPromptResult
@@ -37,7 +32,7 @@ def _slice(key: str) -> str:
 
 
 class ThinkingStreamCallback(AsyncCallbackHandler):
-    """Streams thinking/thought to frontend via thinking_callback during LLM execution."""
+    """Streams thinking/thought to  via thinking_callback during agent execution."""
 
     def __init__(self, thinking_callback: Callable | None = None):
         super().__init__()
@@ -68,7 +63,10 @@ class ThinkingStreamCallback(AsyncCallbackHandler):
             after = self._buffer.split("<Thought>", 1)[1]
             # Remove closing tag if present
             thought_text = after.split("</Thought>", 1)[0].strip()
-            if thought_text and len(thought_text) > self._last_emitted_len + 20:
+            # Strip any partial closing tag at the end (e.g. "</Thou", "</Thought")
+            import re as _re
+            thought_text = _re.sub(r"</T(?:h(?:o(?:u(?:g(?:h(?:t)?)?)?)?)?)?\s*$", "", thought_text).strip()
+            if thought_text and len(thought_text) > self._last_emitted_len + 30:
                 self._last_emitted_len = len(thought_text)
                 await self._send({"type": "thought", "data": thought_text})
 
@@ -85,31 +83,21 @@ class ThinkingStreamCallback(AsyncCallbackHandler):
 
 
 class AgentExecutor(BaseModel):
-    """Agent Executor that drives the ReAct execution loop.
-
-    Supports human-in-the-loop feedback: when `ask_for_human_input` is True,
-    the executor will pause after producing a final answer, collect feedback,
-    inject it back into messages, and re-run the loop until the human approves.
+    """Agent Executor that drives the execution loop.
 
     Usage:
         executor = AgentExecutor(
             llm=llm,
-            task=task,
             agent=agent,
-            crew=crew,
             tools=parsed_tools,
             prompt=prompt,
-            original_tools=raw_tools,
             stop_words=stop_words,
             max_iter=25,
-            tools_handler=tools_handler,
             tools_names=get_tool_names(parsed_tools),
             tools_description=render_text_description_and_args(parsed_tools),
             respect_context_window=True,
             request_within_rpm_limit=rpm_limit_fn,
             response_model=MyOutputModel,
-            ask_for_human_input=True,
-            human_input_fn=my_input_handler,
         )
         result = await executor.invoke(task_prompt)
     """
@@ -142,16 +130,6 @@ class AgentExecutor(BaseModel):
     response_model: type[BaseModel] | None = Field(
         default=None, description="Pydantic model for structured output"
     )
-    ask_for_human_input: bool = Field(
-        default=False,
-        description="Whether to pause for human feedback after final answer",
-    )
-    human_input_fn: Callable[[str], str] | None = Field(
-        default=None,
-        description="Async or sync function to collect human feedback. "
-        "Receives the agent's current answer, returns feedback string. "
-        "Empty string means human approves.",
-    )
     thinking_callback: Any | None = Field(
         default=None,
         description="Async callable for thinking status — renamed internally but kept for compat.",
@@ -160,6 +138,7 @@ class AgentExecutor(BaseModel):
     # Internal state
     _messages: list[dict[str, Any]] = PrivateAttr(default_factory=list)
     _iterations: int = PrivateAttr(default=0)
+    _tool_call_history: set = PrivateAttr(default_factory=set)
 
     @property
     def messages(self) -> list[dict[str, Any]]:
@@ -266,36 +245,6 @@ class AgentExecutor(BaseModel):
 
         return messages
 
-    def _format_feedback_message(self, feedback: str) -> dict[str, Any]:
-        content = _slice("feedback_instructions").format(feedback=feedback)
-        return {"role": "user", "content": content.rstrip()}
-
-    async def _handle_human_feedback(self, final_answer: str) -> str:
-        if not self.human_input_fn:
-            return final_answer
-
-        import asyncio
-        import inspect
-
-        current_answer = final_answer
-
-        while self.ask_for_human_input:
-            # Collect feedback from human
-            if inspect.iscoroutinefunction(self.human_input_fn):
-                feedback = await self.human_input_fn(current_answer)
-            else:
-                feedback = await asyncio.to_thread(self.human_input_fn, current_answer)
-
-            if not feedback or feedback.strip() == "":
-                # Human approves — stop the feedback loop
-                self.ask_for_human_input = False
-            else:
-                # Inject feedback and re-run the loop
-                self._messages.append(self._format_feedback_message(feedback))
-                current_answer = await self._invoke_loop()
-
-        return current_answer
-
     async def _invoke_loop(self) -> str:
         """Run the LLM invocation loop with dual-mode tool calling.
 
@@ -366,11 +315,22 @@ class AgentExecutor(BaseModel):
                     
                 continue
 
-            # --- Mode 2a: Check for XML <Action>/<Action_Input> tags ---
+           
             # --- Mode 2a: Check for XML <Action>/<Action_Input> tags ---
             action_name_match = ACTION_REGEX.search(raw)
             action_input_match = ACTION_INPUT_REGEX.search(raw)
             await self._emit_status("Checking information...")
+
+            # If <Action> found but no <Action_Input>, ask LLM to complete
+            if action_name_match and not action_input_match:
+                self._messages.append({"role": "assistant", "content": raw})
+                self._messages.append({
+                    "role": "user",
+                    "content": "You provided an <Action> but missing <Action_Input>. "
+                               "Please provide the complete tool call with <Action_Input>{JSON}</Action_Input>."
+                })
+                continue
+
             if action_name_match and action_input_match:
                 tool_name = action_name_match.group(1).strip()
                 tool_input_raw = action_input_match.group(1).strip()
@@ -503,11 +463,11 @@ class AgentExecutor(BaseModel):
     async def invoke(self, task_prompt: str) -> str:
         """Execute the agent loop until a final answer is produced.
 
-        Drives the ReAct loop:
+        Drives the loop:
         1. Send messages to LLM
         2. If LLM calls tools -> execute tools, append results, continue
-        3. If LLM produces final answer -> check for human feedback
-        4. If workflow_status is "waiting_for_user" -> return immediately (no feedback loop)
+        3. If LLM produces final answer -> return
+        4. If workflow_status is "waiting_for_user" -> return immediately
         5. If max_iter reached -> force final answer
 
         Args:
@@ -518,6 +478,7 @@ class AgentExecutor(BaseModel):
         """
         self._messages = self._build_initial_messages(task_prompt)
         self._iterations = 0
+        self._tool_call_history = set()
 
         final_answer = await self._invoke_loop()
 
@@ -525,9 +486,42 @@ class AgentExecutor(BaseModel):
         if self._is_waiting_for_user(final_answer):
             return final_answer
 
-        # Handle human feedback if enabled (developer/reviewer feedback, not user input)
-        if self.ask_for_human_input:
-            final_answer = await self._handle_human_feedback(final_answer)
+  
+        if self.response_model and final_answer:
+            final_answer = await self._validate_and_retry(final_answer)
+
+        return final_answer
+
+    async def _validate_and_retry(self, final_answer: str, max_retries: int = 2) -> str:
+        """Validate final answer against response_model. Retry with error message if invalid."""
+        from app.lib.i18n import _get_i18n
+
+        for _ in range(max_retries):
+            try:
+                # Try to parse and validate against the Pydantic model
+                clean = final_answer.strip()
+                if clean.startswith("```"):
+                    clean = clean.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+                data = json.loads(clean) if clean.startswith("{") else None
+                if data:
+                    self.response_model(**data)
+                # Validation passed
+                return final_answer
+            except Exception as e:
+                error_str = str(e)
+                logger.debug(f"[Executor] Validation failed: {error_str[:200]}")
+                i18n = _get_i18n()
+                validation_msg = i18n.get("errors.validation_error")
+                if validation_msg:
+                    retry_msg = validation_msg.format(
+                        guardrail_result_error=error_str[:500],
+                        task_output=final_answer[:500],
+                    )
+                    self._messages.append({"role": "assistant", "content": final_answer})
+                    self._messages.append({"role": "user", "content": retry_msg})
+                    final_answer = await self._invoke_loop()
+                else:
+                    break
 
         return final_answer
 
@@ -542,6 +536,16 @@ class AgentExecutor(BaseModel):
         """
         tool_name = tool_call.get("name", "")
         tool_args = tool_call.get("args", {})
+
+        # --- Req 13: Detect repeated tool usage ---
+        call_signature = f"{tool_name}:{json.dumps(tool_args, sort_keys=True, default=str)}"
+        if call_signature in self._tool_call_history:
+            from app.lib.i18n import _get_i18n
+            i18n = _get_i18n()
+            repeated_msg = i18n.get("errors.task_repeated_usage")
+            self._messages.append({"role": "user", "content": repeated_msg})
+            return repeated_msg
+        self._tool_call_history.add(call_signature)
 
         # Find the tool in our tools list
         tool_map = {t.name: t for t in self.tools}
@@ -562,6 +566,12 @@ class AgentExecutor(BaseModel):
                 }
             result_str = str(result)
             self._messages.append({"role": "user", "content": f"Observation: {result_str}"})
+
+   
+            post_reasoning = _slice("post_tool_reasoning")
+            if post_reasoning:
+                self._messages.append({"role": "user", "content": post_reasoning})
+
             return result_str
         except Exception as e:
             error_msg = f"Error executing tool '{tool_name}': {e}"
@@ -587,8 +597,6 @@ async def execute_task(
     system_template: str | None = None,
     prompt_template: str | None = None,
     response_template: str | None = None,
-    ask_for_human_input: bool = False,
-    human_input_fn: Any | None = None,
     respect_context_window: bool = True,
     thinking_callback: Any | None = None,
 ) -> str:
@@ -660,13 +668,106 @@ async def execute_task(
         respect_context_window=respect_context_window,
         request_within_rpm_limit=rpm_limit_fn,
         response_model=response_model or output_pydantic or output_json,
-        ask_for_human_input=ask_for_human_input,
-        human_input_fn=human_input_fn,
         thinking_callback=thinking_callback,
     )
 
     raw = await executor.invoke(task_prompt)
 
-    # Strip internal reasoning XML tags before returning to caller
+    # Strip internal reasoning internal tags before returning to caller
     from app.lib.text_utils import strip_internal_reasoning
-    return strip_internal_reasoning(raw)
+    result = strip_internal_reasoning(raw)
+
+    result = await _apply_pre_review(result)
+
+    return result
+
+
+async def _apply_pre_review(output: str) -> str:
+    """Apply accumulated lessons to improve output before returning .
+
+    Skips if no lessons exist or prompts are missing.
+    """
+    from app.lib.i18n import _get_i18n
+    from app.memory.memory import get_memory
+
+    i18n = _get_i18n()
+    system_prompt = i18n.get("slices.hitl_pre_review_system")
+    user_template = i18n.get("slices.hitl_pre_review_user")
+
+    if not system_prompt or not user_template:
+        return output
+
+    try:
+        # Retrieve stored lessons from /lessons scope
+        memory = get_memory("/lessons")
+        matches = await memory.recall("output improvement lessons", limit=5)
+
+        if not matches:
+            return output
+
+        lessons_text = "\n".join(f"- {m.record.content}" for m in matches)
+
+        from app.llm.client import get_client
+        llm = get_client()
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_template.format(output=output, lessons=lessons_text)},
+        ]
+        response = await llm.ainvoke(messages)
+        improved = response.content.strip() if response.content else ""
+
+        return improved if improved else output
+    except Exception as e:
+        logger.debug(f"Pre-review failed, using original output: {e}")
+        return output
+
+
+async def distill_lessons(method_name: str, output: str, feedback: str) -> list[str]:
+    """Extract generalizable lessons from human feedback .
+
+    Args:
+        method_name: The method/agent that produced the output.
+        output: The original agent output.
+        feedback: The human feedback on that output.
+
+    Returns:
+        List of extracted lesson strings (empty if none).
+    """
+    from app.lib.i18n import _get_i18n
+    from app.memory.memory import get_memory
+
+    i18n = _get_i18n()
+    system_prompt = i18n.get("slices.hitl_distill_system")
+    user_template = i18n.get("slices.hitl_distill_user")
+
+    if not system_prompt or not user_template:
+        return []
+
+    try:
+        import json
+        from app.llm.client import get_client
+        llm = get_client()
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_template.format(
+                method_name=method_name,
+                output=output,
+                feedback=feedback,
+            )},
+        ]
+        response = await llm.ainvoke(messages)
+        raw = response.content.strip() if response.content else ""
+
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+        lessons = json.loads(raw) if raw.startswith("[") else []
+
+        if lessons:
+            memory = get_memory("/lessons")
+            await memory.remember_many(lessons, source="hitl_distillation")
+
+        return lessons
+    except Exception as e:
+        logger.debug(f"Lesson distillation failed: {e}")
+        return []

@@ -1,18 +1,13 @@
-"""LangChain tool wrappers for onboarding DB operations.
-
-These are the @tool-decorated functions that the onboarding agent uses directly.
-They wrap the plain functions in app/db/tools/profiles.py.
-"""
-
 import json
 
 from langchain_core.tools import tool
+from app.db.tools.profiles import get_business_profile
 
 
 @tool
 async def fetch_business_profile(business_id: str) -> str:
     """Fetch the current business profile."""
-    from app.db.tools.profiles import get_business_profile
+   
     result = await get_business_profile(business_id)
     return json.dumps(result, default=str)
 
