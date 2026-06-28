@@ -43,6 +43,17 @@ export interface WorkspaceState {
   foldersLoading: boolean
   recordsLoading: Map<string, boolean>
 
+  // Dashboard UI state
+  dashboardSidebarVisible: boolean
+  dashboardChatVisible: boolean
+  dashboardCharacterFlipped: boolean
+
+  // Dashboard actions
+  setDashboardSidebarVisible: (visible: boolean) => void
+  setDashboardChatVisible: (visible: boolean) => void
+  toggleDashboardSidebar: () => void
+  toggleDashboardChat: () => void
+
   // Pending chat message (from insight suggested questions)
   pendingChatMessage: string | null
   setPendingChatMessage: (msg: string | null) => void
@@ -93,6 +104,24 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   searchQuery: '',
   foldersLoading: false,
   recordsLoading: new Map(),
+
+  // Dashboard UI state defaults
+  dashboardSidebarVisible: false,
+  dashboardChatVisible: false,
+  dashboardCharacterFlipped: false,
+
+  // Dashboard actions
+  setDashboardSidebarVisible: (visible) => set({ dashboardSidebarVisible: visible }),
+  setDashboardChatVisible: (visible) => set({ dashboardChatVisible: visible }),
+  toggleDashboardSidebar: () => set((state) => ({ dashboardSidebarVisible: !state.dashboardSidebarVisible })),
+  toggleDashboardChat: () => set((state) => {
+    const newChatVisible = !state.dashboardChatVisible
+    return {
+      dashboardChatVisible: newChatVisible,
+      dashboardCharacterFlipped: newChatVisible,
+    }
+  }),
+
   pendingChatMessage: null,
   setPendingChatMessage: (msg) => set({ pendingChatMessage: msg }),
 

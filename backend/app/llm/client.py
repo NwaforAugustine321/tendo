@@ -44,6 +44,14 @@ def _create_client(callbacks=None):
             api_key='ollama',
             # api_key='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',
             callbacks=cb,
+            model_kwargs={
+               "extra_body": {
+                "max_soft_tokens": 1120,
+                "temperature": 1.0,
+                "top_p":0.95,
+                "top_k":64  
+             }
+             }
         )
 
     elif settings.llm_provider == "huggingface":

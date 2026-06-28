@@ -1,6 +1,3 @@
-"""Insight Recommender (Dispatcher) module configuration."""
-
-
 class DispatcherConfig:
     dispatcher_timeout: int = 120
     dispatcher_max_iterations: int = 10

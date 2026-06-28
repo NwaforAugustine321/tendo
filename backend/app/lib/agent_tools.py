@@ -183,7 +183,7 @@ class QueueingAgentTools:
         self._pending.clear()
 
     def tools(self) -> list[BaseTool]:
-        coworkers = ", ".join(f"{agent.role}" for agent in self.agents)
+        coworkers = ", ".join(f"{agent}" for agent in self.agents)
         delegate_description = _i18n_tools("delegate_work").format(coworkers=coworkers)
         ask_description = _i18n_tools("ask_question").format(coworkers=coworkers)
         agents = self.agents
@@ -195,7 +195,7 @@ class QueueingAgentTools:
                     coworkers=_coworker_list(agents)
                 )
             self._pending.append(agent)
-            return f"Queued '{agent.role}' for parallel execution."
+            return f"Queued '{agent}' for parallel execution."
 
         async def do_ask(question: str, context: str, coworker: str) -> str:
             agent = _find_agent(agents, coworker)
@@ -204,7 +204,7 @@ class QueueingAgentTools:
                     coworkers=_coworker_list(agents)
                 )
             self._pending.append(agent)
-            return f"Queued '{agent.role}' for parallel execution."
+            return f"Queued '{agent}' for parallel execution."
 
         delegate_tool = StructuredTool.from_function(
             coroutine=do_delegate,

@@ -178,11 +178,25 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
 
   useEffect(() => {
     if (pendingMsg && pendingMsg !== pendingSentRef.current) {
+      // Wait for voice to be connected before sending
+      if (!voice.isConnected) {
+        const interval = setInterval(() => {
+          if (voice.isConnected) {
+            clearInterval(interval)
+            pendingSentRef.current = pendingMsg
+            handleSendText(pendingMsg)
+            useWorkspaceStore.getState().setPendingChatMessage(null)
+          }
+        }, 200)
+        // Timeout after 5s
+        setTimeout(() => clearInterval(interval), 5000)
+        return () => clearInterval(interval)
+      }
       pendingSentRef.current = pendingMsg
       handleSendText(pendingMsg)
       useWorkspaceStore.getState().setPendingChatMessage(null)
     }
-  }, [pendingMsg])
+  }, [pendingMsg, voice.isConnected])
 
   const findPendingQuestion = (): string | null => {
     for (let i = messages.length - 1; i >= 0; i--) {

@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { MessageSquare, Sparkles } from 'lucide-react'
 import { IconRail } from '../components/containers'
 import { TopBar } from '../components/containers'
+import { TalkingCharacter } from '../components/containers/TalkingCharacter'
 import { ChatPanel } from '../components/containers/ChatPanel'
 import { FolderNavigation } from '../components/containers/FolderNavigation'
 import { RadialMenu } from '../components/containers/RadialMenu'
@@ -21,12 +22,27 @@ export function WorkspaceLayout() {
   const [rightTab, setRightTab] = useState<'chat' | 'insight'>('chat')
   const hoverClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const { radialMenuOpen, openRadialMenu, activeRecordId } = useWorkspaceStore()
+  const {
+    radialMenuOpen,
+    openRadialMenu,
+    activeRecordId,
+    dashboardSidebarVisible,
+    dashboardChatVisible,
+    dashboardCharacterFlipped,
+    toggleDashboardSidebar,
+  } = useWorkspaceStore()
+
+  // Detect if we're on the dashboard (home) route
+  const isDashboard = location.pathname === '/app' || location.pathname === '/app/'
 
   const routePrimary: PrimarySection = useMemo(
     () => primaryFromPathname(location.pathname),
     [location.pathname]
   )
+
+  // Resolve sidebar and chat visibility based on whether we're on dashboard
+  const effectiveSidebarVisible = isDashboard ? dashboardSidebarVisible : folderNavPinned
+  const effectiveChatVisible = isDashboard ? dashboardChatVisible : chatPanelVisible
 
   const cancelHoverClear = useCallback(() => {
     if (hoverClearTimer.current !== null) {
@@ -80,7 +96,13 @@ export function WorkspaceLayout() {
   return (
     <div className="flex h-dvh max-h-dvh flex-col overflow-hidden bg-[#0a0a0a] text-zinc-100">
       {/* Top bar */}
-      <TopBar onMenuClick={() => setMobileNavOpen(true)} />
+      <TopBar onMenuClick={() => {
+        if (isDashboard) {
+          toggleDashboardSidebar()
+        } else {
+          setMobileNavOpen(true)
+        }
+      }} />
 
       <div className="flex min-h-0 min-w-0 flex-1">
         {/* Primary icon rail + Folder Navigation — desktop */}
@@ -93,19 +115,25 @@ export function WorkspaceLayout() {
             <IconRail
               activePrimary={routePrimary}
               onPrimaryClick={onPrimaryClick}
-              onToggleSecondary={() => setFolderNavPinned(!folderNavPinned)}
-              secondaryVisible={folderNavPinned}
+              onToggleSecondary={() => {
+                if (isDashboard) {
+                  toggleDashboardSidebar()
+                } else {
+                  setFolderNavPinned(!folderNavPinned)
+                }
+              }}
+              secondaryVisible={effectiveSidebarVisible}
             />
           </div>
-          {folderNavPinned && (
+          {effectiveSidebarVisible && (
             <div className="w-[260px] min-h-0 overflow-hidden border-r border-zinc-800/60 bg-[#0f0f0f]">
               <FolderNavigation />
             </div>
           )}
         </div>
 
-        {/* Quick Action Button — fixed position, independent of sidebar hover */}
-        <QuickActionButton onClick={openRadialMenu} visible={!radialMenuOpen} sidebarOpen={folderNavPinned} />
+        {/* Quick Action Button — fixed position */}
+        <QuickActionButton onClick={openRadialMenu} visible={!radialMenuOpen} sidebarOpen={effectiveSidebarVisible} />
 
         {/* Main content — either workspace content or route outlet */}
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto border-l border-zinc-800/60 bg-[#0a0a0a]">
@@ -118,13 +146,19 @@ export function WorkspaceLayout() {
         <div className="hidden min-h-0 lg:flex relative">
           <button
             type="button"
-            onClick={() => setChatPanelVisible(!chatPanelVisible)}
+            onClick={() => {
+              if (isDashboard) {
+                useWorkspaceStore.getState().toggleDashboardChat()
+              } else {
+                setChatPanelVisible(!chatPanelVisible)
+              }
+            }}
             className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 bg-[#1a1a1a] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200"
-            title={chatPanelVisible ? 'Close panel' : 'Open panel'}
+            title={effectiveChatVisible ? 'Close panel' : 'Open panel'}
           >
             <MessageSquare size={10} />
           </button>
-          {chatPanelVisible ? (
+          {effectiveChatVisible ? (
             <div className="flex h-full w-[440px] flex-shrink-0 flex-col border-l border-zinc-800/60 bg-[#0f0f0f]">
               {/* Tab bar */}
               <div className="flex border-b border-zinc-800/60 bg-[#0a0a0a]">
@@ -180,7 +214,14 @@ export function WorkspaceLayout() {
       )}
 
       {/* Radial Hub Menu */}
-      <RadialMenu sidebarOpen={folderNavPinned} />
+      <RadialMenu sidebarOpen={effectiveSidebarVisible} />
+
+      {/* Dashboard character — shows when on dashboard and chat panel is closed */}
+      {isDashboard && !effectiveChatVisible && (
+        <div className="fixed bottom-16 right-4 z-30 pointer-events-none">
+          <TalkingCharacter isSpeaking={false} flipX={false} rightOffset={0} />
+        </div>
+      )}
 
       {/* Processing notifications — top right corner */}
       <ProcessingNotification />

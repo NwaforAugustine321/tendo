@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { ChevronRight, Type, Image, Mic, FileText, X, Plus, Camera, AudioLines } from 'lucide-react'
 import clsx from 'clsx'
 import { toast } from 'sonner'
 import { useWorkspaceStore } from '../../store/workspace'
 import { InsightsFeed } from './InsightsFeed'
+import { Dashboard } from '../../pages/workspace/Dashboard'
 import { BREADCRUMB_MAX_TITLE_LENGTH } from '../../lib/workspace/constants'
 import type { Record, RecordEntry, EntryType } from '../../lib/workspace/types'
 
@@ -22,6 +24,7 @@ const MORE_ENTRY_TYPES: { type: EntryType; label: string; icon: typeof Type }[] 
 ]
 
 export function WorkspaceContent() {
+  const location = useLocation()
   const {
     folders,
     records,
@@ -29,6 +32,8 @@ export function WorkspaceContent() {
     toggleFolderExpanded,
     saveRecord,
   } = useWorkspaceStore()
+
+  const isDashboard = location.pathname === '/app' || location.pathname === '/app/'
 
   const [transitioning, setTransitioning] = useState(false)
   const [error, setError] = useState(false)
@@ -179,8 +184,11 @@ export function WorkspaceContent() {
       : activeRecord.title
   }, [activeRecord])
 
-  // Empty state
+  // Empty state — show Dashboard on home route, InsightsFeed otherwise
   if (!activeRecordId) {
+    if (isDashboard) {
+      return <Dashboard />
+    }
     return <InsightsFeed />
   }
 

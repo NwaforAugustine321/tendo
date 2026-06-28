@@ -673,10 +673,26 @@ async def execute_task(
 
     raw = await executor.invoke(task_prompt)
 
-    # Strip internal reasoning internal tags before returning to caller
+    # Strip internal reasoning XML tags before returning to caller
     from app.lib.text_utils import strip_internal_reasoning
     result = strip_internal_reasoning(raw)
 
+    # Try to parse as JSON — if it fails and response_model is set, retry once
+    if response_model or output_pydantic or output_json:
+        try:
+            parse_json_output(result)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            # JSON parse failed — ask LLM to fix the output
+            logger.warning(f"[execute_task] JSON parse failed, retrying: {result[:100]}")
+            fix_messages = [
+                {"role": "assistant", "content": raw},
+                {"role": "user", "content": "Your response is not valid JSON. Please provide your answer as a valid JSON object matching the expected schema."},
+            ]
+            executor._messages.extend(fix_messages)
+            retry_raw = await executor._invoke_loop()
+            result = strip_internal_reasoning(retry_raw)
+
+    # --- Req 11: Pre-review output improvement using accumulated lessons ---
     result = await _apply_pre_review(result)
 
     return result
