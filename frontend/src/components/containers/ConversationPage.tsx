@@ -201,24 +201,6 @@ export function ConversationPage({
             />
             <TextInput onSend={onSendText} />
           </div>
-          {onWakeToggle && (
-            <div className="flex justify-center">
-              <button
-                type="button"
-                onClick={onWakeToggle}
-                className={`rounded-full cursor-pointer px-3 py-1 text-[10px] font-medium transition-all ${
-                  wakeActive
-                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-orange-500/10 text-orange-400 border border-orange-500/30 hover:bg-orange-500/20'
-                }`}
-              >
-                {wakeActive
-                  ? `Hey! ${import.meta.env.VITE_AGENT_NAME || 'Jay'} is here, use the mic or text me`
-                  : `Hey! ${import.meta.env.VITE_AGENT_NAME || 'Jay'} is relaxing, use the mic or touch me`
-                }
-              </button>
-            </div>
-          )}
         </div>
       </div>
 

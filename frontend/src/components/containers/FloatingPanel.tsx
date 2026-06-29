@@ -25,13 +25,13 @@ export function FloatingPanel({
   const dragOffset = useRef({ x: 0, y: 0 })
   const panelRef = useRef<HTMLDivElement>(null)
 
-  // Clamp position to viewport
+  // Allow panel to be dragged freely — only keep at least 48px visible on any edge
   const clampPosition = useCallback((x: number, y: number) => {
     const w = minimized ? 200 : defaultWidth
     const h = minimized ? 48 : defaultHeight
     return {
-      x: Math.max(0, Math.min(x, window.innerWidth - w)),
-      y: Math.max(0, Math.min(y, window.innerHeight - h)),
+      x: Math.max(-w + 48, Math.min(x, window.innerWidth - 48)),
+      y: Math.max(-h + 48, Math.min(y, window.innerHeight - 48)),
     }
   }, [minimized, defaultWidth, defaultHeight])
 
