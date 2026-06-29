@@ -111,7 +111,7 @@ function EmptyState() {
 
       <h3 className="text-[14px] font-semibold text-zinc-300 mb-2">Gathering business intelligence</h3>
       <p className="text-[12px] text-zinc-500 max-w-[280px] leading-relaxed">
-        Your AI advisor is learning about your business. Insights will appear here as patterns emerge.
+        How your bussines is doing today. Insights will appear here as it emerge.
       </p>
     </div>
   )
