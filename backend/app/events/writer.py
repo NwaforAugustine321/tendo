@@ -1,11 +1,17 @@
-"""Event system database operations and writer service."""
+"""Event system database operations and writer service.
+
+EventStore handles:
+- Event ingestion (business_events table)
+- Event querying (stream queries, business-wide queries)
+- Business discovery (which businesses have pending events)
+- Checkpoint operations (learning_checkpoint table)
+"""
 
 import logging
 from datetime import datetime, timezone
 from uuid import uuid4
-
 from app.db.client import get_client
-from app.events.models import BusinessEvent, Job
+from app.events.models import BusinessEvent
 
 logger = logging.getLogger(__name__)
 
@@ -13,19 +19,13 @@ VALID_SOURCES = {"chat", "ui", "api", "import", "system", "webhook"}
 
 
 class EventStore:
-    """Database operations for the event system tables."""
+    
 
     def __init__(self):
         self._client = get_client()
 
-    # --- Event operations ---
-
     def next_sequence_number(self, business_id: str) -> int:
-        """
-        Get the next sequence number for a business.
-        Auto-increments per business_id across all entity types.
-        Returns max + 1, or 1 if no events exist for the business.
-        """
+        """Get the next sequence number for a business."""
         result = (
             self._client.table("business_events")
             .select("sequence_number")
@@ -105,13 +105,8 @@ class EventStore:
         )
         return [BusinessEvent(**row) for row in (result.data or [])]
 
-    # --- Business discovery ---
-
     def query_businesses_with_pending_events(self, worker_name: str, limit: int) -> list[dict]:
-        """
-        Find businesses that have unprocessed events.
-        Returns [{business_id, pending_count}] ordered by pending count descending.
-        """
+        """Find businesses that have unprocessed events."""
         result = (
             self._client.table("business_events")
             .select("business_id")
@@ -131,8 +126,7 @@ class EventStore:
 
         ready_businesses = []
         for bid in business_ids:
-            stream_key = f"{bid}:all:events"
-            checkpoint = self.load_checkpoint(worker_name, stream_key)
+            checkpoint = self.load_checkpoint(worker_name, bid)
             count_result = (
                 self._client.table("business_events")
                 .select("id", count="exact")
@@ -149,95 +143,84 @@ class EventStore:
         ready_businesses.sort(key=lambda x: x["pending_count"], reverse=True)
         return ready_businesses
 
-    # --- Checkpoint operations ---
+    # --- Checkpoint operations (learning_checkpoint table) ---
 
-    def load_checkpoint(self, worker_name: str, stream_key: str) -> int:
-        """Load last_processed_sequence or return 0 if none exists."""
+    def load_checkpoint(self, worker_name: str, business_id: str) -> int:
+        """Load last_processed_sequence for a worker/business. Returns 0 if none."""
         result = (
             self._client.table("learning_checkpoint")
             .select("last_processed_sequence")
             .eq("worker_name", worker_name)
-            .eq("stream_key", stream_key)
+            .eq("business_id", business_id)
             .execute()
         )
         if result.data:
             return result.data[0]["last_processed_sequence"]
         return 0
 
-    def save_checkpoint(
-        self, worker_name: str, stream_key: str, last_processed_sequence: int
-    ) -> None:
-        """Upsert checkpoint row."""
+    def save_checkpoint(self, worker_name: str, business_id: str, last_processed_sequence: int) -> None:
+        """Upsert checkpoint with the last processed sequence and mark completed."""
         data = {
             "worker_name": worker_name,
-            "stream_key": stream_key,
+            "business_id": business_id,
             "last_processed_sequence": last_processed_sequence,
+            "status": "completed",
+            "end_sequence": last_processed_sequence,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         self._client.table("learning_checkpoint").upsert(
-            data, on_conflict="worker_name,stream_key"
+            data, on_conflict="worker_name,business_id"
         ).execute()
 
-    # --- Job operations ---
-
-    def create_job(self, job: Job) -> Job:
-        """Insert a learning job with status='pending'."""
-        data = {
-            "id": str(job.id),
-            "worker_name": job.worker_name,
-            "stream_key": job.stream_key,
-            "start_sequence": job.start_sequence,
-            "end_sequence": job.end_sequence,
-            "status": "pending",
-        }
-        result = self._client.table("learning_jobs").insert(data).execute()
-        if not result.data:
-            raise RuntimeError("Failed to create learning job")
-        return Job(**result.data[0])
-
-    def find_existing_job(self, worker_name: str, stream_key: str) -> Job | None:
-        """Find an existing non-completed job for a worker+stream (pending or failed)."""
-        result = (
-            self._client.table("learning_jobs")
-            .select("*")
-            .eq("worker_name", worker_name)
-            .eq("stream_key", stream_key)
-            .in_("status", ["pending", "failed"])
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-        if result.data:
-            return Job(**result.data[0])
-        return None
-
-    def update_job_status(
-        self, job_id: str, status: str, error_message: str | None = None
+    def create_or_update_job(
+        self, worker_name: str, business_id: str, start_sequence: int, end_sequence: int, status: str = "pending"
     ) -> None:
-        """Update job status and set timestamps."""
-        now = datetime.now(timezone.utc).isoformat()
-        updates: dict = {"status": status}
+        """Create or update a job entry in learning_checkpoint."""
+        data = {
+            "worker_name": worker_name,
+            "business_id": business_id,
+            "start_sequence": start_sequence,
+            "end_sequence": end_sequence,
+            "status": status,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._client.table("learning_checkpoint").upsert(
+            data, on_conflict="worker_name,business_id"
+        ).execute()
 
+    def update_job_status(self, worker_name: str, business_id: str, status: str, error_message: str | None = None) -> None:
+        """Update job status for a worker/business."""
+        now = datetime.now(timezone.utc).isoformat()
+        updates: dict = {"status": status, "updated_at": now}
         if status == "running":
             updates["started_at"] = now
         elif status in ("completed", "failed"):
             updates["completed_at"] = now
-
         if error_message is not None:
             updates["error_message"] = error_message
+        self._client.table("learning_checkpoint").update(updates).eq(
+            "worker_name", worker_name
+        ).eq("business_id", business_id).execute()
 
-        self._client.table("learning_jobs").update(updates).eq("id", job_id).execute()
-
-    def find_stale_jobs(self, worker_name: str) -> list[Job]:
-        """Find jobs with status='running' for a given worker."""
+    def recover_stale_jobs(self, worker_name: str) -> int:
+        """Mark all running jobs as failed (recovery after crash)."""
         result = (
-            self._client.table("learning_jobs")
+            self._client.table("learning_checkpoint")
             .select("*")
             .eq("worker_name", worker_name)
             .eq("status", "running")
             .execute()
         )
-        return [Job(**row) for row in (result.data or [])]
+        stale = result.data or []
+        for row in stale:
+            self.update_job_status(
+                worker_name=row["worker_name"],
+                business_id=row["business_id"],
+                status="failed",
+                error_message="Recovered after worker restart",
+            )
+        return len(stale)
 
 
 class EventWriter:
@@ -257,13 +240,7 @@ class EventWriter:
         session_id: str | None = None,
         metadata: dict | None = None,
     ) -> BusinessEvent:
-        """
-        Validate, sequence, and persist a business event.
-
-        Raises:
-            ValueError: If source is not valid.
-            RuntimeError: If persistence fails.
-        """
+        """Validate, sequence, and persist a business event."""
         self._validate_source(source)
 
         event_id = uuid4()
@@ -291,8 +268,6 @@ class EventWriter:
                 f"entity_type={entity_type}, entity_id={entity_id}, "
                 f"error={e}"
             ) from e
-
-        
 
         return persisted_event
 

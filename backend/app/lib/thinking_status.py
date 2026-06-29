@@ -5,7 +5,7 @@ Used by the voice handler to stream thinking indicators to the frontend.
 """
 
 NODE_THINKING: dict[str, str] = {
-    "bsga": "busy...",
+    "bsga": "processing...",
     "moa": "delegating to co-workers...",
     "tool_planner": "checking information...",
     "db_oracle": "checking information...",

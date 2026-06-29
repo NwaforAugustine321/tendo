@@ -18,7 +18,7 @@ Surface meaningful patterns.
 
 Provide useful business context.
 
-Generate three to five follow-up questions that encourage deeper exploration.
+Generate two follow-up questions that encourage deeper exploration.
 
 Questions should naturally help users investigate trends, relationships, opportunities, risks, comparisons, and business decisions.
 

@@ -106,6 +106,13 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
     }
   }, [voice.isConnected, voice.isSpeaking, voice.isListening])
 
+  // Show thinking indicator when backend sends thinking event (voice transcription processing)
+  useEffect(() => {
+    if (voice.thinkingText) {
+      setThinking(true)
+    }
+  }, [voice.thinkingText])
+
   // Display agent messages when they arrive
   useEffect(() => {
     if (!voice.lastMessage) return

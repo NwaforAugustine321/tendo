@@ -215,6 +215,8 @@ export class VoiceClient {
     this.workletNode = new AudioWorkletNode(this.micContext, 'pcm-processor')
     this.workletNode.port.onmessage = (event) => {
       if (!this.wsClient?.isOpen()) return
+      // Don't send audio while TTS is playing — prevents echo/feedback loop
+      if (this.isPlaying) return
 
       const float32Data: Float32Array = event.data
       const int16Data = new Int16Array(float32Data.length)

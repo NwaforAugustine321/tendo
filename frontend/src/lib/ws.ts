@@ -67,6 +67,10 @@ export class WSClient {
         window.dispatchEvent(new CustomEvent('tendo:record-processing', { detail: data }))
       })
 
+      this.socket.on('snapshot_updated', (data: any) => {
+        window.dispatchEvent(new CustomEvent('tendo:snapshot-updated', { detail: data }))
+      })
+
       this.socket.on('disconnect', (reason) => {
         console.log('[Socket.IO] disconnected:', reason)
         this.callbacks.onClose?.()

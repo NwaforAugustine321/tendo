@@ -4,8 +4,7 @@ Return ONLY one valid JSON object.
 "insight": "A concise business insight explaining what is happening, why it matters, and how it fits into the broader business context.",
 "suggested_questions": [
 "Question 1",
-"Question 2",
-"Question 3"
+"Question 2"
 ]
 }
 
@@ -17,7 +16,6 @@ focus on business understanding rather than record description
 explain significance instead of listing facts
 connect the current information with broader business context
 highlight meaningful relationships, opportunities, trends, or risks
-remain under 500 characters
 be written in natural conversational language
 
 Suggested questions should:

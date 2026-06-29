@@ -14,6 +14,7 @@ from app.routes.business import router as business_router
 from app.routes.upload import router as upload_router
 from app.routes.records import router as records_router
 from app.routes.conversations import router as conversations_router
+from app.routes.snapshot import router as snapshot_router
 from app.lib.errors import register_error_handlers
 
 import socketio
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.graph.workflow import init_graph
-    from app.events.worker import start_scheduler, stop_scheduler
+    from app.scheduler import start_scheduler, stop_scheduler
     from app.record_knowledge.store import _get_storage
 
     try:
@@ -62,6 +63,7 @@ app.include_router(business_router)
 app.include_router(upload_router)
 app.include_router(records_router)
 app.include_router(conversations_router)
+app.include_router(snapshot_router)
 register_error_handlers(app)
 
 # Mount Socket.IO on /ws/voice path

@@ -17,7 +17,7 @@ async def process_events(job: Job, events: list[BusinessEvent]) -> None:
     from app.lib.agent_executor import execute_task
 
     config = get_intelligence_config()
-    business_id = job.stream_key.split(":")[0]
+    business_id = job.business_id
 
     events_summary = json.dumps(
         [
@@ -68,23 +68,19 @@ async def process_events(job: Job, events: list[BusinessEvent]) -> None:
     count = await persistence.persist(insight_output)
     logger.info(f"BLA persisted: {count} insights stored")
 
-    if insight_output.reasoning_summary:
-        from app.insight_recommender.dispatcher import dispatch_insights
-        await dispatch_insights(insight_output.reasoning_summary, business_id)
-
 
 def _parse_insight_output(raw: str, job: Job) -> InsightOutput:
     try:
         from app.lib.json_parser import parse_json_output
 
         data = parse_json_output(raw)
-        data["business_id"] = job.stream_key.split(":")[0]
+        data["business_id"] = job.business_id
         data["job_id"] = str(job.id)
         return InsightOutput(**data)
     except Exception as e:
         logger.warning(f"BLA: failed to parse insight output: {e}")
         return InsightOutput(
-            business_id=job.stream_key.split(":")[0],
+            business_id=job.business_id,
             job_id=str(job.id),
             insights=[],
             reasoning_summary=raw[:500],

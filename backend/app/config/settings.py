@@ -59,9 +59,14 @@ class Settings(BaseSettings):
     vector_store_path: str = "./data/vector_store"
 
     # Voice
-    voice_provider: str = ""
+    voice_provider: str = "google"
     google_voice_api_key: str = ""
     google_voice_model: str = ""
+    cartesia_api_key: str = ""
+    cartesia_voice_id: str = ""
+    cartesia_stt_model: str = "ink-2"
+    cartesia_tts_model: str = "sonic-2"
+    cartesia_language: str = "en"  # Cartesia multilingual: en, es, fr, de, pt, ja, zh, hi, etc.
     wake_phrase: str = ""
     silence_timeout_seconds: int = 120
 

@@ -1,9 +1,8 @@
-"""Pydantic models for the Business Event System."""
+
 
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
-
 from pydantic import BaseModel, Field
 
 EventSource = Literal["chat", "ui", "api", "import", "system", "webhook"]
@@ -11,7 +10,6 @@ JobStatus = Literal["pending", "running", "completed", "failed", "scheduled"]
 
 
 class BusinessEvent(BaseModel):
-    """A single immutable business event."""
 
     id: UUID
     business_id: UUID
@@ -41,9 +39,8 @@ class EventWriteRequest(BaseModel):
 
 class Checkpoint(BaseModel):
     """Worker checkpoint tracking last processed sequence."""
-
     worker_name: str
-    stream_key: str
+    business_id: str
     last_processed_sequence: int = 0
     updated_at: datetime
 
@@ -51,9 +48,9 @@ class Checkpoint(BaseModel):
 class Job(BaseModel):
     """A unit of work created by a StreamWorker."""
 
-    id: str
+    id: str = ""  # DB-generated UUID
     worker_name: str
-    stream_key: str
+    business_id: str
     start_sequence: int = 0
     end_sequence: int = 0
     status: JobStatus = "pending"
