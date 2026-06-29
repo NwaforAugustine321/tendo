@@ -17,9 +17,10 @@ type Props = {
   isSpeaking?: boolean
   flipX?: boolean
   rightOffset?: number
+  leftOffset?: number
 }
 
-export function TalkingCharacter({ isSpeaking = false, flipX = false, rightOffset = 0 }: Props) {
+export function TalkingCharacter({ isSpeaking = false, flipX = false, rightOffset, leftOffset }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const engineRef = useRef<BABYLON.Engine | null>(null)
   const animGroupsRef = useRef<{ [key: string]: BABYLON.AnimationGroup }>({})
@@ -120,7 +121,7 @@ export function TalkingCharacter({ isSpeaking = false, flipX = false, rightOffse
         width: CHARACTER_WIDTH,
         height: CHARACTER_HEIGHT,
         bottom: '5px',
-        right: `${rightOffset}px`,
+        ...(leftOffset !== undefined ? { left: `${leftOffset}px` } : { right: `${rightOffset ?? 0}px` }),
         transform: flipX ? 'scaleX(-1)' : undefined,
       }}
     >

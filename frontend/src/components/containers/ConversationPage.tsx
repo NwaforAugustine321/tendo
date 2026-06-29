@@ -222,7 +222,7 @@ export function ConversationPage({
         </div>
       </div>
 
-      <TalkingCharacter isSpeaking={isTyping} flipX={flipCharacter} rightOffset={characterRightOffset} />
+      {fullScreen && <TalkingCharacter isSpeaking={isTyping} flipX={flipCharacter} rightOffset={characterRightOffset} />}
     </div>
   )
 }

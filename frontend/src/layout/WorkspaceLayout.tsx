@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import { MessageSquare, Sparkles } from 'lucide-react'
 import { IconRail } from '../components/containers'
 import { TopBar } from '../components/containers'
 import { TalkingCharacter } from '../components/containers/TalkingCharacter'
 import { ChatPanel } from '../components/containers/ChatPanel'
+import { FloatingPanel } from '../components/containers/FloatingPanel'
 import { FolderNavigation } from '../components/containers/FolderNavigation'
-import { RadialMenu } from '../components/containers/RadialMenu'
 import { WorkspaceContent } from '../components/containers/WorkspaceContent'
 import { RecordInsightPanel } from '../components/containers/RecordInsightPanel'
-import { QuickActionButton } from '../components/atoms/QuickActionButton'
 import { ProcessingNotification } from '../components/atoms/ProcessingNotification'
 import { useWorkspaceStore } from '../store/workspace'
 import { primaryFromPathname, type PrimarySection } from '../lib/navigation'
@@ -23,12 +22,9 @@ export function WorkspaceLayout() {
   const hoverClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const {
-    radialMenuOpen,
-    openRadialMenu,
     activeRecordId,
     dashboardSidebarVisible,
     dashboardChatVisible,
-    dashboardCharacterFlipped,
     toggleDashboardSidebar,
   } = useWorkspaceStore()
 
@@ -132,9 +128,6 @@ export function WorkspaceLayout() {
           )}
         </div>
 
-        {/* Quick Action Button — fixed position */}
-        <QuickActionButton onClick={openRadialMenu} visible={!radialMenuOpen} sidebarOpen={effectiveSidebarVisible} />
-
         {/* Main content — either workspace content or route outlet */}
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto border-l border-zinc-800/60 bg-[#0a0a0a]">
           <div className="flex min-h-0 w-full min-w-0 flex-col justify-start h-full">
@@ -142,52 +135,42 @@ export function WorkspaceLayout() {
           </div>
         </main>
 
-        {/* Right panel — Chat + Agent Insight tabs */}
-        <div className="hidden min-h-0 lg:flex relative">
-          <button
-            type="button"
-            onClick={() => {
-              if (isDashboard) {
-                useWorkspaceStore.getState().toggleDashboardChat()
-              } else {
-                setChatPanelVisible(!chatPanelVisible)
-              }
-            }}
-            className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 bg-[#1a1a1a] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200"
-            title={effectiveChatVisible ? 'Close panel' : 'Open panel'}
-          >
-            <MessageSquare size={10} />
-          </button>
-          {effectiveChatVisible ? (
-            <div className="flex h-full w-[440px] flex-shrink-0 flex-col border-l border-zinc-800/60 bg-[#0f0f0f]">
-              {/* Tab bar */}
-              <div className="flex border-b border-zinc-800/60 bg-[#0a0a0a]">
-                <button
-                  type="button"
-                  onClick={() => setRightTab('chat')}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-medium transition-colors ${rightTab === 'chat' ? 'text-zinc-200 border-b-2 border-[#3ecf8e]' : 'text-zinc-500 hover:text-zinc-300'}`}
-                >
-                  <MessageSquare size={11} />
-                  Sessions
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRightTab('insight')}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-medium transition-colors ${rightTab === 'insight' ? 'text-zinc-200 border-b-2 border-[#3ecf8e]' : 'text-zinc-500 hover:text-zinc-300'}`}
-                >
-                  <Sparkles size={11} />
-                  Insight
-                </button>
-              </div>
-              {/* Tab content */}
-              <div className="min-h-0 flex-1">
-                {rightTab === 'chat' ? <ChatPanel /> : <RecordInsightPanel />}
-              </div>
-            </div>
-          ) : (
-            <div className="w-5 border-l border-zinc-800/60 bg-[#0f0f0f]" />
-          )}
-        </div>
+        {/* Right panel — Floating draggable Chat + Agent Insight */}
+        <FloatingPanel
+          visible={effectiveChatVisible}
+          title={rightTab === 'chat' ? 'Sessions' : 'Insights'}
+          onClose={() => {
+            if (isDashboard) {
+              useWorkspaceStore.getState().toggleDashboardChat()
+            } else {
+              setChatPanelVisible(false)
+            }
+          }}
+        >
+          {/* Tab bar */}
+          <div className="flex border-b border-zinc-800/60 bg-[#0a0a0a] shrink-0">
+            <button
+              type="button"
+              onClick={() => setRightTab('chat')}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-medium transition-colors ${rightTab === 'chat' ? 'text-zinc-200 border-b-2 border-[#3ecf8e]' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              <MessageSquare size={11} />
+              Sessions
+            </button>
+            <button
+              type="button"
+              onClick={() => setRightTab('insight')}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-medium transition-colors ${rightTab === 'insight' ? 'text-zinc-200 border-b-2 border-[#3ecf8e]' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              <Sparkles size={11} />
+              Insight
+            </button>
+          </div>
+          {/* Tab content */}
+          <div className="min-h-0 flex-1 flex flex-col overflow-hidden">
+            {rightTab === 'chat' ? <ChatPanel /> : <RecordInsightPanel />}
+          </div>
+        </FloatingPanel>
       </div>
 
       {/* Mobile nav overlay */}
@@ -213,13 +196,10 @@ export function WorkspaceLayout() {
         </>
       )}
 
-      {/* Radial Hub Menu */}
-      <RadialMenu sidebarOpen={effectiveSidebarVisible} />
-
-      {/* Dashboard character — shows when on dashboard and chat panel is closed */}
-      {isDashboard && !effectiveChatVisible && (
-        <div className="fixed bottom-16 right-4 z-30 pointer-events-none">
-          <TalkingCharacter isSpeaking={false} flipX={false} rightOffset={0} />
+      {/* Dashboard character — bottom-left, facing right */}
+      {isDashboard && (
+        <div className="pointer-events-none">
+          <TalkingCharacter isSpeaking={false} flipX={true} leftOffset={effectiveSidebarVisible ? 200 : -30} />
         </div>
       )}
 

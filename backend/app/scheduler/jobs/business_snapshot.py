@@ -39,6 +39,6 @@ async def _daily_snapshot() -> None:
 def register_snapshot_jobs(scheduler: AsyncIOScheduler) -> None:
     """Register snapshot job — runs every 3 minutes."""
     scheduler.add_job(
-        _daily_snapshot, "interval", minutes=3,
+        _daily_snapshot, "interval", minutes=0, hours=7,
         id="snapshot_refresh", max_instances=1, replace_existing=True,
     )

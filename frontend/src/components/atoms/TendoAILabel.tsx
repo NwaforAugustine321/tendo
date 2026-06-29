@@ -13,7 +13,7 @@ export function TendoAILabel() {
     >
       <div className="flex flex-col items-start">
         <span className="text-xs font-semibold text-emerald-400">Tendo AI</span>
-        <span className="text-[10px] text-zinc-400">Your business companion</span>
+        <span className="text-[10px] text-zinc-400">Your business employee</span>
       </div>
       <span className="relative flex h-2 w-2 ml-1">
         <span className="absolute inline-flex h-full w-full animate-pulse rounded-full bg-emerald-400 opacity-75" />

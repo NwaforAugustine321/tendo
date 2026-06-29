@@ -11,12 +11,10 @@ export function EmptyState() {
       </div>
 
       <h2 className="mt-5 text-lg font-semibold tracking-tight text-white">
-        Let Tendo know about your business
+        Let&apos;s know what is happening today
       </h2>
 
-      <p className="mt-4 max-w-xs text-center text-sm text-zinc-400">
-        Tell me how your business works. I'll learn your customers, products, services or any type of bussiness, and how you operate.
-      </p>
+      
     </div>
   )
 }

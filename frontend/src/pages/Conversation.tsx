@@ -34,26 +34,22 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
   const lastMsgId = useRef('')
   const currentBusinessId = useRef<string | null>(null)
 
-  // Connect/reconnect when profile changes
+  // Connect/reconnect when profile or session changes
   useEffect(() => {
     const businessId = currentProfile?.id || ''
     if (!businessId) return
 
-    // If same business, don't reconnect
-    if (currentBusinessId.current === businessId && connected.current) return
-
-    currentBusinessId.current = businessId
-
-    // Disconnect existing session
+    // Disconnect existing session before connecting new one
     if (connected.current) {
       voice.disconnect()
       setThinking(false)
       connected.current = false
     }
 
-    // Get or create a session for this business and connect
+    currentBusinessId.current = businessId
+
+    // Connect with the specific session ID
     if (sessionId) {
-      // Use the session ID passed from parent (ChatPanel)
       connected.current = true
       voice.connect({ sessionId, businessId })
     } else {
