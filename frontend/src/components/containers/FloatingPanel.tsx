@@ -9,6 +9,7 @@ type Props = {
   onClose: () => void
   defaultWidth?: number
   defaultHeight?: number
+  offsetIndex?: number
 }
 
 export function FloatingPanel({
@@ -18,9 +19,10 @@ export function FloatingPanel({
   onClose,
   defaultWidth = 420,
   defaultHeight = 600,
+  offsetIndex = 0,
 }: Props) {
   const [minimized, setMinimized] = useState(false)
-  const [position, setPosition] = useState({ x: window.innerWidth - defaultWidth - 24, y: window.innerHeight - defaultHeight - 80 })
+  const [position, setPosition] = useState({ x: window.innerWidth - defaultWidth - 24 - (offsetIndex * 30), y: window.innerHeight - defaultHeight - 80 + (offsetIndex * 30) })
   const [dragging, setDragging] = useState(false)
   const dragOffset = useRef({ x: 0, y: 0 })
   const panelRef = useRef<HTMLDivElement>(null)

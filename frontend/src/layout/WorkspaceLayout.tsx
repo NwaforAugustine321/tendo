@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { MessageSquare, Sparkles } from 'lucide-react'
 import { IconRail } from '../components/containers'
 import { TopBar } from '../components/containers'
 import { TalkingCharacter } from '../components/containers/TalkingCharacter'
@@ -8,7 +7,7 @@ import { ChatPanel } from '../components/containers/ChatPanel'
 import { FloatingPanel } from '../components/containers/FloatingPanel'
 import { FolderNavigation } from '../components/containers/FolderNavigation'
 import { WorkspaceContent } from '../components/containers/WorkspaceContent'
-import { RecordInsightPanel } from '../components/containers/RecordInsightPanel'
+import { RecordFloatingPanel } from '../components/containers/RecordFloatingPanel'
 import { ProcessingNotification } from '../components/atoms/ProcessingNotification'
 import { useWorkspaceStore } from '../store/workspace'
 import { primaryFromPathname, type PrimarySection } from '../lib/navigation'
@@ -18,11 +17,9 @@ export function WorkspaceLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [chatPanelVisible, setChatPanelVisible] = useState(true)
   const [folderNavPinned, setFolderNavPinned] = useState(false)
-  const [rightTab, setRightTab] = useState<'chat' | 'insight'>('chat')
   const hoverClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const {
-    activeRecordId,
     dashboardSidebarVisible,
     dashboardChatVisible,
     toggleDashboardSidebar,
@@ -73,18 +70,10 @@ export function WorkspaceLayout() {
     return () => window.removeEventListener('tendo:open-sidebar', handleOpenSidebar)
   }, [])
 
-  useEffect(() => {
-    if (activeRecordId) {
-      setRightTab('insight')
-      setChatPanelVisible(true)
-    }
-  }, [activeRecordId])
-
   const pendingChatMessage = useWorkspaceStore((s) => s.pendingChatMessage)
 
   useEffect(() => {
     if (pendingChatMessage) {
-      setRightTab('chat')
       setChatPanelVisible(true)
     }
   }, [pendingChatMessage])
@@ -135,10 +124,10 @@ export function WorkspaceLayout() {
           </div>
         </main>
 
-        {/* Right panel — Floating draggable Chat + Agent Insight */}
+        {/* Right panel — Floating draggable Chat */}
         <FloatingPanel
           visible={effectiveChatVisible}
-          title={rightTab === 'chat' ? 'Sessions' : 'Insights'}
+          title="Sessions"
           onClose={() => {
             if (isDashboard) {
               useWorkspaceStore.getState().toggleDashboardChat()
@@ -147,30 +136,13 @@ export function WorkspaceLayout() {
             }
           }}
         >
-          {/* Tab bar */}
-          <div className="flex border-b border-zinc-800/60 bg-[#0a0a0a] shrink-0">
-            <button
-              type="button"
-              onClick={() => setRightTab('chat')}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-medium transition-colors ${rightTab === 'chat' ? 'text-zinc-200 border-b-2 border-[#3ecf8e]' : 'text-zinc-500 hover:text-zinc-300'}`}
-            >
-              <MessageSquare size={11} />
-              Sessions
-            </button>
-            <button
-              type="button"
-              onClick={() => setRightTab('insight')}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-medium transition-colors ${rightTab === 'insight' ? 'text-zinc-200 border-b-2 border-[#3ecf8e]' : 'text-zinc-500 hover:text-zinc-300'}`}
-            >
-              <Sparkles size={11} />
-              Insight
-            </button>
-          </div>
-          {/* Tab content */}
           <div className="min-h-0 flex-1 flex flex-col overflow-hidden">
-            {rightTab === 'chat' ? <ChatPanel /> : <RecordInsightPanel />}
+            <ChatPanel />
           </div>
         </FloatingPanel>
+
+        {/* Record floating panel — independent, draggable */}
+        <RecordFloatingPanel />
       </div>
 
       {/* Mobile nav overlay */}

@@ -25,6 +25,7 @@ export interface WorkspaceState {
   // Record state
   records: Map<string, Record[]> // folderId -> records
   activeRecordId: string | null
+  openRecordIds: string[] // multiple open record panels
 
   // Radial menu state
   radialMenuOpen: boolean
@@ -77,6 +78,8 @@ export interface WorkspaceState {
   // Actions — UI state
   toggleFolderExpanded: (folderId: string) => void
   setActiveRecord: (recordId: string | null) => void
+  openRecord: (recordId: string) => void
+  closeRecord: (recordId: string) => void
   setActiveFolderId: (folderId: string | null) => void
   setDragState: (state: DragState | null) => void
   setContextMenu: (state: ContextMenuState | null) => void
@@ -95,6 +98,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   records: new Map(),
   activeRecordId: null,
+  openRecordIds: [],
 
   radialMenuOpen: false,
   radialMenuView: { view: 'actions' },
@@ -304,7 +308,33 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ expandedFolderIds: newSet })
   },
 
-  setActiveRecord: (recordId) => set({ activeRecordId: recordId }),
+  setActiveRecord: (recordId) => {
+    set({ activeRecordId: recordId })
+    if (recordId) {
+      const { openRecordIds } = get()
+      if (!openRecordIds.includes(recordId)) {
+        set({ openRecordIds: [...openRecordIds, recordId] })
+      }
+    }
+  },
+
+  openRecord: (recordId) => {
+    const { openRecordIds } = get()
+    if (!openRecordIds.includes(recordId)) {
+      set({ openRecordIds: [...openRecordIds, recordId], activeRecordId: recordId })
+    } else {
+      set({ activeRecordId: recordId })
+    }
+  },
+
+  closeRecord: (recordId) => {
+    const { openRecordIds, activeRecordId } = get()
+    const updated = openRecordIds.filter((id) => id !== recordId)
+    set({
+      openRecordIds: updated,
+      activeRecordId: activeRecordId === recordId ? (updated[updated.length - 1] || null) : activeRecordId,
+    })
+  },
   setActiveFolderId: (folderId) => set({ activeFolderId: folderId }),
   setDragState: (state) => set({ dragState: state }),
   setContextMenu: (state) => set({ contextMenu: state }),
