@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Building2, Camera, Plus, X, Save, Check, Pencil, Trash2, Loader2 } from 'lucide-react'
+import { Building2, Camera, Plus, X, Check, Pencil, Trash2, Loader2 } from 'lucide-react'
 import { updateProfile, type UpdateProfileData } from '../../lib/services/business'
 
 export type BusinessProfileData = {
@@ -45,7 +45,7 @@ function ProfileField({ label, value, placeholder, onChange, type = 'text', onFo
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-lg border border-zinc-800/40 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-300 focus:border-orange-500/50 focus:outline-none"
+          className="w-full rounded-lg border border-zinc-800/40 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-300 focus:border-emerald-500/50 focus:outline-none"
         >
           <option value="">Select type...</option>
           {BUSINESS_TYPES.map((t) => (
@@ -60,7 +60,7 @@ function ProfileField({ label, value, placeholder, onChange, type = 'text', onFo
           rows={2}
           onFocus={onFocus}
           readOnly={!!onFocus}
-          className={`w-full resize-none rounded-lg border border-zinc-800/40 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-300 placeholder-zinc-500 focus:border-orange-500/50 focus:outline-none ${onFocus ? 'cursor-pointer' : ''}`}
+          className={`w-full resize-none rounded-lg border border-zinc-800/40 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-300 placeholder-zinc-500 focus:border-emerald-500/50 focus:outline-none ${onFocus ? 'cursor-pointer' : ''}`}
         />
       ) : (
         <input
@@ -68,7 +68,7 @@ function ProfileField({ label, value, placeholder, onChange, type = 'text', onFo
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="w-full rounded-lg border border-zinc-800/40 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-300 placeholder-zinc-500 focus:border-orange-500/50 focus:outline-none"
+          className="w-full rounded-lg border border-zinc-800/40 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-300 placeholder-zinc-500 focus:border-emerald-500/50 focus:outline-none"
         />
       )}
     </div>
@@ -121,14 +121,12 @@ export function BusinessProfileSidebar({ profile, businessId, onLogoUpload, onPr
       phone: form.phone,
       location: form.location,
       metadata,
-      onboarding_completed: canComplete,
+      onboarding_completed: true,
     }
     await updateProfile(businessId, data)
     onProfileUpdate?.({ ...form, metadata })
     setSaving(false)
-    if (canComplete) {
-      onComplete?.()
-    }
+    onComplete?.()
   }
 
   const handleAddMeta = async () => {
@@ -176,7 +174,7 @@ export function BusinessProfileSidebar({ profile, businessId, onLogoUpload, onPr
   }
 
   return (
-    <aside className="flex h-full w-80 flex-col border-r border-zinc-800/40 bg-[#0a0a0a] p-4">
+    <div className="flex h-full w-full flex-col rounded-xl border border-zinc-800/40 bg-[#0a0a0a] p-5">
       <input
         ref={fileInputRef}
         type="file"
@@ -213,8 +211,6 @@ export function BusinessProfileSidebar({ profile, businessId, onLogoUpload, onPr
         <ProfileField label="Business Name" value={form.businessName} placeholder="e.g. Business" onChange={(v) => { setForm((f) => ({ ...f, businessName: v })); onProfileUpdate?.({ ...form, businessName: v }) }} />
         <ProfileField label="Business Type" value={form.businessType} placeholder="" onChange={(v) => { setForm((f) => ({ ...f, businessType: v })); onProfileUpdate?.({ ...form, businessType: v }) }} type="select" />
         <ProfileField label="Description" value={form.description} placeholder="What does your business do?" onChange={(v) => { setForm((f) => ({ ...f, description: v })); onProfileUpdate?.({ ...form, description: v }) }} type="textarea" onFocus={() => setShowDescModal(true)} />
-        <ProfileField label="Phone" value={form.phone} placeholder="e.g. 0499-555-4" onChange={(v) => { setForm((f) => ({ ...f, phone: v })); onProfileUpdate?.({ ...form, phone: v }) }} />
-        <ProfileField label="Location" value={form.location} placeholder="e.g. Miami" onChange={(v) => { setForm((f) => ({ ...f, location: v })); onProfileUpdate?.({ ...form, location: v }) }} />
 
         {/* Metadata display */}
         {Object.keys(metadata).length > 0 && (
@@ -261,22 +257,18 @@ export function BusinessProfileSidebar({ profile, businessId, onLogoUpload, onPr
             setEditingKey(null)
             setShowMetaModal(true)
           }}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-zinc-600/60 py-2 text-[11px] text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[#3ecf8e]/40 py-2 text-[11px] text-[#3ecf8e] transition-colors hover:border-[#3ecf8e]/70 hover:text-white"
         >
           <Plus size={12} /> More Information
         </button>
 
         <button
           onClick={handleSave}
-          disabled={saving}
-          className={`flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-[12px] font-medium transition-colors disabled:opacity-50 ${
-            canComplete
-              ? 'bg-emerald-600/90 text-white hover:bg-emerald-500/90'
-              : 'border border-zinc-700/40 bg-zinc-800/50 text-zinc-300 hover:bg-zinc-700/50'
-          }`}
+          disabled={saving || !form.businessName.trim()}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 py-2 text-[12px] font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
         >
-          {canComplete ? <Check size={13} /> : <Save size={13} />}
-          {saving ? 'Saving...' : canComplete ? 'Save & Complete' : 'Save'}
+          <Check size={13} />
+          {saving ? 'Setting up...' : 'Setup Profile'}
         </button>
       </div>
 
@@ -297,14 +289,14 @@ export function BusinessProfileSidebar({ profile, businessId, onLogoUpload, onPr
                 value={newMetaKey}
                 onChange={(e) => setNewMetaKey(e.target.value)}
                 placeholder="Label (e.g. Opening Hours)"
-                className="w-full rounded border border-zinc-700/40 bg-zinc-800/50 px-2.5 py-1.5 text-[12px] text-zinc-200 placeholder-zinc-500 focus:border-orange-500/50 focus:outline-none"
+                className="w-full rounded border border-zinc-700/40 bg-zinc-800/50 px-2.5 py-1.5 text-[12px] text-zinc-200 placeholder-zinc-500 focus:border-[#3ecf8e]/50 focus:outline-none"
               />
               <textarea
                 value={newMetaValue}
                 onChange={(e) => setNewMetaValue(e.target.value)}
                 placeholder="Value (e.g. Mon-Fri 9am - 5pm, Sat 10am - 2pm)"
                 rows={4}
-                className="w-full resize-none rounded border border-zinc-700/40 bg-zinc-800/50 px-2.5 py-1.5 text-[12px] text-zinc-200 placeholder-zinc-500 focus:border-orange-500/50 focus:outline-none"
+                className="w-full resize-none rounded border border-zinc-700/40 bg-zinc-800/50 px-2.5 py-1.5 text-[12px] text-zinc-200 placeholder-zinc-500 focus:border-[#3ecf8e]/50 focus:outline-none"
               />
             </div>
 
@@ -318,7 +310,7 @@ export function BusinessProfileSidebar({ profile, businessId, onLogoUpload, onPr
               <button
                 onClick={handleAddMeta}
                 disabled={!newMetaKey.trim() || !newMetaValue.trim() || metaSaving}
-                className="rounded-lg bg-orange-600/80 px-4 py-2 text-[12px] font-medium text-white transition-colors hover:bg-orange-500 disabled:opacity-40"
+                className="rounded-lg bg-[#3ecf8e] px-4 py-2 text-[12px] font-medium text-black transition-colors hover:bg-[#34b87a] disabled:opacity-40"
               >
                 {metaSaving ? <Loader2 size={14} className="animate-spin" /> : editingKey ? 'Update' : 'Add'}
               </button>
@@ -343,12 +335,12 @@ export function BusinessProfileSidebar({ profile, businessId, onLogoUpload, onPr
               placeholder="Describe what your business does, what you sell or the services you provide..."
               rows={8}
               autoFocus
-              className="w-full resize-none rounded-lg border border-zinc-700/40 bg-zinc-800/50 px-3 py-2.5 text-sm text-zinc-200 placeholder-zinc-500 focus:border-orange-500/50 focus:outline-none"
+              className="w-full resize-none rounded-lg border border-zinc-700/40 bg-zinc-800/50 px-3 py-2.5 text-sm text-zinc-200 placeholder-zinc-500 focus:border-emerald-500/50 focus:outline-none"
             />
             <div className="mt-3 flex justify-end">
               <button
                 onClick={() => { setShowDescModal(false); onProfileUpdate?.({ ...form }) }}
-                className="rounded-lg bg-orange-600/80 px-4 py-2 text-[12px] font-medium text-white hover:bg-orange-500"
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-[12px] font-medium text-white hover:bg-emerald-500"
               >
                 Done
               </button>
@@ -356,6 +348,6 @@ export function BusinessProfileSidebar({ profile, businessId, onLogoUpload, onPr
           </div>
         </div>
       )}
-    </aside>
+    </div>
   )
 }
