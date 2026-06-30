@@ -32,14 +32,17 @@ def get_latest_snapshot(business_id: str) -> dict | None:
     Returns the raw row dict or None if no snapshot exists.
     """
     client = get_client()
-    result = (
-        client.table(TABLE_NAME)
-        .select("*")
-        .eq("business_id", business_id)
-        .single()
-        .execute()
-    )
-    return result.data if result.data else None
+    try:
+        result = (
+            client.table(TABLE_NAME)
+            .select("*")
+            .eq("business_id", business_id)
+            .maybe_single()
+            .execute()
+        )
+        return result.data if result else None
+    except Exception:
+        return None
 
 
 

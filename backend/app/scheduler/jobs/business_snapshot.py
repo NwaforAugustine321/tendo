@@ -3,7 +3,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.business_snapshot import generate_snapshot
 from app.db.tools.snapshot import get_active_business_ids
 from app.scheduler.worker import BaseWorker
-from app.ws.socketio_server import sio
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,6 @@ class BusinessSnapshotWorker(BaseWorker):
         for business_id in business_ids:
             try:
                 await generate_snapshot(business_id)
-                await sio.emit("snapshot_updated", {"business_id": business_id}, room=business_id)
             except Exception as e:
                 logger.error(f"Snapshot failed for {business_id}: {e}", exc_info=True)
 
@@ -37,9 +35,8 @@ async def _daily_snapshot() -> None:
 
 
 def register_snapshot_jobs(scheduler: AsyncIOScheduler) -> None:
-    """Register snapshot job — runs every 3 minutes."""
+    """Register snapshot job — runs every 30 minutes."""
     scheduler.add_job(
         _daily_snapshot, "interval", minutes=3,
-        #  hours=7,
         id="snapshot_refresh", max_instances=1, replace_existing=True,
     )

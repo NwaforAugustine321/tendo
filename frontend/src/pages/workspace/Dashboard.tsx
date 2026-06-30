@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useBusinessStore } from '../../store/business'
 import { useWorkspaceStore } from '../../store/workspace'
 import { GreetingHeader, CentralHub, SnapshotView } from '../../components/containers'
@@ -6,12 +6,15 @@ import { TendoAILabel } from '../../components/atoms'
 import { getSnapshot } from '../../lib/services/snapshot'
 import type { BusinessSnapshot } from '../../lib/services/snapshot'
 
+const POLL_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes
+
 export function Dashboard() {
   const { currentProfile } = useBusinessStore()
   const { setDashboardSidebarVisible, setDashboardChatVisible } = useWorkspaceStore()
 
   const [snapshot, setSnapshot] = useState<BusinessSnapshot | null>(null)
   const [snapshotLoading, setSnapshotLoading] = useState(true)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Hide sidebar and chat on mount
   useEffect(() => {
@@ -19,18 +22,32 @@ export function Dashboard() {
     setDashboardChatVisible(false)
   }, [setDashboardSidebarVisible, setDashboardChatVisible])
 
-  // Fetch snapshot on mount
-  useEffect(() => {
-    if (!currentProfile?.id) {
-      setSnapshotLoading(false)
-      return
-    }
-    setSnapshotLoading(true)
+  const fetchSnapshot = useCallback((showLoading = false) => {
+    if (!currentProfile?.id) return
+    if (showLoading) setSnapshotLoading(true)
     getSnapshot(currentProfile.id)
       .then((data) => setSnapshot(data))
       .catch(() => setSnapshot(null))
       .finally(() => setSnapshotLoading(false))
   }, [currentProfile?.id])
+
+  // Fetch snapshot on mount + poll every 30 minutes
+  useEffect(() => {
+    if (!currentProfile?.id) {
+      setSnapshotLoading(false)
+      return
+    }
+
+    // Initial fetch
+    fetchSnapshot(true)
+
+    // Poll every 30 minutes
+    pollRef.current = setInterval(() => fetchSnapshot(false), POLL_INTERVAL_MS)
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [currentProfile?.id, fetchSnapshot])
 
   const handleMicClick = () => {
     window.dispatchEvent(new CustomEvent('tendo:voice-toggle'))
