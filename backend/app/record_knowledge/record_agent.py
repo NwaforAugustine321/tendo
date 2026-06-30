@@ -62,7 +62,7 @@ async def _summarize_text(content: str) -> str:
         expected_output=agent.expected_output,
         output_pydantic=SummaryOutput,
         use_system_prompt=True,
-        max_iter=1,
+        
     )
 
     try:
@@ -134,7 +134,7 @@ async def get_record_understanding(business_id: str, record_id: str) -> AIUnders
             expected_output=agent.expected_output,
             output_pydantic=AIUnderstanding,
             use_system_prompt=True,
-            max_iter=config.max_retries + 2,
+           
         )
         data = parse_json_output(raw)
         understanding = AIUnderstanding(**data)

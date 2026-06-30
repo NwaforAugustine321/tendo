@@ -49,7 +49,7 @@ async def transactions_node(state: GraphState) -> dict:
         output_pydantic=DomainAgentOutput,
         memory=memory,
         use_system_prompt=True,
-        max_iter=3,
+       
         thinking_callback=thinking_callback,
     )
 

@@ -87,7 +87,6 @@ async def moa_node(state: GraphState) -> dict:
         context=context,
         output_pydantic=DomainAgentOutput,
         use_system_prompt=True,
-        max_iter=5,
         thinking_callback=thinking_callback,
     )
 

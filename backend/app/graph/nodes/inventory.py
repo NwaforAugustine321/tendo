@@ -50,7 +50,7 @@ async def inventory_node(state: GraphState) -> dict:
         output_pydantic=DomainAgentOutput,
         memory=memory,
         use_system_prompt=True,
-        max_iter=3,
+       
     )
 
     logger.info(f"Inventory raw output: {raw[:200]}")
