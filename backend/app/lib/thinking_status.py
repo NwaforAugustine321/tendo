@@ -6,11 +6,11 @@ Used by the voice handler to stream thinking indicators to the frontend.
 
 NODE_THINKING: dict[str, str] = {
     "bsga": "processing...",
-    "moa": "delegating to co-workers...",
+    "moa": "checking information...",
     "tool_planner": "checking information...",
     "db_oracle": "checking information...",
     "db_translator": "preparing response...",
-    "domain_router": "delegating to co-workers...",
+    "domain_router": "checking information...",
     "onboarding": "thinking...",
     "transactions": "thinking...",
     "inventory": "thinking...",

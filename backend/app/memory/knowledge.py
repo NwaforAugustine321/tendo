@@ -15,8 +15,8 @@ from app.memory.memory import Memory
 
 
 @tool
-async def search_business_knowledge(query: str = "", business_id: str = "", limit: int = 10) -> str:
-    """Search business-level general knowledge. Always use this first to understand business context and how the business operates"""
+async def search_business_knowledge(query: str = "", business_id: str = "", limit: int = 30) -> str:
+    """Search the business general knowledge. this give overview of the business context understanding"""
     import json as _json
     try:
         memory = Memory(scope=f"/insights/{business_id}")

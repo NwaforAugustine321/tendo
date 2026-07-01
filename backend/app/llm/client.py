@@ -102,6 +102,20 @@ def _create_client(callbacks=None):
             callbacks=cb,
         )
 
+    elif settings.llm_provider == "nvidia":
+        from langchain_nvidia_ai_endpoints import ChatNVIDIA
+        return ChatNVIDIA(
+            model=settings.nvidia_model,
+            api_key=settings.nvidia_api_key,
+            callbacks=cb,
+            model_kwargs={
+                "chat_template_kwargs": {"enable_thinking":True},
+            }
+            
+            
+        )
+        
+
     else:
         # Default: Anthropic
         from langchain_anthropic import ChatAnthropic

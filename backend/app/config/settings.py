@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     lmstudio_model: str = ""
     lmstudio_base_url: str = ""
 
+    # NVIDIA AI Endpoints
+    nvidia_api_key: str = ""
+    nvidia_model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+    nvidia_temperature: float = 0.6
+    nvidia_top_p: float = 0.95
+    nvidia_max_tokens: int = 65536
+    nvidia_reasoning_budget: int = 16384
+    nvidia_rerank_model: str = "nv-rerank-qa-mistral-4b:1"
+   
+
     # Tool calling mode: whether LLM supports native function calling
     # Set to false for local models (lmstudio, ollama, msty) that use ReAct text instead
     native_tool_calling: bool = True

@@ -11,6 +11,7 @@ from app.memory.knowledge import search_business_knowledge
 from app.lib.i18n import _get_i18n
 from app.models.state import GraphState
 from app.lib.json_parser import parse_json_output
+from app.db.tools.profile_tools import get_business_profile
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +27,9 @@ def _get_moa_agent() -> Agent:
     """Create MOA agent from i18n translations (hierarchical_manager_agent)."""
     i18n = _get_i18n()
     return Agent(
-        role=i18n.get("hierarchical_manager_agent.role"),
-        goal=i18n.get("hierarchical_manager_agent.goal"),
-        backstory=i18n.get("hierarchical_manager_agent.backstory"),
+        role=Agent.from_spec("moa").role,  #i18n.get("hierarchical_manager_agent.role"),
+        goal=Agent.from_spec("moa").goal,  #i18n.get("hierarchical_manager_agent.goal"),
+        backstory=Agent.from_spec("moa").backstory,  #i18n.get("hierarchical_manager_agent.backstory"),
         skill=Agent.from_spec("moa").skill,
     )
 
@@ -57,6 +58,13 @@ async def moa_node(state: GraphState) -> dict:
 
     # Fetch persisted messages from DB (reliable across invocations)
     thread_id_for_db = thread_id or ""
+
+    # Save user message immediately so pending_question detection works correctly
+    if business_id and thread_id_for_db and event.get("text", "").strip():
+        await save_messages(business_id, thread_id_for_db, [
+            {"role": "user", "content": event.get("text", "")},
+        ])
+
     db_messages = await fetch_messages(business_id, thread_id_for_db, limit=10) if business_id and thread_id_for_db else []
 
     # Use DB messages if available, fallback to state messages
@@ -71,7 +79,7 @@ async def moa_node(state: GraphState) -> dict:
     agent = _get_moa_agent()
 
     
-    from app.db.tools.profile_tools import get_business_profile
+  
     moa_tools = AgentTools(agents=_SPECIALIST_SPECS).tools() + [search_business_knowledge, get_business_profile]
 
 
@@ -148,10 +156,9 @@ async def moa_node(state: GraphState) -> dict:
         "messages": new_messages,
     }
 
-    # Persist messages to DB for reliable history across invocations
+    # Persist assistant response to DB (user message already saved at start)
     if business_id and thread_id_for_db:
         await save_messages(business_id, thread_id_for_db, [
-            {"role": "user", "content": event.get("text", "")},
             {"role": "assistant", "content": raw},
         ])
 
@@ -181,8 +188,6 @@ def _extract_route_signal(raw: str) -> str | None:
 
     return None
 
-
-# --- Req 3 & 4 helpers ---
 
 def _build_direct_response(user_message: str, text: str) -> dict:
     """Build a direct response dict (no routing, no delegation)."""

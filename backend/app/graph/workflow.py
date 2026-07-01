@@ -8,7 +8,6 @@ import logging
 
 from langgraph.graph import END, START, StateGraph
 
-from app.graph.nodes.bsga import bsga_node
 from app.graph.nodes.db_translator import db_translator_node
 from app.graph.nodes.db import db_node
 from app.graph.nodes.domain_router import domain_router_node
@@ -26,12 +25,6 @@ _compiled_graph = None
 
 
 # --- Routing functions ---
-
-
-def route_from_bsga(state: GraphState) -> str:
-    if state.get("classification") == "OUT_OF_SCOPE":
-        return "response"
-    return "moa"
 
 
 def route_from_moa(state: GraphState) -> str:
@@ -78,7 +71,6 @@ def build_graph() -> StateGraph:
     builder = StateGraph(GraphState)
 
     # Nodes
-    builder.add_node("bsga", bsga_node)
     builder.add_node("moa", moa_node)
     builder.add_node("domain_router", domain_router_node)
     builder.add_node("onboarding", onboarding_node)
@@ -89,9 +81,8 @@ def build_graph() -> StateGraph:
     builder.add_node("db_translator", db_translator_node)
     builder.add_node("response", response_node)
 
-    # Edges
-    builder.add_edge(START, "bsga")
-    builder.add_conditional_edges("bsga", route_from_bsga, ["moa", "response"])
+    # Edges — start directly at MOA
+    builder.add_edge(START, "moa")
 
     builder.add_conditional_edges(
         "moa",

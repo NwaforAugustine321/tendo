@@ -86,7 +86,7 @@ async def fetch_messages(
     limit: int = 10,
     offset: int = 0,
 ) -> list[dict]:
-    """Fetch conversation messages from the database with pagination.
+    """Fetch the most recent conversation messages from the database.
 
     Args:
         business_id: The business profile ID.
@@ -95,7 +95,7 @@ async def fetch_messages(
         offset: Number of messages to skip (for pagination).
 
     Returns:
-        List of message dicts with 'role' and 'content', ordered oldest first.
+        List of message dicts with 'role' and 'content', ordered oldest first (chronological).
     """
     try:
         client = get_client()
@@ -104,15 +104,14 @@ async def fetch_messages(
             .select("role, content, metadata, created_at")
             .eq("business_id", business_id)
             .eq("session_id", session_id)
-            .order("created_at", desc=False)
+            .order("created_at", desc=True)
+            .limit(limit)
         )
-        if offset > 0:
-            query = query.range(offset, offset + limit - 1)
-        else:
-            query = query.limit(limit)
 
         result = query.execute()
         messages = result.data or []
+        # Reverse to get chronological order (oldest first)
+        messages.reverse()
         return [{"role": m["role"], "content": m["content"], "metadata": m.get("metadata", {})} for m in messages]
     except Exception as e:
         logger.warning(f"fetch_messages failed: {e}")
@@ -125,13 +124,21 @@ def get_pending_question(messages: list[dict]) -> str | None:
     Checks if the last assistant message had workflow_status=waiting_for_user
     in its metadata (set during save_messages).
 
+    If the very last message is from the user, there's no pending question
+    (the user already replied).
+
     Args:
         messages: List of message dicts (with optional 'metadata' key).
 
     Returns:
-        The question text if the last assistant message was waiting_for_user, else None.
+        The question text if the last assistant message was waiting_for_user
+        AND no user message came after it, else None.
     """
     if not messages:
+        return None
+
+    # If the last message is from the user, they already replied — no pending question
+    if messages[-1].get("role") == "user":
         return None
 
     # Find the last assistant message

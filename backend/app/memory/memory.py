@@ -212,7 +212,7 @@ class Memory:
         min_score: float = 0.0,
         use_query_analysis: bool = False,
     ) -> list[MemoryMatch]:
-        """Retrieve relevant memories using semantic search with composite scoring.
+        """Retrieve relevant memories using semantic search with composite scoring and reranking.
 
         Args:
             query: Natural language query.
@@ -240,10 +240,12 @@ class Memory:
         if scope:
             effective_scope = f"{self._scope}/{scope.strip('/')}"
 
+        # Fetch a large initial set (100) for reranking
+        fetch_count = max(100, limit * 10)
         raw_results = self._storage.search(
             query_embedding=query_embedding,
             scope_prefix=effective_scope,
-            limit=limit * 2,
+            limit=fetch_count,
             min_score=0.0,
         )
 
@@ -267,6 +269,26 @@ class Memory:
 
         # Sort by composite score descending
         matches.sort(key=lambda m: m.score, reverse=True)
+
+        # Rerank using  reranker for better relevance
+        if len(matches) > limit:
+            try:
+                from app.embeddings.reranker import rerank_results
+                documents = [m.record.content for m in matches]
+                reranked_texts = rerank_results(query=search_query, documents=documents, top_k=limit)
+                
+                # Rebuild matches in reranked order
+                content_to_match = {m.record.content: m for m in matches}
+                reranked_matches = []
+                for text in reranked_texts:
+                    if text in content_to_match:
+                        reranked_matches.append(content_to_match[text])
+                
+                if reranked_matches:
+                    return reranked_matches
+            except Exception as e:
+                logger.debug(f"Reranking skipped: {e}")
+
         return matches[:limit]
 
     async def _analyze_query(self, query: str) -> str:

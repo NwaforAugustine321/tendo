@@ -7,7 +7,7 @@ from langchain_core.tools import tool
 
 @tool
 async def get_business_profile(business_id: str) -> str:
-    """Get the current business profile (name, category, description, phone, location, metadata). Use this to check what's known about the business."""
+    """Fetche the profile information about the business"""
     from app.db.tools.profiles import get_business_profile as _get_profile
 
     try:

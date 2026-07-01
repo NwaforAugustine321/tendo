@@ -53,8 +53,19 @@ class ThinkingStreamCallback(AsyncCallbackHandler):
             pass
 
     async def on_llm_new_token(self, token: str, *, chunk=None, **kwargs: Any) -> None:
+       
+        if not token and not chunk:
+            return
+      
+        if chunk and hasattr(chunk, 'additional_kwargs') and "reasoning_content" in chunk.additional_kwargs:
+            reasoning = chunk.message.additional_kwargs.get("reasoning_content")
+            if reasoning:
+                await self._send({"type": "thought", "data": reasoning})
+                return
+
         if not token:
             return
+
         self._buffer += token
         
 
@@ -285,6 +296,7 @@ class AgentExecutor(BaseModel):
                     for block in content
                 )
             raw = content.strip() if content else ""
+
 
             if not raw:
                 logger.warning("LLM returned empty content — asking to retry")
