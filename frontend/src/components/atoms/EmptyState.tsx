@@ -11,7 +11,6 @@ export function EmptyState() {
       </div>
 
       <h2 className="mt-5 text-sm font-semibold tracking-tight text-zinc-500">
-        Let&apos;s know what is happening today
       </h2>
 
       

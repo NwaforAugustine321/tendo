@@ -90,7 +90,8 @@ async def list_record_content(record_id: str, business_id: str = Query(...), use
 async def add_content_endpoint(record_id: str, body: AddContentRequest, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
     entry = await add_record_content(body.business_id, record_id, body.content_type, body.content)
     content_id = entry.get("id", "")
-    background_tasks.add_task(process_content_background, body.business_id, record_id, content_id, body.content_type, body.content, body.metadata)
+    metadata = {**body.metadata, "content_id": content_id}
+    background_tasks.add_task(process_content_background, body.business_id, record_id, content_id, body.content_type, body.content, metadata)
     return {"content": entry, "processing": True}
 
 

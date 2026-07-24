@@ -45,7 +45,13 @@ async def process_content_background(business_id: str, record_id: str, content_i
             pass
 
     except Exception as e:
-        await delete_record_content(business_id, content_id)
+        # Don't delete the content — update it with error status so frontend can show it
+        try:
+            from app.db.client import get_client
+            client = get_client()
+            client.table("record_content").update({"content": f"[Processing failed: {str(e)[:100]}]"}).eq("id", content_id).execute()
+        except Exception:
+            pass
         try:
             from app.communication.layer import sio
             await sio.emit("record_processing_status", ProcessingStatus(status="failed", record_id=record_id, error=str(e)).model_dump())

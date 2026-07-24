@@ -33,6 +33,7 @@ export type RecordContent = {
   record_id: string
   content_type: string
   content: string
+  file_url: string
   created_at: string
   updated_at: string
 }

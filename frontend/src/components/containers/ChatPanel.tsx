@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Plus, History, X } from 'lucide-react'
+import { Plus, History, X, Sparkles } from 'lucide-react'
 import { Conversation } from '../../pages/Conversation'
 import { useBusinessStore } from '../../store/business'
 import { listSessions, createSession, getSessionMessages, type ChatSession, type ChatMessage } from '../../lib/services/conversations'
+import * as recordsApi from '../../lib/services/records'
 import type { MessageItem } from './ConversationPage'
 
 export function ChatPanel({ recordId }: { recordId?: string }) {
@@ -13,8 +14,20 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
   const [collapsed, setCollapsed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingMessages, setLoadingMessages] = useState(false)
+  const [recordInsight, setRecordInsight] = useState<{ insight: string; suggested_questions: string[] } | null>(null)
+  const [insightVisible, setInsightVisible] = useState(true)
+  const [loadingInsight, setLoadingInsight] = useState(false)
   const { currentProfile } = useBusinessStore()
   const businessId = currentProfile?.id || ''
+
+  // Fetch record insight on mount
+  useEffect(() => {
+    if (!recordId) return
+    setLoadingInsight(true)
+    recordsApi.getRecordUnderstanding(recordId).then((data) => {
+      if (data?.insight) setRecordInsight(data)
+    }).catch(() => {}).finally(() => setLoadingInsight(false))
+  }, [recordId])
 
   // Load sessions on mount or business change
   useEffect(() => {
@@ -196,19 +209,57 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
             </div>
           </div>
         ) : activeSessionId ? (
-          <Conversation
-            key={activeSessionId}
-            initialMessages={initialMessages}
-            sessionId={activeSessionId}
-            sessionTitle={sessions.find(s => s.id === activeSessionId)?.title}
-            fullScreen={false}
-            showHeader={false}
-            characterRightOffset={290}
-          />
+          <div className="flex flex-col h-full">
+            {/* Show insight cards above conversation if visible and no messages yet */}
+            {insightVisible && initialMessages.length === 0 && (
+              <div className="shrink-0 p-3 space-y-2">
+                {loadingInsight ? (
+                  <div className="flex items-center gap-2 py-4 justify-center">
+                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-zinc-600 border-t-emerald-500" />
+                    <span className="text-[11px] text-zinc-500">Generating insights...</span>
+                  </div>
+                ) : recordInsight ? (
+                  <>
+                    <div className="rounded-lg border border-zinc-800/40 bg-[#141414] p-3">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <Sparkles size={11} className="text-emerald-500" />
+                        <span className="text-[10px] font-medium text-zinc-400">Overview</span>
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-zinc-300">{recordInsight.insight}</p>
+                    </div>
+                    <button type="button" className="rounded-full border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-1 text-[10px] text-emerald-400 hover:bg-emerald-500/10 transition-colors">
+                      Ask Tendo
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            )}
+            <div className="min-h-0 flex-1">
+              <Conversation
+                key={activeSessionId}
+                initialMessages={initialMessages}
+                sessionId={activeSessionId}
+                sessionTitle={sessions.find(s => s.id === activeSessionId)?.title}
+                fullScreen={false}
+                showHeader={false}
+                characterRightOffset={290}
+                onFirstMessage={() => setInsightVisible(false)}
+              />
+            </div>
+          </div>
         ) : (
-          <div className="flex h-full items-center justify-center">
+          <div className="flex h-full flex-col items-center justify-center gap-3 p-4">
+            {recordInsight && (
+              <div className="w-full rounded-lg border border-zinc-800/40 bg-[#141414] p-3 mb-3">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <Sparkles size={11} className="text-emerald-500" />
+                  <span className="text-[10px] font-medium text-zinc-400">Record Overview</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-zinc-300">{recordInsight.insight}</p>
+              </div>
+            )}
             <button onClick={handleNewSession} className="text-xs text-zinc-400 hover:text-zinc-300">
-              Start a new conversation
+              Start a conversation
             </button>
           </div>
         )}

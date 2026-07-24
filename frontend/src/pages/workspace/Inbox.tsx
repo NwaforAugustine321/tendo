@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   RefreshCw,
   MoreVertical,
@@ -32,6 +32,7 @@ import type { SnapshotRecommendation } from '../../lib/services/snapshot'
 import { useBusinessStore } from '../../store/business'
 import { useWorkspaceStore } from '../../store/workspace'
 import * as recordsApi from '../../lib/services/records'
+import { toast } from 'sonner'
 
 // --- Types ---
 
@@ -105,14 +106,28 @@ const TABS: { id: InboxTab; label: string; badge?: number; badgeColor?: string }
 
 // --- Collapsible Section ---
 
-function CollapsibleSection({ title, subtitle, avatarColor, defaultOpen = false, children }: {
+function CollapsibleSection({ title, subtitle, avatarColor, defaultOpen = false, icon, processing, children }: {
   title: string
   subtitle: string
   avatarColor: string
   defaultOpen?: boolean
+  icon?: string
+  processing?: boolean
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(defaultOpen)
+
+  const renderIcon = () => {
+    if (processing) return <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-zinc-600 border-t-emerald-500" />
+    switch (icon) {
+      case 'text': return <Type size={14} className="text-zinc-400" />
+      case 'image': return <Image size={14} className="text-zinc-400" />
+      case 'audio': return <Mic size={14} className="text-zinc-400" />
+      case 'pdf': return <FileText size={14} className="text-zinc-400" />
+      default: return <Type size={14} className="text-zinc-400" />
+    }
+  }
+
   return (
     <div className="mb-4 border-t border-zinc-800/20 bg-zinc-900/20">
       <button
@@ -120,11 +135,13 @@ function CollapsibleSection({ title, subtitle, avatarColor, defaultOpen = false,
         onClick={() => setOpen(!open)}
         className="flex w-full items-center gap-3 px-4 py-3 text-left"
       >
+        <span className="shrink-0">{renderIcon()}</span>
         <div className="min-w-0 flex-1">
-          <span className="text-[13px] font-medium text-zinc-200">{title}</span>
-          <span className="ml-2 text-[11px] text-zinc-500">{subtitle}</span>
+          <span className="text-[13px] font-medium text-zinc-200 line-clamp-1">{title}</span>
+          {processing && <span className="text-[11px] text-zinc-500 ml-2">Processing...</span>}
         </div>
-        <ChevronDownIcon size={16} className={clsx('text-zinc-500 transition-transform', !open && '-rotate-90')} />
+        {!processing && <span className="text-[11px] text-zinc-500 shrink-0 mr-2">{subtitle}</span>}
+        <ChevronDownIcon size={16} className={clsx('text-zinc-500 transition-transform shrink-0', !open && '-rotate-90')} />
       </button>
       {open && (
         <div className="px-4 pb-4 pt-0">
@@ -144,6 +161,126 @@ function MessageDetail({
   message: InboxMessage
   onBack: () => void
 }) {
+  const [contents, setContents] = useState<{ id: string; content_type: string; content: string; file_url?: string; created_at: string; _processing?: boolean; _fileName?: string }[]>([])
+  const [addingType, setAddingType] = useState<string | null>(null)
+  const [newContent, setNewContent] = useState('')
+  const [saving, setSaving] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const recordId = message.id.startsWith('record-') ? message.id.replace('record-', '') : ''
+
+  // Fetch all record contents on mount
+  useEffect(() => {
+    if (!recordId) return
+    recordsApi.getRecordContents(recordId).then((data) => {
+      setContents(data)
+    }).catch(() => {})
+  }, [recordId])
+
+  useEffect(() => {
+    if (addingType === 'text') setTimeout(() => textareaRef.current?.focus(), 50)
+  }, [addingType])
+
+  const handleAddContent = (type: string) => {
+    if (type === 'text') {
+      setAddingType(type)
+      setNewContent('')
+    }
+    // For file types, the hidden input handles it directly
+  }
+
+  const handleFileSelected = async (type: string, file: File) => {
+    const fileName = file.name || `${type} file`
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const base64 = reader.result as string
+      setSaving(true)
+      try {
+        const result = await recordsApi.addRecordContent(recordId, type, base64)
+        const entry = result.content
+        const contentId = entry.id
+        setContents((prev) => [...prev, {
+          id: contentId,
+          content_type: type,
+          content: '',
+          file_url: entry.file_url || '',
+          created_at: new Date().toISOString(),
+          _processing: true,
+          _fileName: fileName,
+        }])
+        toast.loading('Processing content...', { id: `processing-${contentId}` })
+
+        // Poll for completion
+        const pollInterval = setInterval(async () => {
+          try {
+            const updated = await recordsApi.getRecordContents(recordId)
+            const found = updated.find((c: any) => c.id === contentId)
+            if (found && found.content) {
+              clearInterval(pollInterval)
+              if (found.content.startsWith('[Processing failed')) {
+                setContents((prev) => prev.map((c) => c.id === contentId ? { ...c, _processing: false } : c))
+                toast.error('Processing failed', { id: `processing-${contentId}` })
+              } else {
+                setContents((prev) => prev.map((c) => c.id === contentId ? { ...found, _processing: false } : c))
+                toast.success('Content processed', { id: `processing-${contentId}` })
+              }
+            }
+          } catch { /* retry */ }
+        }, 4000)
+
+        setTimeout(() => {
+          clearInterval(pollInterval)
+        }, 180000)
+      } catch {
+        toast.error('Failed to upload content')
+      }
+      finally { setSaving(false) }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleSaveContent = async () => {
+    if (!recordId || !newContent.trim() || !addingType) return
+    setSaving(true)
+    try {
+      const result = await recordsApi.addRecordContent(recordId, addingType, newContent.trim())
+      const contentId = result.content.id
+      setContents((prev) => [...prev, {
+        id: contentId,
+        content_type: addingType,
+        content: newContent.trim(),
+        created_at: new Date().toISOString(),
+        _processing: true,
+        _fileName: 'Text note',
+      }])
+      setAddingType(null)
+      setNewContent('')
+      toast.loading('Processing...', { id: `processing-${contentId}` })
+
+      // Poll for processing completion (title/summary update)
+      const pollInterval = setInterval(async () => {
+        try {
+          const updated = await recordsApi.getRecordContents(recordId)
+          const found = updated.find((c: any) => c.id === contentId)
+          if (found && found.content) {
+            // Check if content was updated by processing
+            const hasBeenProcessed = found.content !== newContent.trim() || found.content.startsWith('[Processing failed')
+            if (hasBeenProcessed) {
+              clearInterval(pollInterval)
+              if (found.content.startsWith('[Processing failed')) {
+                setContents((prev) => prev.map((c) => c.id === contentId ? { ...c, _processing: false } : c))
+                toast.error('Processing failed', { id: `processing-${contentId}` })
+              } else {
+                setContents((prev) => prev.map((c) => c.id === contentId ? { ...found, _processing: false } : c))
+                toast.success('Processed', { id: `processing-${contentId}` })
+              }
+            }
+          }
+        } catch { /* retry */ }
+      }, 4000)
+    } catch { toast.error('Failed to save') }
+    finally { setSaving(false) }
+  }
+
   return (
     <div className="flex h-full bg-[#0a0a0a]">
       {/* Left: Record detail */}
@@ -165,38 +302,100 @@ function MessageDetail({
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {/* Subject */}
           <div className="flex items-center gap-2 mb-6">
-            <h1 className="text-[18px] font-normal text-zinc-100">{message.subject}</h1>
+            <h1 className="text-[18px] font-normal text-zinc-100">{message.sender}</h1>
           </div>
 
-          {/* Source header — collapsible */}
-          <CollapsibleSection title={message.sender} subtitle={message.fullDate} avatarColor={message.avatarColor} defaultOpen>
-            <div className="text-[14px] leading-relaxed text-zinc-300 whitespace-pre-wrap">{message.body}</div>
-          </CollapsibleSection>
+          {/* Record contents — each as collapsible */}
+          {contents.length > 0 ? (
+            contents.map((content, idx) => (
+              <CollapsibleSection
+                key={content.id}
+                title={content._processing ? (content._fileName || 'Processing...')
+                  : content.content_type === 'text' ? (content.content.slice(0, 60) + (content.content.length > 60 ? '...' : ''))
+                  : content.content && !content.content.startsWith('data:') && !content.content.startsWith('[Processing') ? (content.content.slice(0, 60) + (content.content.length > 60 ? '...' : ''))
+                  : content._fileName || (content.content_type.charAt(0).toUpperCase() + content.content_type.slice(1))
+                }
+                subtitle={content._processing ? '' : new Date(content.created_at).toLocaleString()}
+                avatarColor="bg-zinc-600"
+                defaultOpen={idx === 0 || idx === contents.length - 1}
+                icon={content.content_type}
+                processing={content._processing}
+              >
+                {content.content_type === 'image' && (content.file_url || content.content.startsWith('data:image')) ? (
+                  <div className="flex items-start gap-3">
+                    <a href={content.file_url || content.content} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                      <img src={content.file_url || content.content} alt="Uploaded image" className="max-w-[150px] max-h-[100px] rounded-md cursor-pointer hover:opacity-80 transition-opacity" />
+                    </a>
+                    {content.content && !content.content.startsWith('data:') && (
+                      <div className="text-[13px] leading-relaxed text-zinc-300 whitespace-pre-wrap">{content.content}</div>
+                    )}
+                  </div>
+                ) : content.content_type === 'audio' && (content.file_url || content.content.startsWith('data:audio')) ? (
+                  <audio controls src={content.file_url || content.content} className="w-full max-w-sm" />
+                ) : content.content_type === 'pdf' && (content.file_url || content.content.startsWith('data:application/pdf')) ? (
+                  <a href={content.file_url || content.content} target="_blank" rel="noopener noreferrer" className="text-[13px] text-emerald-400 hover:underline">View PDF</a>
+                ) : (
+                  <div className="text-[14px] leading-relaxed text-zinc-300 whitespace-pre-wrap">{content.content}</div>
+                )}
+              </CollapsibleSection>
+            ))
+          ) : !addingType ? (
+            <div className="py-8 text-center text-[13px] text-zinc-500">No content yet. Add some below.</div>
+          ) : null}
 
-          {/* Source input options */}
-          <div className="mt-6 flex items-center gap-2 flex-wrap">
-            <button type="button" className="flex items-center gap-1.5 rounded-md border border-dashed border-zinc-600 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200">
-              <Type size={14} /> Text
-            </button>
-            <button type="button" className="flex items-center gap-1.5 rounded-md border border-dashed border-zinc-600 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200">
-              <Image size={14} /> Image
-            </button>
-            <button type="button" className="flex items-center gap-1.5 rounded-md border border-dashed border-zinc-600 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200">
-              <Mic size={14} /> Audio
-            </button>
-            <button type="button" className="flex items-center gap-1.5 rounded-md border border-dashed border-zinc-600 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200">
-              <FileText size={14} /> PDF
-            </button>
-            <button type="button" className="flex items-center gap-1.5 rounded-md border border-dashed border-zinc-600 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200">
-              <PlusIcon size={14} /> More
-            </button>
-          </div>
+          {/* New content input area — text only */}
+          {addingType === 'text' && (
+            <div className="mt-4 rounded-lg border border-zinc-800/40 bg-zinc-900/30 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[11px] uppercase tracking-wide text-zinc-500">text</span>
+              </div>
+              <textarea
+                ref={textareaRef}
+                value={newContent}
+                onChange={(e) => setNewContent(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && e.metaKey) handleSaveContent() }}
+                placeholder="Type your content here... (⌘+Enter to save)"
+                className="w-full min-h-[100px] resize-none bg-transparent text-[13px] leading-relaxed text-zinc-200 placeholder-zinc-600 focus:outline-none"
+              />
+              <div className="flex items-center gap-2 mt-3">
+                <button type="button" onClick={handleSaveContent} disabled={!newContent.trim() || saving} className="rounded-md bg-emerald-600 px-3 py-1 text-[11px] font-medium text-white hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed">
+                  {saving ? 'Saving...' : 'Save'}
+                </button>
+                <button type="button" onClick={() => { setAddingType(null); setNewContent('') }} className="rounded-md px-3 py-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Fixed bottom — source input buttons */}
+        <div className="shrink-0 flex items-center gap-2 px-6 py-3 border-t border-zinc-800/40 flex-wrap">
+          <button type="button" onClick={() => handleAddContent('text')} className="flex items-center gap-1.5 rounded-md border border-dashed border-zinc-600 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200">
+            <Type size={14} /> Text
+          </button>
+          <label className="flex items-center gap-1.5 rounded-md border border-dashed border-zinc-600 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200 cursor-pointer">
+            <Image size={14} /> Image
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected('image', f); e.target.value = '' }} />
+          </label>
+          <label className="flex items-center gap-1.5 rounded-md border border-dashed border-zinc-600 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200 cursor-pointer">
+            <Mic size={14} /> Audio
+            <input type="file" accept="audio/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected('audio', f); e.target.value = '' }} />
+          </label>
+          <label className="flex items-center gap-1.5 rounded-md border border-dashed border-zinc-600 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200 cursor-pointer">
+            <FileText size={14} /> PDF
+            <input type="file" accept=".pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected('pdf', f); e.target.value = '' }} />
+          </label>
+          <label className="flex items-center gap-1.5 rounded-md border border-dashed border-zinc-600 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200 cursor-pointer">
+            <PlusIcon size={14} /> More
+            <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected('other', f); e.target.value = '' }} />
+          </label>
         </div>
       </div>
 
       {/* Right: Chat session panel */}
       <div className="hidden md:flex w-[340px] shrink-0 flex-col border-l border-zinc-800/60 bg-[#0f0f0f]">
-        <ChatPanel recordId={message.id.startsWith('record-') ? message.id.replace('record-', '') : undefined} />
+        <ChatPanel recordId={recordId || undefined} />
       </div>
     </div>
   )
@@ -230,14 +429,14 @@ export function Inbox() {
       recordsApi.getAllRecords().catch(() => []),
     ]).then(async ([insights, snapshot, records]) => {
       // Map records to inbox messages for Primary tab
-      const allRecords: InboxMessage[] = records.map((rec) => ({
+      const allRecords: InboxMessage[] = records.map((rec: any) => ({
         id: `record-${rec.id}`,
-        sender: 'Record',
+        sender: rec.title || 'Untitled',
         senderEmail: '',
         recipient: '',
-        subject: rec.title || 'Untitled',
-        preview: `Created ${formatDate(rec.created_at)}`,
-        body: rec.title || 'Untitled',
+        subject: rec.first_content ? rec.first_content.slice(0, 80) + (rec.first_content.length > 80 ? '...' : '') : rec.title || 'Untitled',
+        preview: rec.first_content || 'No content yet',
+        body: rec.first_content || '',
         date: formatDate(rec.updated_at || rec.created_at),
         fullDate: new Date(rec.updated_at || rec.created_at).toLocaleString(),
         read: true,
@@ -306,14 +505,14 @@ export function Inbox() {
     const handleNewRecord = () => {
       if (currentProfile?.id) {
         recordsApi.getAllRecords().then((records) => {
-          const allRecords: InboxMessage[] = records.map((rec) => ({
+          const allRecords: InboxMessage[] = records.map((rec: any) => ({
             id: `record-${rec.id}`,
-            sender: 'Record',
+            sender: rec.title || 'Untitled',
             senderEmail: '',
             recipient: '',
-            subject: rec.title || 'Untitled',
-            preview: `Created ${formatDate(rec.created_at)}`,
-            body: rec.title || 'Untitled',
+            subject: rec.first_content ? rec.first_content.slice(0, 80) + (rec.first_content.length > 80 ? '...' : '') : rec.title || 'Untitled',
+            preview: rec.first_content || 'No content yet',
+            body: rec.first_content || '',
             date: formatDate(rec.updated_at || rec.created_at),
             fullDate: new Date(rec.updated_at || rec.created_at).toLocaleString(),
             read: false,

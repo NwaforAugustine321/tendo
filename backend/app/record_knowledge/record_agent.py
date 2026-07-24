@@ -1,33 +1,18 @@
-import json
 import logging
 from datetime import datetime, timezone
 from uuid import uuid4
-
-from pydantic import BaseModel
 
 from app.embeddings.client import get_embedding_client
 from app.lib.json_parser import parse_json_output
 from app.record_knowledge.config import get_record_knowledge_config
 from app.record_knowledge.models import RecordContentInput, KnowledgeEntry, ProcessingResult, AIUnderstanding
 from app.record_knowledge import store
+from app.record_knowledge.summarizers import SUMMARIZERS
 
 logger = logging.getLogger(__name__)
 
 
-class SummaryOutput(BaseModel):
-    summary: str
-
-
-_summarizer_agent = None
 _insight_agent = None
-
-
-def _get_summarizer_agent():
-    global _summarizer_agent
-    if _summarizer_agent is None:
-        from app.agents.models import Agent
-        _summarizer_agent = Agent.from_spec("text_summarizer")
-    return _summarizer_agent
 
 
 def _get_insight_agent():
@@ -38,55 +23,58 @@ def _get_insight_agent():
     return _insight_agent
 
 
-async def _summarize_text(content: str) -> str:
-    from app.lib.agent_executor import execute_task
-    from app.lib.context_handler import handle_text_context_length
-
-    config = get_record_knowledge_config()
-    max_length = config.max_summary_length
-
-    if not content or not content.strip():
-        return "Empty note with no content."
-
-    if len(content.strip()) <= 100:
-        return content.strip()
-
-    fitted_content = await handle_text_context_length(content)
-
-    agent = _get_summarizer_agent()
-
-    raw = await execute_task(
-        agent=agent,
-        description=fitted_content,
-        tools=[],
-        expected_output=agent.expected_output,
-        output_pydantic=SummaryOutput,
-        use_system_prompt=True,
-        
-    )
-
-    try:
-        data = parse_json_output(raw)
-        summary = data.get("summary", raw.strip())
-    except Exception:
-        summary = raw.strip() if raw else content[:max_length]
-
-    return summary[:max_length]
-
-
-_SUMMARIZERS = {
-    "text": _summarize_text,
-}
-
-
 async def process_record_content(record_content: RecordContentInput) -> ProcessingResult:
-    summarizer = _SUMMARIZERS.get(record_content.content_type)
+    summarizer = SUMMARIZERS.get(record_content.content_type)
     if summarizer is None:
         logger.warning(f"Unsupported content_type: {record_content.content_type}")
         return ProcessingResult(success=False, error=f"Unsupported content_type: {record_content.content_type}")
 
     try:
         summary = await summarizer(record_content.content)
+
+        # If summarizer returned empty, processing failed
+        if not summary or not summary.strip():
+            return ProcessingResult(success=False, error="Processing failed: no content extracted")
+
+        # For non-text content types, save the extracted summary on the content entry
+        if record_content.content_type != "text" and "|||" in summary:
+            from app.db.tools.records import update_record, get_record
+            from app.db.client import get_client as get_db_client
+
+            # Parse title|||summary|||ocr_text format
+            parts = summary.split("|||")
+            title = parts[0].strip() if len(parts) > 0 else ""
+            body = parts[1].strip() if len(parts) > 1 else summary
+            ocr_text = parts[2].strip() if len(parts) > 2 else ""
+
+            # Save only the summary text on the record_content entry (no prefixes)
+            display_content = body
+
+            db = get_db_client()
+            db.table("record_content").update({"content": display_content}).eq("id", record_content.metadata.get("content_id", "")).eq("business_id", record_content.business_id).execute()
+
+            # Update record title if current title is a hash
+            if title:
+                record = await get_record(record_content.business_id, record_content.record_id)
+                if record and (record.get("title", "").startswith("#") or record.get("title") == "Untitled"):
+                    await update_record(record_content.business_id, record_content.record_id, title=title)
+
+            # Embed the full structured text (title + summary + OCR content)
+            summary = f"Title: {title}\nSummary: {body}\nContent: {ocr_text}" if ocr_text else display_content
+
+            logger.info(f"Updated content with OCR summary for record {record_content.record_id}")
+
+        # For text content, also update record title from first content
+        if record_content.content_type == "text":
+            from app.db.tools.records import update_record, get_record
+            record = await get_record(record_content.business_id, record_content.record_id)
+            if record and (record.get("title", "").startswith("#") or record.get("title") == "Untitled"):
+                # Use first 60 chars of text as title
+                title = record_content.content[:60].strip()
+                if title:
+                    await update_record(record_content.business_id, record_content.record_id, title=title)
+
+            logger.info(f"Updated content with OCR summary for record {record_content.record_id}")
 
         embedding_client = get_embedding_client()
         embedding = await embedding_client.aembed_query(summary)

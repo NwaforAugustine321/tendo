@@ -160,7 +160,7 @@ function RecordContentTab({ recordId }: { recordId: string }) {
                 {entry.content ? <img src={entry.content} alt="" className="max-h-32 rounded" /> : (
                   <label className="cursor-pointer text-[10px] text-zinc-500 hover:text-zinc-300">
                     Click to upload image
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleEntryChange(entry.id, URL.createObjectURL(file)) }} />
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = () => handleEntryChange(entry.id, reader.result as string); reader.readAsDataURL(file) } }} />
                   </label>
                 )}
               </div>
@@ -171,7 +171,7 @@ function RecordContentTab({ recordId }: { recordId: string }) {
                 {entry.content ? <audio controls src={entry.content} className="w-full max-w-xs" /> : (
                   <label className="cursor-pointer text-[10px] text-zinc-500 hover:text-zinc-300">
                     Click to upload audio
-                    <input type="file" accept="audio/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleEntryChange(entry.id, URL.createObjectURL(file)) }} />
+                    <input type="file" accept="audio/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = () => handleEntryChange(entry.id, reader.result as string); reader.readAsDataURL(file) } }} />
                   </label>
                 )}
               </div>
@@ -182,7 +182,7 @@ function RecordContentTab({ recordId }: { recordId: string }) {
                 {entry.content ? <a href={entry.content} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#3ecf8e] hover:underline">View PDF</a> : (
                   <label className="cursor-pointer text-[10px] text-zinc-500 hover:text-zinc-300">
                     Click to upload PDF
-                    <input type="file" accept=".pdf" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleEntryChange(entry.id, URL.createObjectURL(file)) }} />
+                    <input type="file" accept=".pdf" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = () => handleEntryChange(entry.id, reader.result as string); reader.readAsDataURL(file) } }} />
                   </label>
                 )}
               </div>
@@ -209,42 +209,25 @@ function RecordContentTab({ recordId }: { recordId: string }) {
 
       {/* Fixed bottom — input source buttons */}
       <div className="shrink-0 flex items-center gap-1.5 px-3 py-2.5 border-t border-zinc-800/40 flex-wrap">
-        {ENTRY_TYPE_ICONS.map(({ type, label, icon: Icon }) => (
-          <button
-            key={type}
-            type="button"
-            onClick={() => handleAddEntry(type)}
-            className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-200 hover:bg-white/5 text-[10px] font-medium transition-colors"
-          >
-            <Icon size={11} />
-            {label}
-          </button>
-        ))}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setShowMoreTypes(!showMoreTypes)}
-            className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-200 hover:bg-white/5 text-[10px] font-medium transition-colors"
-          >
-            <Plus size={11} />
-            More
-          </button>
-          {showMoreTypes && (
-            <div className="absolute right-0 bottom-full mb-1 z-50 flex flex-col gap-1 rounded-lg border border-white/10 bg-[#1a1a1a] p-2 shadow-xl min-w-[120px]">
-              {MORE_ENTRY_TYPES.map(({ type, label, icon: Icon }) => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => { handleAddEntry(type); setShowMoreTypes(false) }}
-                  className="flex items-center gap-2 rounded-md px-3 py-2 w-full text-left text-zinc-400 hover:text-zinc-200 hover:bg-white/5 text-[11px] font-medium transition-colors"
-                >
-                  <Icon size={14} />
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => handleAddEntry('text')}
+          className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-200 hover:bg-white/5 text-[10px] font-medium transition-colors"
+        >
+          <Type size={11} /> Text
+        </button>
+        <label className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-200 hover:bg-white/5 text-[10px] font-medium transition-colors cursor-pointer">
+          <Image size={11} /> Image
+          <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { const reader = new FileReader(); reader.onload = () => { handleAddEntry('image'); setTimeout(() => { const entries = document.querySelectorAll('[data-entry-type]'); }, 0) }; reader.readAsDataURL(f) } }} />
+        </label>
+        <label className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-200 hover:bg-white/5 text-[10px] font-medium transition-colors cursor-pointer">
+          <Mic size={11} /> Audio
+          <input type="file" accept="audio/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { const reader = new FileReader(); reader.onload = () => handleEntryChange(crypto.randomUUID(), reader.result as string); reader.readAsDataURL(f) } }} />
+        </label>
+        <label className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-200 hover:bg-white/5 text-[10px] font-medium transition-colors cursor-pointer">
+          <FileText size={11} /> PDF
+          <input type="file" accept=".pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { const reader = new FileReader(); reader.onload = () => handleEntryChange(crypto.randomUUID(), reader.result as string); reader.readAsDataURL(f) } }} />
+        </label>
       </div>
     </div>
   )

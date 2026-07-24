@@ -61,11 +61,12 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
 
     # Memory system
-    supabase_db_url: str = ""  
+    supabase_db_url: str = ""
     max_message_token_size: int = 1024  # Range: 128–131072
 
     # Storage
-    bucket_name: str = "business-assets"
+    bucket_name: str = ""
+    supabase_storage_bucket: str = ""
     vector_store_path: str = "./data/vector_store"
 
     # Voice
