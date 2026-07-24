@@ -13,6 +13,7 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 class CreateSessionRequest(BaseModel):
     business_id: str
     title: str = "New Session"
+    record_id: str | None = None
 
 
 class UpdateSessionRequest(BaseModel):
@@ -22,10 +23,11 @@ class UpdateSessionRequest(BaseModel):
 @router.get("/sessions")
 async def list_sessions_route(
     business_id: str = Query(...),
+    record_id: str | None = Query(None),
     user: dict = Depends(get_current_user),
 ):
     """List all conversation sessions for a business."""
-    return await list_sessions(business_id, user["user_id"])
+    return await list_sessions(business_id, user["user_id"], record_id=record_id)
 
 
 @router.post("/sessions")
@@ -34,7 +36,7 @@ async def create_session_route(
     user: dict = Depends(get_current_user),
 ):
     """Create a new conversation session."""
-    return await insert_session(body.business_id, user["user_id"], body.title)
+    return await insert_session(body.business_id, user["user_id"], body.title, record_id=body.record_id)
 
 
 @router.get("/sessions/{session_id}")

@@ -1,12 +1,17 @@
 import { useLocation } from 'react-router-dom'
 import { InsightsFeed } from './InsightsFeed'
+import { Inbox } from '../../pages/workspace/Inbox'
 import { Dashboard } from '../../pages/workspace/Dashboard'
 
 export function WorkspaceContent() {
   const location = useLocation()
-  const isDashboard = location.pathname === '/app' || location.pathname === '/app/'
+  const path = location.pathname
 
-  if (isDashboard) {
+  if (path === '/app' || path === '/app/') {
+    return <Inbox />
+  }
+
+  if (path.startsWith('/app/insights')) {
     return <Dashboard />
   }
 

@@ -7,7 +7,7 @@ from app.db.client import get_client
 logger = logging.getLogger(__name__)
 
 
-async def insert_session(business_id: str, user_id: str, title: str = "New Session") -> dict:
+async def insert_session(business_id: str, user_id: str, title: str = "New Session", record_id: str | None = None) -> dict:
     """Insert a new conversation_sessions row."""
     client = get_client()
     data = {
@@ -16,6 +16,8 @@ async def insert_session(business_id: str, user_id: str, title: str = "New Sessi
         "title": title,
         "status": "active",
     }
+    if record_id:
+        data["record_id"] = record_id
     result = client.table("conversation_sessions").insert(data).execute()
     if result.data:
         return result.data[0]
@@ -38,18 +40,18 @@ async def find_active_session(business_id: str, user_id: str) -> dict | None:
     return result.data[0] if result.data else None
 
 
-async def list_sessions(business_id: str, user_id: str, limit: int = 20) -> list[dict]:
-    """List all sessions for a business+user, most recent first."""
+async def list_sessions(business_id: str, user_id: str, limit: int = 20, record_id: str | None = None) -> list[dict]:
+    """List all sessions for a business+user, most recent first. Optionally filter by record_id."""
     client = get_client()
-    result = (
+    query = (
         client.table("conversation_sessions")
-        .select("id, title, status, created_at, updated_at")
+        .select("id, title, status, record_id, created_at, updated_at")
         .eq("business_id", business_id)
         .eq("user_id", user_id)
-        .order("updated_at", desc=True)
-        .limit(limit)
-        .execute()
     )
+    if record_id:
+        query = query.eq("record_id", record_id)
+    result = query.order("updated_at", desc=True).limit(limit).execute()
     return result.data or []
 
 

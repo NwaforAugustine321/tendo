@@ -57,8 +57,12 @@ export async function getRecords(folderId: string): Promise<Record[]> {
   return await request<Record[]>(`/folders/${folderId}/records?business_id=${getBusinessId()}`, { silent: true })
 }
 
+export async function getAllRecords(): Promise<Record[]> {
+  return await request<Record[]>(`/records?business_id=${getBusinessId()}`, { silent: true })
+}
+
 export async function createRecord(folderId: string, title: string): Promise<Record> {
-  return await request<Record>('/records', { method: 'POST', body: { business_id: getBusinessId(), folder_id: folderId, title } })
+  return await request<Record>('/records', { method: 'POST', body: { business_id: getBusinessId(), folder_id: folderId || undefined, title } })
 }
 
 export async function getRecord(recordId: string): Promise<Record> {

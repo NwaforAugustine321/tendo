@@ -17,8 +17,8 @@ export function FloatingPanel({
   title = 'Chat',
   visible,
   onClose,
-  defaultWidth = 420,
-  defaultHeight = 600,
+  defaultWidth = 600,
+  defaultHeight = 420,
   offsetIndex = 0,
 }: Props) {
   const [minimized, setMinimized] = useState(false)

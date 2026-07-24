@@ -4,7 +4,7 @@ from app.lib.auth_dependency import get_current_user
 from app.record_knowledge.models import CreateFolderRequest, CreateRecordRequest, UpdateRecordRequest, AddContentRequest
 from app.services.records import (
     create_folder, get_folders, get_folder, update_folder, delete_folder,
-    create_record, get_records, get_record, update_record, delete_record,
+    create_record, get_records, get_all_records, get_record, update_record, delete_record,
     add_record_content, get_record_contents, delete_record_content,
     get_record_understanding, process_content_background,
 )
@@ -45,6 +45,11 @@ async def delete_folder_endpoint(folder_id: str, business_id: str = Query(...), 
 @router.get("/folders/{folder_id}/records")
 async def list_records(folder_id: str, business_id: str = Query(...), user=Depends(get_current_user)):
     return await get_records(business_id, folder_id)
+
+
+@router.get("/records")
+async def list_all_records(business_id: str = Query(...), user=Depends(get_current_user)):
+    return await get_all_records(business_id)
 
 
 # --- Record endpoints ---

@@ -8,6 +8,7 @@ export type ChatSession = {
   id: string
   title: string
   status: string
+  record_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -17,14 +18,17 @@ export type ChatMessage = {
   content: string
 }
 
-export async function listSessions(businessId: string): Promise<ChatSession[]> {
-  return await request<ChatSession[]>(`/conversations/sessions?business_id=${businessId}`, { silent: true })
+export async function listSessions(businessId: string, recordId?: string): Promise<ChatSession[]> {
+  const params = recordId ? `&record_id=${recordId}` : ''
+  return await request<ChatSession[]>(`/conversations/sessions?business_id=${businessId}${params}`, { silent: true })
 }
 
-export async function createSession(businessId: string, title: string = 'New Session'): Promise<ChatSession> {
+export async function createSession(businessId: string, title: string = 'New Session', recordId?: string): Promise<ChatSession> {
+  const body: Record<string, string> = { business_id: businessId, title }
+  if (recordId) body.record_id = recordId
   return await request<ChatSession>('/conversations/sessions', {
     method: 'POST',
-    body: { business_id: businessId, title },
+    body,
   })
 }
 

@@ -5,7 +5,7 @@ import { useBusinessStore } from '../../store/business'
 import { listSessions, createSession, getSessionMessages, type ChatSession, type ChatMessage } from '../../lib/services/conversations'
 import type { MessageItem } from './ConversationPage'
 
-export function ChatPanel() {
+export function ChatPanel({ recordId }: { recordId?: string }) {
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string>('')
   const [initialMessages, setInitialMessages] = useState<MessageItem[]>([])
@@ -21,21 +21,18 @@ export function ChatPanel() {
     if (!businessId) return
 
     setLoading(true)
-    listSessions(businessId)
+    listSessions(businessId, recordId)
       .then((data) => {
         setSessions(data)
         if (data.length > 0) {
           setActiveSessionId(data[0].id)
-        } else {
-          // No sessions — create one
-          handleNewSession()
         }
       })
       .catch(() => {
         setSessions([])
       })
       .finally(() => setLoading(false))
-  }, [businessId])
+  }, [businessId, recordId])
 
   // Load messages when active session changes — fetch in batches of 20
   useEffect(() => {
@@ -83,7 +80,7 @@ export function ChatPanel() {
   const handleNewSession = async () => {
     if (!businessId) return
     try {
-      const session = await createSession(businessId)
+      const session = await createSession(businessId, 'New Session', recordId)
       setSessions((prev) => [session, ...prev])
       setActiveSessionId(session.id)
       setInitialMessages([])

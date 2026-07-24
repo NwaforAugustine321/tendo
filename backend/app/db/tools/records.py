@@ -66,9 +66,13 @@ async def delete_folder(business_id: str, folder_id: str) -> dict:
     return {"deleted": True}
 
 
-async def create_record(business_id: str, folder_id: str, title: str) -> dict:
+async def create_record(business_id: str, folder_id: str, title: str, user_id: str | None = None) -> dict:
     client = get_client()
-    data = {"business_id": business_id, "folder_id": folder_id, "title": title}
+    data = {"business_id": business_id, "title": title}
+    if folder_id:
+        data["folder_id"] = folder_id
+    if user_id:
+        data["user_id"] = user_id
     result = client.table("records").insert(data).execute()
     return result.data[0] if result.data else data
 
@@ -76,6 +80,13 @@ async def create_record(business_id: str, folder_id: str, title: str) -> dict:
 async def get_records(business_id: str, folder_id: str) -> list[dict]:
     client = get_client()
     result = client.table("records").select("*").eq("business_id", business_id).eq("folder_id", folder_id).order("created_at", desc=False).execute()
+    return result.data or []
+
+
+async def get_all_records(business_id: str) -> list[dict]:
+    """Fetch all records for a business regardless of folder."""
+    client = get_client()
+    result = client.table("records").select("*").eq("business_id", business_id).order("created_at", desc=True).execute()
     return result.data or []
 
 

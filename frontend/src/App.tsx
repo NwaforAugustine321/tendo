@@ -36,6 +36,7 @@ export default function App() {
           <Route path="inventory" element={<Inventory />} />
           <Route path="customers" element={<Customers />} />
           <Route path="analytics" element={<Analytics />} />
+          <Route path="*" element={<WorkspaceHome />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

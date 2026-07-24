@@ -14,12 +14,6 @@ const SENTIMENT_STYLES: Record<SnapshotStory['sentiment'], { border: string; bad
   attention_needed: { border: 'border-amber-600/20', badge: 'bg-amber-900/40 text-amber-400', icon: AlertTriangle, bg: 'bg-amber-950/20' },
 }
 
-const PRIORITY_STYLES: Record<SnapshotRecommendation['priority'], string> = {
-  high: 'text-red-400',
-  medium: 'text-amber-400',
-  low: 'text-zinc-400',
-}
-
 const ROTATE_INTERVAL = 8000
 
 function HeroCard({ story }: { story: SnapshotStory }) {
@@ -74,7 +68,6 @@ function RecommendationStrip({ recommendations }: { recommendations: SnapshotRec
     <div className="rounded-xl border border-zinc-800/30 bg-[#0a0a0a] p-4 flex flex-col gap-3 h-full">
       <h2 className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Actions</h2>
       {recommendations.map((rec, idx) => {
-        const color = PRIORITY_STYLES[rec.priority] || PRIORITY_STYLES.low
         return (
           <div key={idx} className="flex items-start gap-2">
             <ArrowRight size={11} className="text-emerald-500 mt-0.5 shrink-0" />
@@ -82,7 +75,6 @@ function RecommendationStrip({ recommendations }: { recommendations: SnapshotRec
               <p className="text-[11px] text-white leading-snug">{rec.action}</p>
               <p className="text-[10px] text-zinc-500 mt-0.5 line-clamp-1">{rec.reason}</p>
             </div>
-            <span className={clsx('text-[9px] font-medium shrink-0', color)}>{rec.priority}</span>
           </div>
         )
       })}

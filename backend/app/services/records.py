@@ -1,6 +1,6 @@
 from app.db.tools.records import (
     create_folder, get_folders, get_folder, update_folder, delete_folder,
-    create_record, get_records, get_record, update_record, delete_record,
+    create_record, get_records, get_all_records, get_record, update_record, delete_record,
     add_record_content, get_record_contents, delete_record_content,
 )
 from app.record_knowledge.record_agent import get_record_understanding, process_record_content

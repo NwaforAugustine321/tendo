@@ -1,26 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { IconRail } from '../components/containers'
 import { TopBar } from '../components/containers'
+import { Sidebar } from '../components/containers/Sidebar'
+import { RightRail } from '../components/containers/RightRail'
 import { TalkingCharacter } from '../components/containers/TalkingCharacter'
 import { ChatPanel } from '../components/containers/ChatPanel'
 import { FloatingPanel } from '../components/containers/FloatingPanel'
-import { FolderNavigation } from '../components/containers/FolderNavigation'
 import { WorkspaceContent } from '../components/containers/WorkspaceContent'
 import { RecordFloatingPanel } from '../components/containers/RecordFloatingPanel'
 import { ProcessingNotification } from '../components/atoms/ProcessingNotification'
 import { useWorkspaceStore } from '../store/workspace'
-import { primaryFromPathname, type PrimarySection } from '../lib/navigation'
 
 export function WorkspaceLayout() {
   const location = useLocation()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [chatPanelVisible, setChatPanelVisible] = useState(true)
-  const [folderNavPinned, setFolderNavPinned] = useState(false)
-  const hoverClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const {
-    dashboardSidebarVisible,
     dashboardChatVisible,
     toggleDashboardSidebar,
   } = useWorkspaceStore()
@@ -28,46 +25,13 @@ export function WorkspaceLayout() {
   // Detect if we're on the dashboard (home) route
   const isDashboard = location.pathname === '/app' || location.pathname === '/app/'
 
-  const routePrimary: PrimarySection = useMemo(
-    () => primaryFromPathname(location.pathname),
-    [location.pathname]
-  )
-
-  // Resolve sidebar and chat visibility based on whether we're on dashboard
-  const effectiveSidebarVisible = isDashboard ? dashboardSidebarVisible : folderNavPinned
+  // Resolve chat visibility based on whether we're on dashboard
   const effectiveChatVisible = isDashboard ? dashboardChatVisible : chatPanelVisible
-
-  const cancelHoverClear = useCallback(() => {
-    if (hoverClearTimer.current !== null) {
-      clearTimeout(hoverClearTimer.current)
-      hoverClearTimer.current = null
-    }
-  }, [])
-
-  const scheduleHoverClear = useCallback(() => {
-    cancelHoverClear()
-    hoverClearTimer.current = setTimeout(() => {
-      hoverClearTimer.current = null
-    }, 220)
-  }, [cancelHoverClear])
-
-  const onPrimaryClick = useCallback(() => {
-    setFolderNavPinned(true)
-    cancelHoverClear()
-  }, [cancelHoverClear])
-
-  useEffect(() => () => cancelHoverClear(), [cancelHoverClear])
 
   useEffect(() => {
     const handleOpenChat = () => setChatPanelVisible(true)
     window.addEventListener('tendo:open-chat', handleOpenChat)
     return () => window.removeEventListener('tendo:open-chat', handleOpenChat)
-  }, [])
-
-  useEffect(() => {
-    const handleOpenSidebar = () => setFolderNavPinned(true)
-    window.addEventListener('tendo:open-sidebar', handleOpenSidebar)
-    return () => window.removeEventListener('tendo:open-sidebar', handleOpenSidebar)
   }, [])
 
   const pendingChatMessage = useWorkspaceStore((s) => s.pendingChatMessage)
@@ -80,7 +44,7 @@ export function WorkspaceLayout() {
 
   return (
     <div className="flex h-dvh max-h-dvh flex-col overflow-hidden bg-[#0a0a0a] text-zinc-100">
-      {/* Top bar */}
+      {/* Top bar — unchanged */}
       <TopBar onMenuClick={() => {
         if (isDashboard) {
           toggleDashboardSidebar()
@@ -90,39 +54,29 @@ export function WorkspaceLayout() {
       }} />
 
       <div className="flex min-h-0 min-w-0 flex-1">
-        {/* Primary icon rail + Folder Navigation — desktop */}
-        <div
-          className="group/sidebar relative hidden min-h-0 max-h-full md:flex"
-          onMouseEnter={cancelHoverClear}
-          onMouseLeave={scheduleHoverClear}
-        >
-          <div className="relative w-[52px] shrink-0 self-stretch min-h-0">
-            <IconRail
-              activePrimary={routePrimary}
-              onPrimaryClick={onPrimaryClick}
-              onToggleSecondary={() => {
-                if (isDashboard) {
-                  toggleDashboardSidebar()
-                } else {
-                  setFolderNavPinned(!folderNavPinned)
-                }
-              }}
-              secondaryVisible={effectiveSidebarVisible}
-            />
-          </div>
-          {effectiveSidebarVisible && (
-            <div className="w-[260px] min-h-0 overflow-hidden border-r border-zinc-800/60 bg-[#0f0f0f]">
-              <FolderNavigation />
-            </div>
-          )}
+        {/* Gmail-style collapsible left sidebar — desktop */}
+        <div className="hidden md:flex min-h-0 max-h-full">
+          <Sidebar
+            collapsed={sidebarCollapsed}
+            onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+          />
         </div>
 
-        {/* Main content — either workspace content or route outlet */}
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto border-l border-zinc-800/60 bg-[#0a0a0a]">
+        {/* Main content area */}
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-[#0a0a0a]">
           <div className="flex min-h-0 w-full min-w-0 flex-col justify-start h-full">
             <WorkspaceContent />
           </div>
         </main>
+
+        {/* Gmail-style right sidebar rail */}
+        <RightRail onPlusClick={() => {
+          if (isDashboard) {
+            useWorkspaceStore.getState().toggleDashboardChat()
+          } else {
+            setChatPanelVisible(true)
+          }
+        }} />
 
         {/* Right panel — Floating draggable Chat */}
         <FloatingPanel
@@ -154,16 +108,12 @@ export function WorkspaceLayout() {
             aria-label="Close menu"
             onClick={() => setMobileNavOpen(false)}
           />
-          <div className="fixed inset-y-0 left-0 z-50 flex w-[min(300px,92vw)] flex-col border-r border-zinc-800/90 bg-[#111111] shadow-2xl md:hidden">
-            <IconRail
-              orientation="horizontal"
-              activePrimary={routePrimary}
-              onPrimaryClick={onPrimaryClick}
-              onNavigate={() => setMobileNavOpen(false)}
+          <div className="fixed inset-y-0 left-0 z-50 flex w-[min(280px,92vw)] flex-col border-r border-zinc-800/90 bg-[#0f0f0f] shadow-2xl md:hidden">
+            <Sidebar
+              className="w-full"
+              collapsed={false}
+              onToggle={() => setMobileNavOpen(false)}
             />
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <FolderNavigation />
-            </div>
           </div>
         </>
       )}
@@ -171,7 +121,7 @@ export function WorkspaceLayout() {
       {/* Dashboard character — bottom-left, facing right */}
       {isDashboard && (
         <div className="pointer-events-none">
-          <TalkingCharacter isSpeaking={false} flipX={true} leftOffset={effectiveSidebarVisible ? 200 : -30} />
+          <TalkingCharacter isSpeaking={false} flipX={true} leftOffset={sidebarCollapsed ? 50 : 200} />
         </div>
       )}
 

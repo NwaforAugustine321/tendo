@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS conversation_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     business_id UUID NOT NULL REFERENCES business_profiles(id),
     user_id UUID NOT NULL REFERENCES user_profiles(id),
+    record_id UUID,
     title TEXT NOT NULL,
     status TEXT DEFAULT 'active' CHECK (status IN ('active', 'archived')),
     created_at TIMESTAMPTZ DEFAULT now(),

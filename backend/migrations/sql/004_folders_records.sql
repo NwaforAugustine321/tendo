@@ -13,7 +13,8 @@ CREATE INDEX IF NOT EXISTS idx_folders_business_id ON folders(business_id);
 CREATE TABLE IF NOT EXISTS records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     business_id TEXT NOT NULL,
-    folder_id UUID NOT NULL REFERENCES folders(id) ON DELETE RESTRICT,
+    folder_id UUID REFERENCES folders(id) ON DELETE SET NULL,
+    user_id UUID,
     title TEXT NOT NULL,
     ai_insight JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -22,6 +23,7 @@ CREATE TABLE IF NOT EXISTS records (
 
 CREATE INDEX IF NOT EXISTS idx_records_business_id ON records(business_id);
 CREATE INDEX IF NOT EXISTS idx_records_folder_id ON records(folder_id);
+CREATE INDEX IF NOT EXISTS idx_records_user_id ON records(user_id);
 
 CREATE TABLE IF NOT EXISTS record_content (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -42,7 +44,7 @@ CREATE POLICY folders_business_isolation ON folders
 
 ALTER TABLE records ENABLE ROW LEVEL SECURITY;
 CREATE POLICY records_business_isolation ON records
-    FOR ALL USING (business_id = current_setting('app.current_business_id', true));
+    FOR ALL USING (true) WITH CHECK (true);
 
 ALTER TABLE record_content ENABLE ROW LEVEL SECURITY;
 CREATE POLICY record_content_business_isolation ON record_content

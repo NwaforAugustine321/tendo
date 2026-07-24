@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Bell, HelpCircle, Menu, ChevronDown, User } from 'lucide-react'
+import { Bell, HelpCircle, Menu, ChevronDown, User } from 'lucide-react'
 import { useBusinessStore } from '../../store/business'
 import { resumeSession } from '../../lib/services/business'
 
@@ -70,7 +70,6 @@ export function TopBar({ onMenuClick }: Props) {
             onClick={() => setDropdownOpen(!dropdownOpen)}
             className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[13px] text-zinc-300 transition-colors hover:bg-zinc-800/50"
           >
-            <span className="rounded border border-emerald-500/35 bg-emerald-950/40 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-300">Business Profile</span>
             <span className="text-[12px] text-zinc-400">{currentProfile?.name || 'Select'}</span>
             <ChevronDown size={12} className={`text-zinc-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
           </button>
@@ -132,19 +131,7 @@ export function TopBar({ onMenuClick }: Props) {
 
       {/* Right */}
       <div className="flex items-center gap-1">
-        <button type="button" className="hidden rounded px-2 py-1 text-[13px] text-zinc-400 transition-colors hover:text-zinc-300 sm:block">
-          Feedback
-        </button>
-
-        <button
-          type="button"
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900/40 px-2 text-[12px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-300"
-          aria-label="Search"
-        >
-          <Search size={14} />
-          <span className="hidden sm:inline">Search...</span>
-          <kbd className="hidden rounded border border-zinc-700/60 bg-zinc-800/50 px-1 py-0.5 text-[10px] font-medium text-zinc-400 sm:inline">⌘K</kbd>
-        </button>
+     
 
         <button
           type="button"

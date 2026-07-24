@@ -50,7 +50,7 @@ class CreateFolderRequest(BaseModel):
 
 class CreateRecordRequest(BaseModel):
     business_id: str
-    folder_id: str
+    folder_id: str = ""
     title: str
 
 
