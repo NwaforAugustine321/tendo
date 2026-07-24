@@ -16,7 +16,7 @@ def get_record_knowledge_tools(business_id: str, record_id: str) -> list:
     Returns tools that search within a specific record's knowledge store
     and the business-level knowledge store.
     """
-    from app.record_knowledge.store import _get_storage
+    from app.record_processor.store import _get_storage
 
     @tool
     async def search_record_knowledge(query: str = "", limit: int = 10) -> str:

@@ -48,7 +48,9 @@ export class WSClient {
         reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 30000,
-        timeout: 10000,
+        timeout: 120000,
+        pingTimeout: 120000,
+        pingInterval: 30000,
         withCredentials: true,
       })
 

@@ -4,7 +4,7 @@ from datetime import datetime
 
 from app.memory.lancedb_storage import LanceDBStorage
 from app.memory.types import MemoryRecord
-from app.record_knowledge.models import KnowledgeEntry
+from app.record_processor.models import KnowledgeEntry
 
 logger = logging.getLogger(__name__)
 

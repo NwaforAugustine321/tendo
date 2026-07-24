@@ -48,6 +48,17 @@ class Settings(BaseSettings):
     nvidia_max_tokens: int = 65536
     nvidia_reasoning_budget: int = 16384
     nvidia_rerank_model: str = "nv-rerank-qa-mistral-4b:1"
+    nvidia_ocr_base_url: str = "https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-ocr-v2"
+    nvidia_ocr_model: str = "nvidia/nemotron-ocr-v2"
+
+    # NVIDIA NIM Speech (Pipecat pipeline)
+    nvidia_nim_base_url: str = "https://grpc.nvcf.nvidia.com:443"
+    nvidia_nim_tts_model: str = "magpie-tts-multilingual"
+    nvidia_nim_asr_model: str = "parakeet-1.1b-rnnt-multilingual-asr"
+    nvidia_nim_tts_voice: str = "English-US.Female-1"
+    nvidia_nim_sample_rate: int = 22050
+    nvidia_nim_vad_enabled: bool = True
+    nvidia_nim_wake_word: str = ""
    
 
     # Tool calling mode: whether LLM supports native function calling
@@ -69,7 +80,7 @@ class Settings(BaseSettings):
     vector_store_path: str = "./data/vector_store"
 
     # Voice
-    voice_provider: str = "google"
+    voice_provider: str = "google"  # "google" | "cartesia" | "pipecat"
     google_voice_api_key: str = ""
     google_voice_model: str = ""
     cartesia_api_key: str = ""

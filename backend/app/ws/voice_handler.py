@@ -45,6 +45,7 @@ async def connect(sid, environ, auth):
         'session_id': session_id,
         'business_id': business_id,
         'user_id': user_id,
+        'queue': asyncio.Queue(),  # Create queue immediately, before the task starts
     }
 
     # Start the voice session in background
@@ -69,22 +70,19 @@ async def disconnect(sid):
     """Handle Socket.IO disconnect."""
     logger.info(f"Socket.IO disconnected: {sid}")
     session = _sessions.pop(sid, None)
-    if session:
-        queue = session.get('queue')
-        if queue:
-            await queue.put(None)  # Signal disconnect
+    # Don't signal None to queue — pipecat sessions persist for reconnects
 
 
 async def _start_voice_session(sid: str, session_id: str, business_id: str, user_id: str):
     """Run the voice session for a connected client."""
     from app.communication.voice import run_voice_session
 
-    # Create a message queue for this session
-    queue = asyncio.Queue()
+    # Reuse the queue created in connect() — avoids race condition with message events
+    session_data = _sessions.get(sid, {})
+    queue = session_data.get('queue') or asyncio.Queue()
     if sid in _sessions:
         _sessions[sid]['queue'] = queue
 
-    # Socket.IO send helpers
     async def send_to_client(msg: dict):
         await sio.emit('message', msg, to=sid)
 

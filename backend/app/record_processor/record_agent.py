@@ -5,11 +5,13 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
+from app.config.settings import settings
 from app.embeddings.client import get_embedding_client
 from app.lib.json_parser import parse_json_output
-from app.record_knowledge.config import get_record_knowledge_config
-from app.record_knowledge.models import RecordContentInput, KnowledgeEntry, ProcessingResult, AIUnderstanding
-from app.record_knowledge import store
+from app.record_processor.config import get_record_knowledge_config
+from app.record_processor.models import RecordContentInput, KnowledgeEntry, ProcessingResult, AIUnderstanding
+from app.record_processor.ocr_processor import OCRProcessor
+from app.record_processor import store
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +76,45 @@ async def _summarize_text(content: str) -> str:
     return summary[:max_length]
 
 
+_ocr_processor: OCRProcessor | None = None
+
+
+def _get_ocr_processor() -> OCRProcessor:
+    """Lazily initialize and return an OCRProcessor instance."""
+    global _ocr_processor
+    if _ocr_processor is None:
+        config = get_record_knowledge_config()
+        _ocr_processor = OCRProcessor(
+            api_key=settings.nvidia_api_key,
+            base_url=settings.nvidia_ocr_base_url,
+            model=settings.nvidia_ocr_model,
+            timeout=config.llm_timeout,
+            max_retries=config.max_retries,
+        )
+    return _ocr_processor
+
+
+async def _process_image_content(content: str) -> str:
+    """Extract text from an image via OCR, then summarize it.
+
+    Args:
+        content: Image content as a URL or base64-encoded data.
+
+    Returns:
+        A summary of the OCR-extracted text.
+
+    Raises:
+        OCRProcessingError: If OCR extraction fails (caught by process_record_content).
+    """
+    processor = _get_ocr_processor()
+    extracted_text = await processor.extract_text(content)
+    summary = await _summarize_text(extracted_text)
+    return summary
+
+
 _SUMMARIZERS = {
     "text": _summarize_text,
+    "image": _process_image_content,
 }
 
 

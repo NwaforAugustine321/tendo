@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, BackgroundTasks, Query
 
 from app.lib.auth_dependency import get_current_user
-from app.record_knowledge.models import CreateFolderRequest, CreateRecordRequest, UpdateRecordRequest, AddContentRequest
+from app.record_processor.models import CreateFolderRequest, CreateRecordRequest, UpdateRecordRequest, AddContentRequest
 from app.services.records import (
     create_folder, get_folders, get_folder, update_folder, delete_folder,
     create_record, get_records, get_record, update_record, delete_record,
-    add_record_content, get_record_contents, delete_record_content,
-    get_record_understanding, process_content_background,
+    get_record_contents, delete_record_content,
+    process_content_background,
 )
 
 router = APIRouter(tags=["records"])
@@ -83,10 +83,8 @@ async def list_record_content(record_id: str, business_id: str = Query(...), use
 
 @router.post("/records/{record_id}/content")
 async def add_content_endpoint(record_id: str, body: AddContentRequest, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
-    entry = await add_record_content(body.business_id, record_id, body.content_type, body.content)
-    content_id = entry.get("id", "")
-    background_tasks.add_task(process_content_background, body.business_id, record_id, content_id, body.content_type, body.content, body.metadata)
-    return {"content": entry, "processing": True}
+    background_tasks.add_task(process_content_background, body.business_id, record_id, body.content_type, body.content, body.metadata)
+    return {"processing": True, "record_id": record_id}
 
 
 @router.delete("/records/{record_id}/content/{content_id}")
@@ -94,9 +92,4 @@ async def delete_content_endpoint(record_id: str, content_id: str, business_id: 
     return await delete_record_content(business_id, content_id)
 
 
-# --- Understanding endpoint ---
 
-@router.get("/records/{record_id}/understanding")
-async def record_understanding(record_id: str, business_id: str = Query(...), user=Depends(get_current_user)):
-    result = await get_record_understanding(business_id, record_id)
-    return result.model_dump()

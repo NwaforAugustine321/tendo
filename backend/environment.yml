@@ -18,6 +18,7 @@ dependencies:
     - langchain-xai
     - langchain-groq
     - langchain-core
+    - langchain-nvidia-ai-endpoints
     - supabase
     - pydantic
     - pydantic-settings
@@ -33,3 +34,17 @@ dependencies:
     - ruff
     - psycopg2-binary
     - tiktoken
+    # Pipecat pipeline (NVIDIA NIM Parakeet ASR + Magpie TTS + WebRTC VAD)
+    # Install in conda env with:
+    #   pip install "pipecat-ai[nim,websocket]" wait_for2 pyloudnorm soxr \
+    #               aiofiles nltk num2words opentelemetry-sdk loguru scipy --no-deps
+    - pipecat-ai
+    - wait_for2
+    - pyloudnorm
+    - soxr
+    - aiofiles
+    - nltk
+    - num2words
+    - opentelemetry-sdk
+    - loguru
+    - scipy

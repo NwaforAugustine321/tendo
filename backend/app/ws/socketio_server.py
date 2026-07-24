@@ -11,4 +11,6 @@ sio = socketio.AsyncServer(
     cors_allowed_origins='*',
     logger=False,
     engineio_logger=False,
+    ping_timeout=120,
+    ping_interval=30,
 )

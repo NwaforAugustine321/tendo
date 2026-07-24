@@ -9,8 +9,12 @@ logger = logging.getLogger(__name__)
 async def create_folder(business_id: str, name: str, icon: str = "", color: str = "") -> dict:
     client = get_client()
     data = {"business_id": business_id, "name": name, "icon": icon, "color": color}
-    result = client.table("folders").insert(data).execute()
-    return result.data[0] if result.data else data
+    try:
+        result = client.table("folders").insert(data).execute()
+        return result.data[0] if result.data else data
+    except Exception as e:
+        logger.error(f"create_folder failed: {e}")
+        raise
 
 
 async def get_folders(business_id: str) -> list[dict]:
@@ -106,6 +110,37 @@ async def add_record_content(business_id: str, record_id: str, content_type: str
     data = {"business_id": business_id, "record_id": record_id, "content_type": content_type, "content": content}
     result = client.table("record_content").insert(data).execute()
     return result.data[0] if result.data else data
+
+
+async def upload_image_to_storage(business_id: str, record_id: str, image_data: str) -> str:
+    """Upload base64/data-url image to Supabase storage, return public URL."""
+    import base64
+    import uuid
+    from app.config.settings import settings
+
+    client = get_client()
+
+    if image_data.startswith("data:"):
+        header, b64 = image_data.split(",", 1)
+        ext = "png"
+        if "jpeg" in header or "jpg" in header:
+            ext = "jpg"
+        elif "gif" in header:
+            ext = "gif"
+        elif "webp" in header:
+            ext = "webp"
+    else:
+        b64 = image_data
+        ext = "png"
+
+    file_bytes = base64.b64decode(b64)
+    file_name = f"{business_id}/{record_id}/{uuid.uuid4().hex}.{ext}"
+
+    bucket = settings.bucket_name
+    client.storage.from_(bucket).upload(file_name, file_bytes, {"content-type": f"image/{ext}"})
+
+    url = client.storage.from_(bucket).get_public_url(file_name)
+    return url
 
 
 async def get_record_contents(business_id: str, record_id: str) -> list[dict]:

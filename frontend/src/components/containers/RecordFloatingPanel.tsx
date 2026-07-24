@@ -200,7 +200,7 @@ function RecordContentTab({ recordId }: { recordId: string }) {
                 {entry.content ? <img src={entry.content} alt="" className="max-h-32 rounded" /> : (
                   <label className="cursor-pointer text-[10px] text-zinc-500 hover:text-zinc-300">
                     Click to upload image
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleEntryChange(entry.id, URL.createObjectURL(file)) }} />
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = () => handleEntryChange(entry.id, reader.result as string); reader.readAsDataURL(file) } }} />
                   </label>
                 )}
               </div>

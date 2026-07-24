@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     from app.graph.workflow import init_graph
     from app.scheduler import start_scheduler, stop_scheduler
-    from app.record_knowledge.store import _get_storage
+    from app.record_processor.store import _get_storage
 
     try:
         await init_graph()

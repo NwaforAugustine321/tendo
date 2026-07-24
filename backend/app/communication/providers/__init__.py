@@ -6,13 +6,14 @@ from app.communication.providers.base import VoiceProvider
 
 logger = logging.getLogger(__name__)
 
-_SUPPORTED_PROVIDERS = ("google", "cartesia")
+_SUPPORTED_PROVIDERS = ("google", "cartesia", "pipecat")
 
 
 def create_voice_provider() -> VoiceProvider:
     """Create the configured voice provider instance.
 
     Reads settings.voice_provider to determine which backend to use:
+    - "pipecat": NVIDIA NIM Parakeet ASR + Magpie TTS via Pipecat pipeline
     - "cartesia": Cartesia TTS+STT with multilingual WebSocket streaming
     - "google" (default): Google Gemini Live API
 
@@ -32,13 +33,17 @@ def create_voice_provider() -> VoiceProvider:
             f"Must be one of: {', '.join(_SUPPORTED_PROVIDERS)}"
         )
 
+    if provider_name == "pipecat":
+        # Pipecat runs as a full pipeline session — return None here;
+        # voice_handler.py detects "pipecat" and calls run_pipecat_session directly.
+        return None  # type: ignore[return-value]
+
     if provider_name == "cartesia":
         from app.communication.providers.cartesia_provider import CartesiaVoiceProvider
 
         logger.info("Initializing Cartesia voice provider")
         return CartesiaVoiceProvider()
 
-    # Default: Google Gemini Live API
     from app.communication.providers.google_provider import GoogleVoiceProvider
 
     logger.info("Initializing Google voice provider")

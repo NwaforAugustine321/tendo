@@ -318,6 +318,13 @@ async def run_voice_session(
     thread_id = session_id
     provider = create_voice_provider()
 
+    # Pipecat runs its own full pipeline — bypass the normal provider pattern
+    if settings.voice_provider == "pipecat":
+        from app.communication.providers.pipecat_provider import run_pipecat_session
+        logger.info("Socket.IO: Starting Pipecat pipeline session")
+        await run_pipecat_session(session_id, business_id, user_id, receive, send)
+        return
+
     async def _send_msg(text: str = "", questions=None, extracted=None):
         msg = {"type": "message", "data": {"response": text, "msg_type": "answer"}}
         if questions:
