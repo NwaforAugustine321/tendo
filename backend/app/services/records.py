@@ -26,8 +26,6 @@ async def process_content_background(business_id: str, record_id: str, content_i
         if not result.success:
             raise Exception(result.error or "Processing failed")
 
-        await get_record_understanding(business_id, record_id)
-
         from app.events.writer import EventWriter
         EventWriter().write(
             business_id=business_id,
@@ -45,11 +43,11 @@ async def process_content_background(business_id: str, record_id: str, content_i
             pass
 
     except Exception as e:
-        # Don't delete the content — update it with error status so frontend can show it
+        # Set status to failed — don't save error to content column
         try:
             from app.db.client import get_client
             client = get_client()
-            client.table("record_content").update({"content": f"[Processing failed: {str(e)[:100]}]"}).eq("id", content_id).execute()
+            client.table("record_content").update({"status": "failed"}).eq("id", content_id).execute()
         except Exception:
             pass
         try:

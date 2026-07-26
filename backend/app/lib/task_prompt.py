@@ -14,7 +14,6 @@ from app.lib.i18n import _get_i18n
 from app.lib.pydantic_schema_utils import generate_model_description
 
 if TYPE_CHECKING:
-    from app.memory.knowledge import Knowledge
     from app.memory.memory import Memory
 
 logger = logging.getLogger(__name__)
@@ -167,7 +166,7 @@ async def retrieve_memory_context(
     if not matches:
         return task_prompt
 
-    # Format memory results using MemoryMatch.format()
+    # Format memory results
     memory_text = "\n".join(m.format() for m in matches)
 
     if memory_text.strip():
@@ -178,7 +177,7 @@ async def retrieve_memory_context(
 
 async def retrieve_knowledge_context(
     task_prompt: str,
-    knowledge: Knowledge | None = None,
+    knowledge: Any | None = None,
     n_results: int = 5,
 ) -> str:
    
@@ -220,7 +219,7 @@ async def prepare_task_prompt(
     output_json: type | None = None,
     output_pydantic: type | None = None,
     response_model: type | None = None,
-    knowledge: Knowledge | None = None,
+    knowledge: Any | None = None,
     memory: Memory | None = None,
     n_results: int = 5,
     memory_limit: int = 5,

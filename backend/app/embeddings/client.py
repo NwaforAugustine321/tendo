@@ -13,6 +13,9 @@ def get_embedding_client():
     if settings.embedding_provider == "gemini":
         from app.embeddings.gemini import get_client as get_gemini
         _client = get_gemini()
+    elif settings.embedding_provider == "nvidia":
+        from app.embeddings.nvidia import get_client as get_nvidia
+        _client = get_nvidia()
     else:
         from app.embeddings.openai import get_client as get_openai
         _client = get_openai()

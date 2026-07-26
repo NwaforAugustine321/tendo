@@ -44,7 +44,7 @@ async def process_events(job: Job, events: list[BusinessEvent]) -> None:
     raw = await execute_task(
         agent=_bla_agent,
         description=description,
-        tools=INTELLIGENCE_TOOLS,
+        tools=INTELLIGENCE_TOOLS(business_id),
         expected_output=_bla_agent.expected_output,
         context=context,
         output_pydantic=InsightOutput,

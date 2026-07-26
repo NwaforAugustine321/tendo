@@ -118,13 +118,6 @@ export function WorkspaceLayout() {
         </>
       )}
 
-      {/* Dashboard character — bottom-left, facing right */}
-      {isDashboard && (
-        <div className="pointer-events-none">
-          <TalkingCharacter isSpeaking={false} flipX={true} leftOffset={sidebarCollapsed ? 50 : 200} />
-        </div>
-      )}
-
       {/* Processing notifications — top right corner */}
       <ProcessingNotification />
     </div>

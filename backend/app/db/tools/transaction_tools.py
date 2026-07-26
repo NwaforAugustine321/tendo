@@ -8,7 +8,7 @@ import json
 
 from langchain_core.tools import tool
 
-from app.memory.knowledge import search_business_knowledge
+from app.memory.tools import search_business_knowledge
 from app.db.tools.profile_tools import get_business_profile
 
 

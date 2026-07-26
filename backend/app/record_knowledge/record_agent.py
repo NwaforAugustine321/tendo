@@ -1,15 +1,51 @@
+import json
 import logging
 from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.embeddings.client import get_embedding_client
-from app.lib.json_parser import parse_json_output
+from app.memory.lancedb import LanceDBStorage
+from app.memory.memory import MemoryRecord
 from app.record_knowledge.config import get_record_knowledge_config
 from app.record_knowledge.models import RecordContentInput, KnowledgeEntry, ProcessingResult, AIUnderstanding
-from app.record_knowledge import store
 from app.record_knowledge.summarizers import SUMMARIZERS
 
 logger = logging.getLogger(__name__)
+
+RECORD_KNOWLEDGE_TABLE = "record_knowledge"
+
+_storage: LanceDBStorage | None = None
+
+
+def _get_record_storage() -> LanceDBStorage:
+    """Get or create the LanceDB storage for record knowledge."""
+    global _storage
+    if _storage is None:
+        _storage = LanceDBStorage(table_name=RECORD_KNOWLEDGE_TABLE)
+    return _storage
+
+
+def _entry_to_record(entry: KnowledgeEntry) -> MemoryRecord:
+    """Convert a KnowledgeEntry to a MemoryRecord for storage."""
+    return MemoryRecord(
+        id=entry.knowledge_id,
+        content=entry.summary,
+        scope=f"/{entry.business_id}/{entry.record_id}",
+        categories=[entry.content_type],
+        metadata={
+            "business_id": entry.business_id,
+            "record_id": entry.record_id,
+            "content_type": entry.content_type,
+            "version": entry.version,
+            "structured_metadata": json.dumps(entry.structured_metadata),
+        },
+        importance=0.7,
+        created_at=datetime.now(timezone.utc),
+        last_accessed=datetime.now(timezone.utc),
+        embedding=entry.embedding,
+        source="record_knowledge",
+        private=False,
+    )
 
 
 _insight_agent = None
@@ -30,62 +66,79 @@ async def process_record_content(record_content: RecordContentInput) -> Processi
         return ProcessingResult(success=False, error=f"Unsupported content_type: {record_content.content_type}")
 
     try:
-        summary = await summarizer(record_content.content)
+        result = await summarizer(record_content.content)
 
         # If summarizer returned empty, processing failed
-        if not summary or not summary.strip():
+        if not result:
             return ProcessingResult(success=False, error="Processing failed: no content extracted")
 
-        # For non-text content types, save the extracted summary on the content entry
-        if record_content.content_type != "text" and "|||" in summary:
-            from app.db.tools.records import update_record, get_record
-            from app.db.client import get_client as get_db_client
-
-            # Parse title|||summary|||ocr_text format
-            parts = summary.split("|||")
-            title = parts[0].strip() if len(parts) > 0 else ""
-            body = parts[1].strip() if len(parts) > 1 else summary
-            ocr_text = parts[2].strip() if len(parts) > 2 else ""
-
-            # Save only the summary text on the record_content entry (no prefixes)
-            display_content = body
-
-            db = get_db_client()
-            db.table("record_content").update({"content": display_content}).eq("id", record_content.metadata.get("content_id", "")).eq("business_id", record_content.business_id).execute()
-
-            # Update record title if current title is a hash
-            if title:
-                record = await get_record(record_content.business_id, record_content.record_id)
-                if record and (record.get("title", "").startswith("#") or record.get("title") == "Untitled"):
-                    await update_record(record_content.business_id, record_content.record_id, title=title)
-
-            # Embed the full structured text (title + summary + OCR content)
-            summary = f"Title: {title}\nSummary: {body}\nContent: {ocr_text}" if ocr_text else display_content
-
-            logger.info(f"Updated content with OCR summary for record {record_content.record_id}")
-
-        # For text content, also update record title from first content
-        if record_content.content_type == "text":
-            from app.db.tools.records import update_record, get_record
-            record = await get_record(record_content.business_id, record_content.record_id)
-            if record and (record.get("title", "").startswith("#") or record.get("title") == "Untitled"):
-                # Use first 60 chars of text as title
-                title = record_content.content[:60].strip()
-                if title:
-                    await update_record(record_content.business_id, record_content.record_id, title=title)
-
-            logger.info(f"Updated content with OCR summary for record {record_content.record_id}")
+        # All summarizers return dict: {title, summary, content, page_chunks?}
+        title = result.get("title", "")
+        body = result.get("summary", "")
+        full_content = result.get("content", "")
+        page_chunks = result.get("page_chunks", []) 
 
         embedding_client = get_embedding_client()
-        embedding = await embedding_client.aembed_query(summary)
-
         now = datetime.now(timezone.utc).isoformat()
+
+        from app.db.tools.records import update_record, get_record
+        from app.db.client import get_client as get_db_client
+
+        # Save the summary text on the record_content entry (no prefixes)
+        if body:
+            db = get_db_client()
+            db.table("record_content").update({"content": body, "status": "completed"}).eq("id", record_content.metadata.get("content_id", "")).eq("business_id", record_content.business_id).execute()
+        else:
+            db = get_db_client()
+            db.table("record_content").update({"status": "completed"}).eq("id", record_content.metadata.get("content_id", "")).eq("business_id", record_content.business_id).execute()
+
+        # Update record title if current title is generic
+        if title:
+            record = await get_record(record_content.business_id, record_content.record_id)
+            if record and (record.get("title", "").startswith("#") or record.get("title") == "Untitled"):
+                await update_record(record_content.business_id, record_content.record_id, title=title)
+
+        # For PDF with page chunks: embed each page separately
+        if page_chunks:
+            for chunk in page_chunks:
+                chunk_text = chunk.get("text", "")
+                if not chunk_text:
+                    continue
+                page_embedding = await embedding_client.aembed_query(chunk_text, input_type="passage")
+                page_entry = KnowledgeEntry(
+                    knowledge_id=str(uuid4()),
+                    business_id=record_content.business_id,
+                    record_id=record_content.record_id,
+                    content_type="pdf_page",
+                    summary=chunk_text,
+                    structured_metadata={
+                        "page_number": chunk.get("page_number"),
+                        "pages_covered": chunk.get("pages_covered", []),
+                    },
+                    embedding=page_embedding,
+                    version=1,
+                    created_at=now,
+                    updated_at=now,
+                )
+                store = _get_record_storage()
+                store.save([_entry_to_record(page_entry)])
+            logger.info(f"Embedded {len(page_chunks)} PDF page chunks for record {record_content.record_id}")
+
+        # Build embedding text (title + summary + content)
+        if full_content:
+            summary_text = f"Title: {title}\nSummary: {body}\nContent: {full_content}"
+        else:
+            summary_text = f"Title: {title}\nSummary: {body}"
+
+        logger.info(f"Processed content for record {record_content.record_id}")
+
+        embedding = await embedding_client.aembed_query(summary_text, input_type="passage")
         entry = KnowledgeEntry(
             knowledge_id=str(uuid4()),
             business_id=record_content.business_id,
             record_id=record_content.record_id,
             content_type=record_content.content_type,
-            summary=summary,
+            summary=summary_text,
             structured_metadata=record_content.metadata,
             embedding=embedding,
             version=1,
@@ -93,7 +146,7 @@ async def process_record_content(record_content: RecordContentInput) -> Processi
             updated_at=now,
         )
 
-        store.insert(entry)
+        _get_record_storage().save([_entry_to_record(entry)])
 
         return ProcessingResult(success=True, entry=entry)
 
@@ -102,46 +155,60 @@ async def process_record_content(record_content: RecordContentInput) -> Processi
         return ProcessingResult(success=False, error=str(e))
 
 
-async def get_record_understanding(business_id: str, record_id: str) -> AIUnderstanding:
+async def get_record_understanding(business_id: str, record_id: str) -> str:
+    """Generate full overview of a record by letting LLM search LanceDB multiple times."""
     from app.db.tools.record_tools import get_record_knowledge_tools
-    from app.db.tools.records import get_record
-    from app.db.client import get_client
-    from app.lib.agent_executor import execute_task
+    from app.llm.client import get_client as get_llm_client
+    from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
-    config = get_record_knowledge_config()
-    agent = _get_insight_agent()
     tools = get_record_knowledge_tools(business_id, record_id)
+    llm = get_llm_client()
+    llm_with_tools = llm.bind_tools(tools)
 
-    description = f"Generate AI understanding for record {record_id} in business {business_id}. Use the tools to search for relevant knowledge."
+    system_prompt = (
+        "You have access to a search tool that retrieves content from this record's knowledge store.\n"
+        "You MUST search multiple times with different queries to gather the full picture:\n"
+        "- Search for the main topic or title\n"
+        "- Search for details, specifics, data\n"
+        "- Search for any other aspects you haven't covered yet\n\n"
+        "After gathering enough information from multiple searches, write a full explanation covering everything in this record.\n\n"
+        "Rules:\n"
+        "- Cover ALL content found, not just one result.\n"
+        "- Explain the main points, key details, and full understanding.\n"
+        "- Write naturally, as if explaining to someone who hasn't seen it.\n"
+        "- Do not invent or add information not found in the searches.\n"
+        "- Do not start with 'This record...'.\n"
+        "- Return only plain text. No JSON.\n"
+    )
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content="Search for all content in this record and explain everything you find."),
+    ]
 
     try:
-        raw = await execute_task(
-            agent=agent,
-            description=description,
-            tools=tools,
-            expected_output=agent.expected_output,
-            output_pydantic=AIUnderstanding,
-            use_system_prompt=True,
-           
-        )
-        data = parse_json_output(raw)
-        understanding = AIUnderstanding(**data)
+        for _ in range(5):
+            response = await llm_with_tools.ainvoke(messages)
 
-        client = get_client()
-        existing = await get_record(business_id, record_id)
-        current_insights = (existing or {}).get("ai_insight") or []
+            if response.tool_calls:
+                messages.append(response)
+                for tool_call in response.tool_calls:
+                    tool_name = tool_call["name"]
+                    tool_args = tool_call["args"]
+                    tool_fn = next((t for t in tools if t.name == tool_name), None)
+                    if tool_fn:
+                        result = await tool_fn.ainvoke(tool_args)
+                        messages.append(ToolMessage(content=str(result)[:3000], tool_call_id=tool_call["id"]))
+                continue
 
-        new_entry = {
-            "version": len(current_insights) + 1,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "insight": understanding.insight,
-            "suggested_questions": understanding.suggested_questions,
-        }
-        current_insights.append(new_entry)
+            raw = response.content if hasattr(response, "content") else str(response)
+            return raw.strip() if raw else "Unable to generate overview at this time."
 
-        client.table("records").update({"ai_insight": current_insights}).eq("id", record_id).eq("business_id", business_id).execute()
+        # After max rounds, get final answer
+        response = await llm.ainvoke(messages)
+        raw = response.content if hasattr(response, "content") else str(response)
+        return raw.strip() if raw else "Unable to generate overview at this time."
 
-        return understanding
     except Exception as e:
         logger.error(f"Understanding generation failed: {e}", exc_info=True)
-        return AIUnderstanding(insight=raw[:500] if raw else "Understanding generation failed.")
+        return "Unable to generate overview at this time."

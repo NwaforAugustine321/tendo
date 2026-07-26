@@ -12,7 +12,7 @@ from app.agents.models import Agent, DomainAgentOutput
 from app.db.tools.transaction_tools import TRANSACTION_TOOLS
 from app.lib.agent_executor import execute_task
 from app.lib.user_input_tool import ask_user_question
-from app.memory.memory import Memory, get_memory
+from app.memory.memory import Memory
 from app.models.state import GraphState
 from app.lib.json_parser import parse_json_output
 
@@ -37,7 +37,7 @@ async def transactions_node(state: GraphState) -> dict:
     agent = _transactions_agent
 
     context = f"business_id: {business_id}\nthread_id: {thread_id}"
-    memory = get_memory(f"/business/{business_id}")
+    memory = Memory(scope=f"/business/{business_id}")
 
     raw = await execute_task(
         agent=agent,

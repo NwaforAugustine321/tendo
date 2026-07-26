@@ -282,7 +282,7 @@ class AgentExecutor(BaseModel):
                         continue
             except Exception as e:
                 if is_context_length_exceeded(e):
-                    await handle_context_length(
+                    self._messages = await handle_context_length(
                         messages=self._messages,
                         respect_context_window=self.respect_context_window,
                     )
@@ -290,6 +290,8 @@ class AgentExecutor(BaseModel):
                 raise
 
             content = response.content
+          
+     
             if isinstance(content, list):
                 content = "".join(
                     block.get("text", "") if isinstance(block, dict) else str(block)
@@ -299,7 +301,16 @@ class AgentExecutor(BaseModel):
 
 
             if not raw:
-                logger.warning("LLM returned empty content — asking to retry")
+                logger.warning(f"LLM returned empty content — messages dump:")
+                for i, m in enumerate(self._messages):
+                    role = m.get("role", "?")
+                    c = str(m.get("content", ""))
+                    logger.warning(f"  msg[{i}] role={role} len={len(c)} preview={c[:150]}")
+                logger.warning(f"  Total: {len(self._messages)} msgs, {sum(len(str(m.get('content',''))) for m in self._messages)} chars")
+                empty_retries = sum(1 for m in self._messages if m.get("content") == "Please provide a response.")
+                if empty_retries >= 3:
+                    logger.error("LLM returned empty 3 times, aborting")
+                    return "I was unable to generate a response. Please try again."
                 self._messages.append({"role": "user", "content": "Please provide a response."})
                 continue
 
@@ -432,7 +443,10 @@ class AgentExecutor(BaseModel):
                     return raw
                 return raw
 
-            # Non-JSON text response — return as final answer
+            # Non-JSON text response — extract final answer if tagged
+            if FINAL_ANSWER_OPEN in raw:
+                fa_match = re.search(r"<Final_Answer>(.*?)(?:</Final_Answer>|$)", raw, re.DOTALL)
+                raw = fa_match.group(1).strip() if fa_match else raw.split(FINAL_ANSWER_OPEN, 1)[1].strip()
             if self._is_waiting_for_user(raw):
                 return raw
             return raw
@@ -718,7 +732,7 @@ async def _apply_pre_review(output: str) -> str:
     Skips if no lessons exist or prompts are missing.
     """
     from app.lib.i18n import _get_i18n
-    from app.memory.memory import get_memory
+    from app.memory.memory import Memory
 
     i18n = _get_i18n()
     system_prompt = i18n.get("slices.hitl_pre_review_system")
@@ -729,13 +743,13 @@ async def _apply_pre_review(output: str) -> str:
 
     try:
         # Retrieve stored lessons from /lessons scope
-        memory = get_memory("/lessons")
+        memory = Memory(scope="/lessons")
         matches = await memory.recall("output improvement lessons", limit=5)
 
         if not matches:
             return output
 
-        lessons_text = "\n".join(f"- {m.record.content}" for m in matches)
+        lessons_text = "\n".join(f"- {m.content}" for m in matches)
 
         from app.llm.client import get_client
         llm = get_client()
@@ -764,7 +778,7 @@ async def distill_lessons(method_name: str, output: str, feedback: str) -> list[
         List of extracted lesson strings (empty if none).
     """
     from app.lib.i18n import _get_i18n
-    from app.memory.memory import get_memory
+    from app.memory.memory import Memory
 
     i18n = _get_i18n()
     system_prompt = i18n.get("slices.hitl_distill_system")
@@ -794,7 +808,7 @@ async def distill_lessons(method_name: str, output: str, feedback: str) -> list[
         lessons = json.loads(raw) if raw.startswith("[") else []
 
         if lessons:
-            memory = get_memory("/lessons")
+            memory = Memory(scope="/lessons")
             await memory.remember_many(lessons, source="hitl_distillation")
 
         return lessons

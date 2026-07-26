@@ -1,25 +1,22 @@
-"""LanceDB storage backend for the conversation memory system."""
+
 
 from __future__ import annotations
-
-from datetime import datetime
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import lancedb
 
 from app.config.settings import settings
-from app.memory.types import MemoryRecord
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_VECTOR_DIM = 768  # Matches common embedding models
+DEFAULT_VECTOR_DIM = 768
 
 
 class LanceDBStorage:
-    """LanceDB-backed storage for conversation memory."""
 
     def __init__(
         self,
@@ -27,13 +24,6 @@ class LanceDBStorage:
         table_name: str = "memories",
         vector_dim: int | None = None,
     ) -> None:
-        """Initialize LanceDB storage.
-
-        Args:
-            path: Directory path for the LanceDB database.
-            table_name: Name of the table for memory records.
-            vector_dim: Dimensionality of the embedding vector.
-        """
         if path is None:
             path = Path(settings.vector_store_path) / "lancedb"
         self._path = Path(path)
@@ -42,10 +32,9 @@ class LanceDBStorage:
         self._db = lancedb.connect(str(self._path))
         self._vector_dim = vector_dim or 0
 
-        # Try to open existing table
         try:
             self._table: Any = self._db.open_table(self._table_name)
-            self._vector_dim = self._infer_dim_from_table(self._table)
+            self._vector_dim = self._infer_dim(self._table)
         except Exception:
             self._table = None
             if vector_dim:
@@ -53,8 +42,7 @@ class LanceDBStorage:
                 self._table = self._create_table(vector_dim)
 
     @staticmethod
-    def _infer_dim_from_table(table: Any) -> int:
-        """Read vector dimension from an existing table's schema."""
+    def _infer_dim(table: Any) -> int:
         schema = table.schema
         for field in schema:
             if field.name == "vector":
@@ -65,7 +53,6 @@ class LanceDBStorage:
         return DEFAULT_VECTOR_DIM
 
     def _create_table(self, vector_dim: int) -> Any:
-        """Create a new table with the given vector dimension."""
         placeholder = [
             {
                 "id": "__schema_placeholder__",
@@ -90,7 +77,6 @@ class LanceDBStorage:
         return table
 
     def _ensure_table(self, vector_dim: int | None = None) -> Any:
-        """Return the table, creating it lazily if needed."""
         if self._table is not None:
             return self._table
         dim = vector_dim or self._vector_dim or DEFAULT_VECTOR_DIM
@@ -98,7 +84,8 @@ class LanceDBStorage:
         self._table = self._create_table(dim)
         return self._table
 
-    def _record_to_row(self, record: MemoryRecord) -> dict[str, Any]:
+    def _record_to_row(self, record: Any) -> dict[str, Any]:
+        """Convert a MemoryRecord to a LanceDB row dict."""
         return {
             "id": record.id,
             "content": record.content,
@@ -110,12 +97,13 @@ class LanceDBStorage:
             "last_accessed": record.last_accessed.isoformat(),
             "source": record.source or "",
             "private": record.private,
-            "vector": record.embedding
-            if record.embedding
-            else [0.0] * self._vector_dim,
+            "vector": record.embedding if record.embedding else [0.0] * self._vector_dim,
         }
 
-    def _row_to_record(self, row: dict[str, Any]) -> MemoryRecord:
+    def _row_to_record(self, row: dict[str, Any]) -> Any:
+        """Convert a LanceDB row dict to a MemoryRecord."""
+        from app.memory.memory import MemoryRecord
+
         def _parse_dt(val: Any) -> datetime:
             if val is None:
                 return datetime.utcnow()
@@ -127,9 +115,7 @@ class LanceDBStorage:
             id=str(row["id"]),
             content=str(row["content"]),
             scope=str(row["scope"]),
-            categories=json.loads(row["categories_str"])
-            if row.get("categories_str")
-            else [],
+            categories=json.loads(row["categories_str"]) if row.get("categories_str") else [],
             metadata=json.loads(row["metadata_str"]) if row.get("metadata_str") else {},
             importance=float(row.get("importance", 0.5)),
             created_at=_parse_dt(row.get("created_at")),
@@ -139,16 +125,11 @@ class LanceDBStorage:
             private=bool(row.get("private", False)),
         )
 
-    def save(self, records: list[MemoryRecord]) -> None:
-        """Save memory records to storage."""
+    def save(self, records: list) -> None:
+        """Persist memory records."""
         if not records:
             return
-        # Auto-detect dimension from the first real embedding
-        dim = None
-        for r in records:
-            if r.embedding and len(r.embedding) > 0:
-                dim = len(r.embedding)
-                break
+        dim = next((len(r.embedding) for r in records if r.embedding), None)
         self._ensure_table(vector_dim=dim)
         rows = [self._record_to_row(rec) for rec in records]
         for row in rows:
@@ -162,19 +143,19 @@ class LanceDBStorage:
         scope_prefix: str | None = None,
         limit: int = 10,
         min_score: float = 0.0,
-    ) -> list[tuple[MemoryRecord, float]]:
+    ) -> list[tuple[Any, float]]:
         """Search for memories by vector similarity."""
         if self._table is None:
             return []
 
         query = self._table.search(query_embedding)
-        if scope_prefix is not None and scope_prefix.strip("/"):
+        if scope_prefix and scope_prefix.strip("/"):
             prefix = scope_prefix.rstrip("/")
             query = query.where(f"scope LIKE '{prefix}%'")
 
         results = query.limit(limit * 2).to_list()
 
-        out: list[tuple[MemoryRecord, float]] = []
+        out: list[tuple[Any, float]] = []
         for row in results:
             record = self._row_to_record(row)
             distance = row.get("_distance", 0.0)
@@ -185,11 +166,7 @@ class LanceDBStorage:
                 break
         return out[:limit]
 
-    def delete(
-        self,
-        scope_prefix: str | None = None,
-        record_ids: list[str] | None = None,
-    ) -> int:
+    def delete(self, scope_prefix: str | None = None, record_ids: list[str] | None = None) -> int:
         """Delete memories matching the given criteria."""
         if self._table is None:
             return 0
@@ -207,14 +184,14 @@ class LanceDBStorage:
         self._table.delete("id != ''")
         return before
 
+    def delete_by_id(self, record_id: str) -> None:
+        """Delete a single record by ID."""
+        if self._table is None:
+            return
+        self._table.delete(f"id = '{record_id}'")
+
     def count(self, scope_prefix: str | None = None) -> int:
         """Count records in scope."""
         if self._table is None:
             return 0
         return int(self._table.count_rows())
-
-    def reset(self) -> None:
-        """Reset (delete all) memories."""
-        if self._table is not None:
-            self._db.drop_table(self._table_name)
-        self._table = None

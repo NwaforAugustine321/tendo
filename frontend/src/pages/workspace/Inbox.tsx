@@ -173,6 +173,31 @@ function MessageDetail({
     if (!recordId) return
     recordsApi.getRecordContents(recordId).then((data) => {
       setContents(data)
+
+      // Resume polling for any content still processing (status === 'processing')
+      data.forEach((c: any) => {
+        if (c.status === 'processing' && c.id) {
+          toast.loading('Processing...', { id: `processing-${c.id}` })
+          const pollInterval = setInterval(async () => {
+            try {
+              const updated = await recordsApi.getRecordContents(recordId)
+              const found = updated.find((u: any) => u.id === c.id)
+              if (found && found.status !== 'processing') {
+                clearInterval(pollInterval)
+                if (found.status === 'failed') {
+                  setContents((prev) => prev.map((p) => p.id === c.id ? { ...found, _processing: false } : p))
+                  toast.error('Processing failed', { id: `processing-${c.id}` })
+                } else {
+                  setContents((prev) => prev.map((p) => p.id === c.id ? { ...found, _processing: false } : p))
+                  toast.success('Content processed', { id: `processing-${c.id}` })
+                }
+              }
+            } catch { /* retry */ }
+          }, 4000)
+          // Mark as processing in UI
+          setContents((prev) => prev.map((p) => p.id === c.id ? { ...p, _processing: true, _fileName: c.content_type } : p))
+        }
+      })
     }).catch(() => {})
   }, [recordId])
 
@@ -190,48 +215,59 @@ function MessageDetail({
 
   const handleFileSelected = async (type: string, file: File) => {
     const fileName = file.name || `${type} file`
+
+    // Show card + toast IMMEDIATELY before upload
+    const tempId = crypto.randomUUID()
+    setContents((prev) => [...prev, {
+      id: tempId,
+      content_type: type,
+      content: '',
+      file_url: '',
+      created_at: new Date().toISOString(),
+      _processing: true,
+      _fileName: fileName,
+    }])
+    toast.loading('Processing...', { id: `processing-${tempId}` })
+
     const reader = new FileReader()
     reader.onload = async () => {
       const base64 = reader.result as string
       setSaving(true)
       try {
         const result = await recordsApi.addRecordContent(recordId, type, base64)
-        const entry = result.content
-        const contentId = entry.id
-        setContents((prev) => [...prev, {
+        const contentId = result.content.id
+
+        // Replace temp card with real one
+        setContents((prev) => prev.map((c) => c.id === tempId ? {
           id: contentId,
           content_type: type,
           content: '',
-          file_url: entry.file_url || '',
+          file_url: result.content.file_url || '',
           created_at: new Date().toISOString(),
           _processing: true,
           _fileName: fileName,
-        }])
-        toast.loading('Processing content...', { id: `processing-${contentId}` })
+        } : c))
 
         // Poll for completion
         const pollInterval = setInterval(async () => {
           try {
             const updated = await recordsApi.getRecordContents(recordId)
             const found = updated.find((c: any) => c.id === contentId)
-            if (found && found.content) {
+            if (found && found.status !== 'processing') {
               clearInterval(pollInterval)
-              if (found.content.startsWith('[Processing failed')) {
+              if (found.status === 'failed') {
                 setContents((prev) => prev.map((c) => c.id === contentId ? { ...c, _processing: false } : c))
-                toast.error('Processing failed', { id: `processing-${contentId}` })
+                toast.error('Processing failed', { id: `processing-${tempId}` })
               } else {
                 setContents((prev) => prev.map((c) => c.id === contentId ? { ...found, _processing: false } : c))
-                toast.success('Content processed', { id: `processing-${contentId}` })
+                toast.success('Content processed', { id: `processing-${tempId}` })
               }
             }
           } catch { /* retry */ }
         }, 4000)
-
-        setTimeout(() => {
-          clearInterval(pollInterval)
-        }, 180000)
       } catch {
-        toast.error('Failed to upload content')
+        setContents((prev) => prev.filter((c) => c.id !== tempId))
+        toast.error('Failed to upload', { id: `processing-${tempId}` })
       }
       finally { setSaving(false) }
     }
@@ -256,23 +292,19 @@ function MessageDetail({
       setNewContent('')
       toast.loading('Processing...', { id: `processing-${contentId}` })
 
-      // Poll for processing completion (title/summary update)
+      // Poll for processing completion
       const pollInterval = setInterval(async () => {
         try {
           const updated = await recordsApi.getRecordContents(recordId)
           const found = updated.find((c: any) => c.id === contentId)
-          if (found && found.content) {
-            // Check if content was updated by processing
-            const hasBeenProcessed = found.content !== newContent.trim() || found.content.startsWith('[Processing failed')
-            if (hasBeenProcessed) {
-              clearInterval(pollInterval)
-              if (found.content.startsWith('[Processing failed')) {
-                setContents((prev) => prev.map((c) => c.id === contentId ? { ...c, _processing: false } : c))
-                toast.error('Processing failed', { id: `processing-${contentId}` })
-              } else {
-                setContents((prev) => prev.map((c) => c.id === contentId ? { ...found, _processing: false } : c))
-                toast.success('Processed', { id: `processing-${contentId}` })
-              }
+          if (found && found.status !== 'processing') {
+            clearInterval(pollInterval)
+            if (found.status === 'failed') {
+              setContents((prev) => prev.map((c) => c.id === contentId ? { ...c, _processing: false } : c))
+              toast.error('Processing failed', { id: `processing-${contentId}` })
+            } else {
+              setContents((prev) => prev.map((c) => c.id === contentId ? { ...found, _processing: false } : c))
+              toast.success('Processed', { id: `processing-${contentId}` })
             }
           }
         } catch { /* retry */ }
@@ -331,9 +363,27 @@ function MessageDetail({
                     )}
                   </div>
                 ) : content.content_type === 'audio' && (content.file_url || content.content.startsWith('data:audio')) ? (
-                  <audio controls src={content.file_url || content.content} className="w-full max-w-sm" />
-                ) : content.content_type === 'pdf' && (content.file_url || content.content.startsWith('data:application/pdf')) ? (
-                  <a href={content.file_url || content.content} target="_blank" rel="noopener noreferrer" className="text-[13px] text-emerald-400 hover:underline">View PDF</a>
+                  <div className="flex flex-col gap-2">
+                    <audio controls src={content.file_url || content.content} className="w-[280px]" />
+                    {content.content && !content.content.startsWith('data:') && (
+                      <div className="text-[13px] leading-relaxed text-zinc-300 whitespace-pre-wrap">{content.content}</div>
+                    )}
+                  </div>
+                ) : content.content_type === 'pdf' ? (
+                  <div className="flex items-start gap-3">
+                    {content.file_url && (
+                      <a href={content.file_url} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                        <object data={content.file_url} type="application/pdf" className="max-w-[150px] max-h-[100px] rounded-md pointer-events-none">
+                          <div className="w-[150px] h-[100px] rounded-md bg-zinc-800 border border-zinc-700 flex items-center justify-center">
+                            <FileText size={32} className="text-zinc-400" />
+                          </div>
+                        </object>
+                      </a>
+                    )}
+                    {content.content && !content.content.startsWith('data:') && (
+                      <div className="text-[13px] leading-relaxed text-zinc-300 whitespace-pre-wrap">{content.content}</div>
+                    )}
+                  </div>
                 ) : (
                   <div className="text-[14px] leading-relaxed text-zinc-300 whitespace-pre-wrap">{content.content}</div>
                 )}
@@ -386,10 +436,9 @@ function MessageDetail({
             <FileText size={14} /> PDF
             <input type="file" accept=".pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected('pdf', f); e.target.value = '' }} />
           </label>
-          <label className="flex items-center gap-1.5 rounded-md border border-dashed border-zinc-600 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200 cursor-pointer">
+          <span className="flex items-center gap-1.5 rounded-md border border-dashed border-zinc-600 px-3 py-1.5 text-[12px] text-zinc-500 opacity-50 cursor-not-allowed">
             <PlusIcon size={14} /> More
-            <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected('other', f); e.target.value = '' }} />
-          </label>
+          </span>
         </div>
       </div>
 

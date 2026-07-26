@@ -7,7 +7,7 @@ import logging
 from app.agents.models import Agent, DomainAgentOutput
 from app.lib.agent_executor import execute_task
 from app.lib.agent_tools import AgentTools
-from app.memory.knowledge import search_business_knowledge
+from app.memory.tools import search_business_knowledge
 from app.lib.i18n import _get_i18n
 from app.models.state import GraphState
 from app.lib.json_parser import parse_json_output

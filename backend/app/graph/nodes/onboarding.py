@@ -9,10 +9,10 @@ import logging
 
 from app.agents.models import Agent, DomainAgentOutput
 from app.db.tools.onboarding_tools import ONBOARDING_TOOLS
-from app.memory.knowledge import search_business_knowledge
+from app.memory.tools import search_business_knowledge
 from app.lib.agent_executor import execute_task
 from app.lib.user_input_tool import ask_user_question
-from app.memory.memory import Memory, get_memory
+from app.memory.memory import Memory
 from app.models.state import GraphState
 from app.lib.json_parser import parse_json_output
 
@@ -38,7 +38,7 @@ async def onboarding_node(state: GraphState) -> dict:
     agent = _onboarding_agent
 
     context = f"business_id: {business_id}\nthread_id: {thread_id}"
-    memory = get_memory(f"/business/{business_id}")
+    memory = Memory(scope=f"/business/{business_id}")
 
     all_tools = ONBOARDING_TOOLS + [search_business_knowledge]
     raw = await execute_task(

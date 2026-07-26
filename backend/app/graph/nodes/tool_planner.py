@@ -6,7 +6,7 @@ import logging
 from app.lib.tool_schema import registry_tools_to_prompt
 from app.llm.client import get_client as get_llm
 from app.llm.specs import load
-from app.memory.tools import MEMORY_TOOLS
+from app.memory.tools import get_business_memory_tools
 from app.models.state import GraphState
 
 logger = logging.getLogger(__name__)
@@ -30,10 +30,11 @@ async def tool_planner_node(state: GraphState) -> dict:
     business_id = state.get("business_id") or event.get("business_id", "")
     domain_result = state.get("domain_result")
 
-    config = load("tool_planner", tools=MEMORY_TOOLS)
+    memory_tools = get_business_memory_tools(business_id)
+    config = load("tool_planner", tools=memory_tools)
     llm = get_llm()
 
-    llm_with_tools = llm.bind_tools(MEMORY_TOOLS)
+    llm_with_tools = llm.bind_tools(memory_tools)
 
     dynamic_tools = registry_tools_to_prompt()
     system_content = config.system_prompt
@@ -61,7 +62,7 @@ async def tool_planner_node(state: GraphState) -> dict:
                 args = dict(tc["args"])
                 if "business_id" in args and not args["business_id"]:
                     args["business_id"] = business_id
-                res = await _execute_tool(name, args)
+                res = await _execute_tool(name, args, memory_tools)
                 logger.info(f"Tool planner: tool {name} returned {len(res)} chars")
                 return tc["id"], res
 
@@ -94,9 +95,9 @@ async def tool_planner_node(state: GraphState) -> dict:
     return {"tool_requests": planned_tools if planned_tools else None}
 
 
-async def _execute_tool(tool_name: str, tool_args: dict) -> str:
+async def _execute_tool(tool_name: str, tool_args: dict, tools: list) -> str:
     """Execute a memory tool by name."""
-    tool_map = {t.name: t for t in MEMORY_TOOLS}
+    tool_map = {t.name: t for t in tools}
     tool_fn = tool_map.get(tool_name)
     if not tool_fn:
         return f"Unknown tool: {tool_name}"

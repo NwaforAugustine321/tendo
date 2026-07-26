@@ -49,9 +49,13 @@ def rerank_results(query: str, documents: list[str], top_k: int = 30) -> list[st
     try:
         from langchain_core.documents import Document
 
-        docs = [Document(page_content=text) for text in documents]
+        # Truncate documents to fit reranker's 8192 token limit (~6000 chars safe)
+        MAX_RERANK_CHARS = 6000
+        docs = [Document(page_content=text[:MAX_RERANK_CHARS]) for text in documents]
         reranked = reranker.compress_documents(query=query, documents=docs)
-        return [doc.page_content for doc in reranked[:top_k]]
+        # Map back to original full documents
+        truncated_to_full = {text[:MAX_RERANK_CHARS]: text for text in documents}
+        return [truncated_to_full.get(doc.page_content, doc.page_content) for doc in reranked[:top_k]]
     except Exception as e:
         logger.warning(f"Reranking failed, using original order: {e}")
         return documents[:top_k]

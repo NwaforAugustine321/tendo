@@ -115,11 +115,6 @@ export function FolderNavigation({ onRecordSelect }: Props) {
     }
   }, [renamingFolder])
 
-  // Fetch folders from API on mount
-  useEffect(() => {
-    useWorkspaceStore.getState().fetchFolders()
-  }, [])
-
   // Filter folders by search
   const filteredFolders = useMemo(
     () => filterByQuery(folders, searchQuery, (f) => f.name),

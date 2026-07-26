@@ -14,7 +14,7 @@ from app.business_snapshot.config import get_snapshot_config
 from app.business_snapshot.models import BusinessSnapshot, SnapshotRecommendation, SnapshotStory
 from app.db.tools.snapshot import save_snapshot as db_save_snapshot
 from app.lib.json_parser import parse_json_output
-from app.memory.knowledge import BUSINESS_KNOWLEDGE_TOOLS
+from app.memory.tools import get_business_memory_tools
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ async def generate_snapshot(business_id: str) -> BusinessSnapshot:
     raw = await execute_task(
         agent=_snapshot_agent,
         description=description,
-        tools=BUSINESS_KNOWLEDGE_TOOLS,
+        tools=get_business_memory_tools(business_id),
         expected_output=_snapshot_agent.expected_output,
         context=context,
         output_pydantic=BusinessSnapshot,

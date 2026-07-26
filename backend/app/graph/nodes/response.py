@@ -2,7 +2,7 @@
 
 import logging
 
-from app.memory.memory import Memory, get_memory
+from app.memory.memory import Memory
 from app.models.state import GraphState
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ async def response_node(state: GraphState) -> dict:
     # Persist turn to LanceDB memory
     if user_message and assistant_text:
         try:
-            memory = get_memory(f"/business/{business_id}")
+            memory = Memory(scope=f"/business/{business_id}")
             content = f"User: {user_message}\nAssistant: {assistant_text}"
             await memory.remember(
                 content=content,

@@ -31,12 +31,12 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     from app.graph.workflow import init_graph
     from app.scheduler import start_scheduler, stop_scheduler
-    from app.record_knowledge.store import _get_storage
+    from app.record_knowledge.record_agent import _get_record_storage
 
     try:
         await init_graph()
         start_scheduler()
-        _get_storage()
+        _get_record_storage()
         logger.info("Application ready")
     except Exception as e:
         logger.critical("STARTUP FAILED: %s", e)
@@ -102,4 +102,5 @@ async def whatsapp_receive(payload: dict):
 @app.websocket("/ws/voice")
 async def voice_websocket(websocket: WebSocket):
     """Real-time voice-to-voice WebSocket."""
-    await handle_session(websocket)
+    # await handle_session(websocket)
+    pass

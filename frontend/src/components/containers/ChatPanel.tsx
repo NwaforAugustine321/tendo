@@ -14,7 +14,7 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
   const [collapsed, setCollapsed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingMessages, setLoadingMessages] = useState(false)
-  const [recordInsight, setRecordInsight] = useState<{ insight: string; suggested_questions: string[] } | null>(null)
+  const [recordInsight, setRecordInsight] = useState<string | null>(null)
   const [insightVisible, setInsightVisible] = useState(true)
   const [loadingInsight, setLoadingInsight] = useState(false)
   const { currentProfile } = useBusinessStore()
@@ -25,7 +25,7 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
     if (!recordId) return
     setLoadingInsight(true)
     recordsApi.getRecordUnderstanding(recordId).then((data) => {
-      if (data?.insight) setRecordInsight(data)
+      if (data?.insight) setRecordInsight(data.insight)
     }).catch(() => {}).finally(() => setLoadingInsight(false))
   }, [recordId])
 
@@ -225,7 +225,7 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
                         <Sparkles size={11} className="text-emerald-500" />
                         <span className="text-[10px] font-medium text-zinc-400">Overview</span>
                       </div>
-                      <p className="text-[11px] leading-relaxed text-zinc-300">{recordInsight.insight}</p>
+                      <p className="text-[11px] leading-relaxed text-zinc-300">{recordInsight}</p>
                     </div>
                     <button type="button" className="rounded-full border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-1 text-[10px] text-emerald-400 hover:bg-emerald-500/10 transition-colors">
                       Ask Tendo
@@ -255,7 +255,7 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
                   <Sparkles size={11} className="text-emerald-500" />
                   <span className="text-[10px] font-medium text-zinc-400">Record Overview</span>
                 </div>
-                <p className="text-[11px] leading-relaxed text-zinc-300">{recordInsight.insight}</p>
+                <p className="text-[11px] leading-relaxed text-zinc-300">{recordInsight}</p>
               </div>
             )}
             <button onClick={handleNewSession} className="text-xs text-zinc-400 hover:text-zinc-300">

@@ -345,11 +345,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ foldersLoading: true })
     try {
       const apiFolders = await recordsApi.getFolders()
-      console.log('[workspace] fetchFolders response:', apiFolders)
 
       if (!Array.isArray(apiFolders) || apiFolders.length === 0) {
         set({ foldersLoading: false })
-        setTimeout(() => get().fetchFolders(), 2000)
         return
       }
 
