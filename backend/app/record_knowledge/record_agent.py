@@ -12,39 +12,63 @@ from app.record_knowledge.summarizers import SUMMARIZERS
 
 logger = logging.getLogger(__name__)
 
-RECORD_KNOWLEDGE_TABLE = "record_knowledge"
-
-_storage: LanceDBStorage | None = None
+_storage_cache: dict[str, LanceDBStorage] = {}
 
 
-def _get_record_storage() -> LanceDBStorage:
-    """Get or create the LanceDB storage for record knowledge."""
-    global _storage
-    if _storage is None:
-        _storage = LanceDBStorage(table_name=RECORD_KNOWLEDGE_TABLE)
-    return _storage
+def _get_record_storage(business_id: str) -> LanceDBStorage:
+    """Get or create the LanceDB storage for record knowledge, keyed by business_id."""
+    if business_id not in _storage_cache:
+        _storage_cache[business_id] = LanceDBStorage(business_id=business_id)
+    return _storage_cache[business_id]
 
 
 def _entry_to_record(entry: KnowledgeEntry) -> MemoryRecord:
-    """Convert a KnowledgeEntry to a MemoryRecord for storage."""
+    """Convert a KnowledgeEntry to a MemoryRecord for storage.
+
+    Separates multimodal data (images, audio, videos) from metadata.
+    These go into their own binary columns, not into the JSON metadata field.
+    """
+    images: list[str] = []
+    audio: list[str] = []
+    videos: list[str] = []
+
+    # Extract multimodal data from structured_metadata
+    structured = entry.structured_metadata if isinstance(entry.structured_metadata, dict) else {}
+    if "images" in structured:
+        raw_images = structured["images"]
+        if isinstance(raw_images, list):
+            images = raw_images
+
+    if "audio" in structured:
+        raw_audio = structured["audio"]
+        if isinstance(raw_audio, list):
+            audio = raw_audio
+
+    if "videos" in structured:
+        raw_videos = structured["videos"]
+        if isinstance(raw_videos, list):
+            videos = raw_videos
+
+    # Build clean metadata without multimodal blobs
+    clean_metadata = {
+        "content_type": entry.content_type,
+        "version": entry.version,
+    }
+    # Copy non-multimodal fields from structured_metadata
+    for key, value in structured.items():
+        if key not in ("images", "audio", "videos"):
+            clean_metadata[key] = value
+
     return MemoryRecord(
         id=entry.knowledge_id,
         content=entry.summary,
-        scope=f"/{entry.business_id}/{entry.record_id}",
-        categories=[entry.content_type],
-        metadata={
-            "business_id": entry.business_id,
-            "record_id": entry.record_id,
-            "content_type": entry.content_type,
-            "version": entry.version,
-            "structured_metadata": json.dumps(entry.structured_metadata),
-        },
-        importance=0.7,
+        scope=f"/{entry.business_id}/record/{entry.record_id}",
+        metadata=clean_metadata,
+        images=images,
+        audio=audio,
+        videos=videos,
         created_at=datetime.now(timezone.utc),
-        last_accessed=datetime.now(timezone.utc),
         embedding=entry.embedding,
-        source="record_knowledge",
-        private=False,
     )
 
 
@@ -123,7 +147,7 @@ async def process_record_content(record_content: RecordContentInput) -> Processi
                     created_at=now,
                     updated_at=now,
                 )
-                store = _get_record_storage()
+                store = _get_record_storage(record_content.business_id)
                 store.save([_entry_to_record(page_entry)])
             logger.info(f"Embedded {len(page_chunks)} PDF page chunks for record {record_content.record_id}")
 
@@ -154,7 +178,7 @@ async def process_record_content(record_content: RecordContentInput) -> Processi
             updated_at=now,
         )
 
-        _get_record_storage().save([_entry_to_record(entry)])
+        _get_record_storage(record_content.business_id).save([_entry_to_record(entry)])
 
         # Generate 2 suggested questions based on the processed content
         suggested_questions = await _generate_suggestions(saved_content)

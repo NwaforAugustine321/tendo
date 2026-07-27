@@ -5,7 +5,7 @@ import { io, type Socket } from 'socket.io-client'
 import { Conversation } from '../../pages/Conversation'
 import { useBusinessStore } from '../../store/business'
 import { useWorkspaceStore } from '../../store/workspace'
-import { listSessions, createSession, getSessionMessages, type ChatSession, type ChatMessage } from '../../lib/services/conversations'
+import { listSessions, createSession, getSessionMessages, deleteSession, type ChatSession, type ChatMessage } from '../../lib/services/conversations'
 import * as recordsApi from '../../lib/services/records'
 import type { MessageItem } from './ConversationPage'
 
@@ -17,23 +17,8 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
   const [collapsed, setCollapsed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingMessages, setLoadingMessages] = useState(false)
-  const [recordInsight, setRecordInsight] = useState<string | null>(null)
-  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([])
-  const [insightVisible, setInsightVisible] = useState(true)
-  const [insightExpanded, setInsightExpanded] = useState(false)
-  const [loadingInsight, setLoadingInsight] = useState(false)
   const { currentProfile } = useBusinessStore()
   const businessId = currentProfile?.id || ''
-
-  // Fetch record insight on mount
-  useEffect(() => {
-    if (!recordId) return
-    setLoadingInsight(true)
-    recordsApi.getRecordUnderstanding(recordId).then((data) => {
-      if (data?.insight) setRecordInsight(data.insight)
-      if (data?.suggested_questions) setSuggestedQuestions(data.suggested_questions)
-    }).catch(() => {}).finally(() => setLoadingInsight(false))
-  }, [recordId])
 
   // Connect to Socket.IO for real-time processing events
   const socketRef = useRef<Socket | null>(null)
@@ -53,15 +38,7 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
     })
 
     socket.on('record_processing_status', (data: any) => {
-      if (data?.record_id === recordId) {
-        if (data?.status === 'completed') {
-          if (data?.summary) setRecordInsight(data.summary)
-          if (data?.suggested_questions?.length) setSuggestedQuestions(data.suggested_questions)
-          setLoadingInsight(false)
-        } else if (data?.status === 'processing') {
-          setLoadingInsight(true)
-        }
-      }
+      // Processing events handled by RecordFloatingPanel
     })
 
     socketRef.current = socket
@@ -71,43 +48,79 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
     }
   }, [recordId])
 
-  // Load sessions on mount or business change
+  // Load sessions and messages on mount or business/record change
   useEffect(() => {
     if (!businessId) return
 
+    let cancelled = false
     setLoading(true)
-    listSessions(businessId, recordId)
-      .then((data) => {
-        setSessions(data)
-        if (data.length > 0) {
-          setActiveSessionId(data[0].id)
-        }
-      })
-      .catch(() => {
-        setSessions([])
-      })
-      .finally(() => setLoading(false))
-  }, [businessId, recordId])
+    setInitialMessages([])
 
-  // Load messages when active session changes — fetch in batches of 20
-  useEffect(() => {
-    if (!activeSessionId || !businessId) {
-      setInitialMessages([])
-      return
+    async function loadSessionAndMessages() {
+      try {
+        const data = await listSessions(businessId, recordId)
+        if (cancelled) return
+        setSessions(data)
+
+        if (data.length > 0) {
+          const lastSession = data[0]
+          setActiveSessionId(lastSession.id)
+
+          // Fetch messages for the last session
+          setLoadingMessages(true)
+          const PAGE_SIZE = 20
+          let offset = 0
+          let allMessages: MessageItem[] = []
+
+          while (true) {
+            const batch = await getSessionMessages(lastSession.id, businessId, PAGE_SIZE, offset)
+            if (cancelled) return
+            if (batch.length === 0) break
+
+            const mapped = batch.map((m, i) => ({
+              id: `msg-${offset + i}`,
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+              type: 'text' as const,
+            }))
+
+            allMessages = [...allMessages, ...mapped]
+            if (batch.length < PAGE_SIZE) break
+            offset += PAGE_SIZE
+          }
+
+          if (!cancelled) setInitialMessages(allMessages)
+        } else {
+          setActiveSessionId('')
+        }
+      } catch {
+        setSessions([])
+        setActiveSessionId('')
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+          setLoadingMessages(false)
+        }
+      }
     }
 
-    let cancelled = false
+    loadSessionAndMessages()
+    return () => { cancelled = true }
+  }, [businessId, recordId])
+
+  // Load messages when user switches session tab
+  const loadMessagesForSession = async (sessionId: string) => {
+    if (!sessionId || !businessId) return
     setLoadingMessages(true)
+    setInitialMessages([])
 
-    async function loadAllMessages() {
-      const PAGE_SIZE = 20
-      let offset = 0
-      let allMessages: MessageItem[] = []
+    const PAGE_SIZE = 20
+    let offset = 0
+    let allMessages: MessageItem[] = []
 
+    try {
       while (true) {
-        const batch = await getSessionMessages(activeSessionId, businessId, PAGE_SIZE, offset)
-        if (cancelled) return
-
+        const batch = await getSessionMessages(sessionId, businessId, PAGE_SIZE, offset)
         if (batch.length === 0) break
 
         const mapped = batch.map((m, i) => ({
@@ -118,19 +131,14 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
         }))
 
         allMessages = [...allMessages, ...mapped]
-        setInitialMessages([...allMessages])
-
         if (batch.length < PAGE_SIZE) break
         offset += PAGE_SIZE
       }
+      setInitialMessages(allMessages)
+    } finally {
+      setLoadingMessages(false)
     }
-
-    loadAllMessages().finally(() => {
-      if (!cancelled) setLoadingMessages(false)
-    })
-
-    return () => { cancelled = true }
-  }, [activeSessionId, businessId])
+  }
 
   const handleNewSession = async () => {
     if (!businessId) return
@@ -144,7 +152,20 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
     }
   }
 
+  // Auto-create session when pending message arrives with no active session
+  const pendingMsg = useWorkspaceStore((s) => s.pendingChatMessage)
+  useEffect(() => {
+    if (pendingMsg && !activeSessionId && businessId && !loading) {
+      createSession(businessId, 'New Session', recordId).then((session) => {
+        setSessions((prev) => [session, ...prev])
+        setActiveSessionId(session.id)
+        setInitialMessages([])
+      }).catch(() => {})
+    }
+  }, [pendingMsg, activeSessionId, businessId, loading])
+
   const handleCloseSession = (id: string) => {
+    deleteSession(id, businessId).catch(() => {})
     setSessions((prev) => prev.filter((s) => s.id !== id))
     if (activeSessionId === id) {
       const remaining = sessions.filter((s) => s.id !== id)
@@ -171,7 +192,7 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
         {sessions.slice(0, 5).map((session) => (
           <div
             key={session.id}
-            onClick={() => setActiveSessionId(session.id)}
+            onClick={() => { setActiveSessionId(session.id); loadMessagesForSession(session.id) }}
             className={`flex cursor-pointer items-center gap-1 rounded-t-md px-2.5 py-1.5 text-[11px] transition-colors ${
               activeSessionId === session.id
                 ? 'bg-[#0f0f0f] text-zinc-200 border border-zinc-800/60 border-b-transparent'
@@ -218,7 +239,7 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
             sessions.map((s) => (
               <button
                 key={s.id}
-                onClick={() => { setActiveSessionId(s.id); setShowHistory(false) }}
+                onClick={() => { setActiveSessionId(s.id); loadMessagesForSession(s.id); setShowHistory(false) }}
                 className={`flex w-full cursor-pointer items-center rounded px-2 py-1 text-[11px] transition-colors hover:bg-zinc-800 ${
                   s.id === activeSessionId ? 'text-emerald-400' : 'text-zinc-400'
                 }`}
@@ -241,29 +262,6 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
           </div>
         ) : loadingMessages ? (
           <div className="flex flex-col h-full">
-            {/* Show insight skeleton while messages load */}
-            {insightVisible && (loadingInsight || recordInsight) && (
-              <div className="shrink-0 p-3 space-y-2">
-                {loadingInsight ? (
-                  <div className="rounded-lg border border-zinc-800/40 bg-[#141414] p-3 space-y-2.5">
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <Sparkles size={11} className="text-emerald-500" />
-                      <span className="text-[10px] font-medium text-zinc-400">Overview</span>
-                    </div>
-                    <div className="animate-pulse space-y-2">
-                      <div className="h-2.5 w-full rounded bg-zinc-800" />
-                      <div className="h-2.5 w-4/5 rounded bg-zinc-800" />
-                      <div className="h-2.5 w-3/5 rounded bg-zinc-800" />
-                    </div>
-                    <div className="flex gap-2 mt-3 animate-pulse">
-                      <div className="h-6 w-24 rounded-full bg-zinc-800" />
-                      <div className="h-6 w-20 rounded-full bg-zinc-800" />
-                      <div className="h-6 w-16 rounded-full bg-zinc-800" />
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            )}
             {/* Messages skeleton */}
             <div className="flex-1 p-4 space-y-4 animate-pulse">
               <div className="flex gap-2">
@@ -291,77 +289,6 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
           </div>
         ) : activeSessionId ? (
           <div className="flex flex-col h-full">
-            {/* Show insight cards above conversation if visible and no messages yet */}
-            {insightVisible && initialMessages.length === 0 && (
-              <div className="shrink-0 p-3 space-y-2">
-                {loadingInsight ? (
-                  <div className="rounded-lg border border-zinc-800/40 bg-[#141414] p-3 space-y-2.5">
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <Sparkles size={11} className="text-emerald-500" />
-                      <span className="text-[10px] font-medium text-zinc-400">Overview</span>
-                    </div>
-                    <div className="animate-pulse space-y-2">
-                      <div className="h-2.5 w-full rounded bg-zinc-800" />
-                      <div className="h-2.5 w-4/5 rounded bg-zinc-800" />
-                      <div className="h-2.5 w-3/5 rounded bg-zinc-800" />
-                    </div>
-                    <div className="flex gap-2 mt-3 animate-pulse">
-                      <div className="h-6 w-24 rounded-full bg-zinc-800" />
-                      <div className="h-6 w-20 rounded-full bg-zinc-800" />
-                      <div className="h-6 w-16 rounded-full bg-zinc-800" />
-                    </div>
-                  </div>
-                ) : recordInsight ? (
-                  <div className="rounded-lg border border-zinc-800/40 bg-[#141414] p-3">
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <Sparkles size={11} className="text-emerald-500" />
-                      <span className="text-[10px] font-medium text-zinc-400">Overview</span>
-                    </div>
-                    <div className={clsx(
-                      "overflow-hidden transition-all duration-200",
-                      insightExpanded ? "max-h-[300px] overflow-y-auto" : "max-h-[72px]"
-                    )}>
-                      <p className="text-[11px] leading-relaxed text-zinc-300">{recordInsight}</p>
-                    </div>
-                    {recordInsight.length > 150 && (
-                      <button
-                        type="button"
-                        onClick={() => setInsightExpanded(!insightExpanded)}
-                        className="mt-1.5 text-[10px] text-[#3ecf8e] hover:text-[#3ecf8e]/80 transition-colors"
-                      >
-                        {insightExpanded ? 'See less' : 'See more'}
-                      </button>
-                    )}
-                  </div>
-                ) : null}
-                {/* Ask Tendo + suggestions — always visible */}
-                <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                  {suggestedQuestions.map((q, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => {
-                        useWorkspaceStore.getState().setPendingChatMessage(q)
-                      }}
-                      className="flex items-center gap-1 rounded-full px-2.5 py-1 border border-zinc-700/50 bg-[#1a1a1a] text-[10px] text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
-                    >
-                      <Lightbulb size={9} className="text-[#3ecf8e] shrink-0" />
-                      <span>{q}</span>
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      useWorkspaceStore.getState().setPendingChatMessage(`Tell me more about this`)
-                    }}
-                    className="flex items-center gap-1 rounded-full px-2.5 py-1 border border-emerald-500/30 bg-emerald-500/5 text-[10px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
-                  >
-                    <Sparkles size={9} />
-                    <span>Ask Tendo</span>
-                  </button>
-                </div>
-              </div>
-            )}
             <div className="min-h-0 flex-1">
               <Conversation
                 key={activeSessionId}
@@ -371,62 +298,12 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
                 fullScreen={false}
                 showHeader={false}
                 characterRightOffset={290}
-                onFirstMessage={() => setInsightVisible(false)}
+                recordId={recordId}
               />
             </div>
           </div>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-4">
-            {recordInsight && (
-              <div className="w-full rounded-lg border border-zinc-800/40 bg-[#141414] p-3 mb-3">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <Sparkles size={11} className="text-emerald-500" />
-                  <span className="text-[10px] font-medium text-zinc-400">Overview</span>
-                </div>
-                <div className={clsx(
-                  "overflow-hidden transition-all duration-200",
-                  insightExpanded ? "max-h-[300px] overflow-y-auto" : "max-h-[72px]"
-                )}>
-                  <p className="text-[11px] leading-relaxed text-zinc-300">{recordInsight}</p>
-                </div>
-                {recordInsight.length > 150 && (
-                  <button
-                    type="button"
-                    onClick={() => setInsightExpanded(!insightExpanded)}
-                    className="mt-1.5 text-[10px] text-[#3ecf8e] hover:text-[#3ecf8e]/80 transition-colors"
-                  >
-                    {insightExpanded ? 'See less' : 'See more'}
-                  </button>
-                )}
-                <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                  {suggestedQuestions.map((q, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => {
-                        useWorkspaceStore.getState().setPendingChatMessage(q)
-                        useWorkspaceStore.getState().setDashboardChatVisible(true)
-                      }}
-                      className="flex items-center gap-1 rounded-full px-2.5 py-1 border border-zinc-700/50 bg-[#1a1a1a] text-[10px] text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
-                    >
-                      <Lightbulb size={9} className="text-[#3ecf8e] shrink-0" />
-                      <span>{q}</span>
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      useWorkspaceStore.getState().setPendingChatMessage(`Tell me more about this`)
-                      useWorkspaceStore.getState().setDashboardChatVisible(true)
-                    }}
-                    className="flex items-center gap-1 rounded-full px-2.5 py-1 border border-emerald-500/30 bg-emerald-500/5 text-[10px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
-                  >
-                    <Sparkles size={9} />
-                    <span>Ask Tendo</span>
-                  </button>
-                </div>
-              </div>
-            )}
             <button onClick={handleNewSession} className="text-xs text-zinc-400 hover:text-zinc-300">
               Start a conversation
             </button>

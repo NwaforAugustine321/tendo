@@ -1,0 +1,472 @@
+from __future__ import annotations
+import asyncio
+import inspect
+import json
+import logging
+import re
+import time
+from typing import Any, TYPE_CHECKING
+
+from app.contexts.models import ExecutionContext, SharedContext
+from app.execution.models import (
+    AgentExecution,
+    DomainResult,
+    ExecutionMetrics,
+    ReflectionOutput,
+)
+from app.lib.context_handler import handle_context_length, is_context_length_exceeded
+from app.lib.i18n import _get_i18n
+from app.lib.json_parser import parse_json_output
+from app.lib.prompts import SystemPromptResult
+from app.lib.tool_schema import tools_schema_and_description
+from app.runtime.tool_binder import ToolBinder
+
+if TYPE_CHECKING:
+    from app.agents.protocol import DomainAgentProtocol
+
+logger = logging.getLogger(__name__)
+
+FINAL_ANSWER_REGEX = re.compile(r"<Final_Answer>(.*?)(?:</Final_Answer>|$)", re.DOTALL)
+ACTION_REGEX = re.compile(r"<Action>(.*?)(?:</Action>|$)", re.DOTALL)
+ACTION_INPUT_REGEX = re.compile(r"<Action_Input>(.*?)(?:</Action_Input>|$)", re.DOTALL)
+WAITING_USER_INPUT_REGEX = re.compile(r"<Waiting_User_Input>(.*?)(?:</Waiting_User_Input>|$)", re.DOTALL)
+
+
+class AgentRuntime:
+
+
+    def __init__(
+        self,
+        llm: Any,
+        tool_binder: ToolBinder,
+        reflection_stage: Any | None = None,
+        max_iter: int = 25,
+        max_validation_retries: int = 2,
+        thinking_callback: Any | None = None,
+    ) -> None:
+        self._llm = llm
+        self._tool_binder = tool_binder
+        self._reflection_stage = reflection_stage
+        self._max_iter = max_iter
+        self._max_validation_retries = max_validation_retries
+        self._thinking_callback = thinking_callback
+        self._messages: list[dict[str, Any]] = []
+        self._iterations: int = 0
+        self._tool_call_history: set[str] = set()
+        self._tools: list[Any] = []
+        self._tools_names: str = ""
+        self._tools_description: str = ""
+        self._response_model: type | None = None
+
+    async def execute(
+        self,
+        execution_context: ExecutionContext,
+        shared_context: SharedContext,
+        domain_agent: "DomainAgentProtocol",
+    ) -> AgentExecution:
+        """Full lifecycle: validate EC → bind tools → run agent → reflect → return."""
+        agent_id = getattr(domain_agent, "agent_id", domain_agent.__class__.__name__)
+        start = time.perf_counter()
+
+
+        if not execution_context.objective or not execution_context.objective.strip():
+            return AgentExecution(
+                agent_id=agent_id,
+                execution_context=execution_context,
+                result=DomainResult(status="failure", response_text=""),
+                error="Invalid ExecutionContext: objective is empty",
+            )
+
+
+        bound_tools = await self._tool_binder.bind(execution_context.available_tools)
+        self._tools = bound_tools
+        self._tools_names = ", ".join(getattr(t, "name", str(t)) for t in bound_tools)
+        self._tools_description = tools_schema_and_description(bound_tools) if bound_tools else ""
+
+
+        self._iterations = 0
+        self._messages = []
+        self._tool_call_history = set()
+
+        if bound_tools:
+            try:
+                self._llm = self._llm.bind_tools(bound_tools)
+            except Exception:
+                pass
+
+        result: DomainResult
+        try:
+            # Build messages from execution context for the tool loop
+            system_prompt = self._build_agent_system_prompt(execution_context, shared_context)
+            self._messages = [
+                {"role": "system", "content": system_prompt},
+            ]
+            # Include conversation history as actual messages
+            for msg in shared_context.conversation_messages:
+                self._messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+            # Current user request
+            self._messages.append({"role": "user", "content": execution_context.objective})
+
+            # Run the tool loop
+            raw = await self._invoke_loop()
+
+            result = DomainResult(
+                payload={"raw": raw},
+                status="success",
+                response_text=raw,
+            )
+        except Exception as e:
+            logger.error("Domain agent execution failed: %s", e)
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            await self._tool_binder.release()
+            return AgentExecution(
+                agent_id=agent_id,
+                execution_context=execution_context,
+                result=DomainResult(status="failure", response_text=""),
+                metrics=ExecutionMetrics(
+                    iterations=self._iterations,
+                    duration_ms=elapsed_ms,
+                    tools_invoked=[],
+                ),
+                error=f"Domain agent failed: {e}",
+            )
+
+
+        reflection = ReflectionOutput()
+        if self._reflection_stage is not None:
+            try:
+                reflection = await self._reflection_stage.reflect(
+                    execution_context=execution_context,
+                    messages=self._messages,
+                    tools_used=[getattr(t, "name", str(t)) for t in bound_tools],
+                    knowledge_used=[k.collection_id for k in execution_context.knowledge],
+                    skills_used=[s.skill_id for s in execution_context.skills],
+                    iterations=self._iterations,
+                    duration_ms=(time.perf_counter() - start) * 1000,
+                    domain_output=result.payload,
+                )
+            except Exception as e:
+                logger.warning("Reflection failed: %s", e)
+                reflection = ReflectionOutput()
+
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        tools_invoked = [
+            {"name": getattr(t, "name", str(t)), "count": 1} for t in bound_tools
+        ]
+        metrics = ExecutionMetrics(
+            iterations=self._iterations,
+            duration_ms=elapsed_ms,
+            tools_invoked=tools_invoked,
+        )
+
+        await self._tool_binder.release()
+
+        return AgentExecution(
+            agent_id=agent_id,
+            execution_context=execution_context,
+            result=result,
+            reflection=reflection,
+            metrics=metrics,
+        )
+
+
+    async def _emit_status(self, text: str) -> None:
+        if not self._thinking_callback:
+            return
+        try:
+            if inspect.iscoroutinefunction(self._thinking_callback):
+                await self._thinking_callback(text)
+            else:
+                await asyncio.to_thread(self._thinking_callback, text)
+        except Exception:
+            pass
+
+    async def _emit_thinking(self, text: str) -> None:
+        if not self._thinking_callback or not text:
+            return
+        try:
+            if inspect.iscoroutinefunction(self._thinking_callback):
+                await self._thinking_callback(text)
+            else:
+                await asyncio.to_thread(self._thinking_callback, text)
+        except Exception:
+            pass
+
+    def _build_agent_system_prompt(self, ec: ExecutionContext, sc: SharedContext) -> str:
+        parts = [
+            f"You are a domain agent. Your objective: {ec.objective}",
+            "IMPORTANT: Never expose internal system errors, tool errors, implementation details, or technical messages to the user. If a tool returns an error or no results, respond naturally without mentioning the error.",
+            "CRITICAL: You MUST use your available tools to retrieve information. NEVER invent, fabricate, or hallucinate information. If you cannot retrieve data using your tools, say you don't have that information yet. Do NOT make up names, numbers, emails, addresses, or any other details.",
+            "NEVER expose internal IDs, business IDs, record IDs, scope paths, or any system identifiers to the user.",
+        ]
+        if ec.knowledge:
+            parts.append("Relevant knowledge: " + ", ".join(k.content for k in ec.knowledge))
+        if ec.skills:
+            parts.append("Available skills: " + ", ".join(s.content for s in ec.skills))
+        if ec.constraints:
+            parts.append("Constraints: " + "; ".join(f"{c.name}: {c.condition}" for c in ec.constraints))
+        if self._tools_names:
+            parts.append(f"Available tools: {self._tools_names}")
+            parts.append(f"\n{self._tools_description}")
+        return "\n".join(parts)
+
+    @staticmethod
+    def _parse_tool_input(raw_input: str) -> dict[str, Any] | None:
+        try:
+            result = parse_json_output(raw_input)
+            if isinstance(result, dict):
+                return result
+        except (json.JSONDecodeError, ValueError, TypeError):
+            pass
+        return None
+
+    def _build_initial_messages(self, task_prompt: str, prompt: Any = None) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = []
+        if prompt and isinstance(prompt, SystemPromptResult):
+            system_content = prompt.system
+            if self._tools_names:
+                system_content = system_content.replace("{tools}", self._tools_description).replace("{tool_names}", self._tools_names)
+            messages.append({"role": "system", "content": system_content})
+            messages.append({"role": "user", "content": prompt.user.replace("{input}", task_prompt)})
+        elif prompt:
+            content = prompt.prompt
+            if self._tools_names:
+                content = content.replace("{tools}", self._tools_description).replace("{tool_names}", self._tools_names)
+            messages.append({"role": "user", "content": content.replace("{input}", task_prompt)})
+        else:
+            messages.append({"role": "user", "content": task_prompt})
+        return messages
+
+    def _is_waiting_for_user(self, raw: str) -> bool:
+        """Check if the agent output indicates it's waiting for user input."""
+        return bool(WAITING_USER_INPUT_REGEX.search(raw))
+
+
+    async def _execute_tool(self, tool_call: dict[str, Any]) -> str:
+        tool_name = tool_call.get("name", "")
+        tool_args = tool_call.get("args", {})
+        call_signature = f"{tool_name}:{json.dumps(tool_args, sort_keys=True, default=str)}"
+        if call_signature in self._tool_call_history:
+            i18n = _get_i18n()
+            repeated_msg = i18n.get("errors.task_repeated_usage")
+            self._messages.append({"role": "user", "content": repeated_msg})
+            return repeated_msg
+        self._tool_call_history.add(call_signature)
+        tool_map = {t.name: t for t in self._tools}
+        tool_fn = tool_map.get(tool_name)
+        if not tool_fn:
+            error_msg = f"Error: Tool '{tool_name}' not found. Available tools: {self._tools_names}"
+            self._messages.append({"role": "user", "content": f"Observation: {error_msg}"})
+            return error_msg
+        return await self._run_tool_fn(tool_name, tool_args, tool_fn)
+
+    async def _run_tool_fn(self, tool_name: str, tool_args: dict, tool_fn: Any) -> str:
+        try:
+            result = await tool_fn.ainvoke(tool_args)
+            result_str = str(result)
+            self._messages.append({"role": "user", "content": f"Observation: {result_str}"})
+            post_reasoning = _get_i18n().get("slices.post_tool_reasoning")
+            if post_reasoning:
+                self._messages.append({"role": "user", "content": post_reasoning})
+            return result_str
+        except Exception as e:
+            logger.warning(f"Tool '{tool_name}' failed: {e}")
+            error_msg = "No results."
+            self._messages.append({"role": "user", "content": f"Observation: {error_msg}"})
+            return error_msg
+
+
+    async def _validate_and_retry(self, final_answer: str) -> str:
+        if not self._response_model:
+            return final_answer
+        for _ in range(self._max_validation_retries):
+            try:
+                data = parse_json_output(final_answer)
+                if data:
+                    self._response_model(**data)
+                return final_answer
+            except Exception as e:
+                error_str = str(e)
+                logger.debug(f"[Runtime] Validation failed: {error_str[:200]}")
+                validation_msg = _get_i18n().get("errors.validation_error")
+                if validation_msg:
+                    retry_msg = validation_msg.format(guardrail_result_error=error_str[:500], task_output=final_answer[:500])
+                    self._messages.append({"role": "assistant", "content": final_answer})
+                    self._messages.append({"role": "user", "content": retry_msg})
+                    final_answer = await self._invoke_loop()
+                else:
+                    break
+        return final_answer
+
+
+    async def _invoke_loop(self) -> str:
+        """Run the LLM invocation loop with dual-mode tool calling."""
+        while True:
+            self._iterations += 1
+            if self._iterations > self._max_iter:
+                return await self._force_final_answer()
+            response = await self._invoke_llm_safe()
+            if response is None:
+                self._messages.append({"role": "user", "content": "Please provide a response."})
+                continue
+            content = response.content
+            if isinstance(content, list):
+                content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
+            raw = content.strip() if content else ""
+            if response.tool_calls:
+                result = await self._handle_native_tool_calls(response)
+                if result is not None:
+                    return result
+                continue
+            if not raw:
+                if self._handle_empty_response():
+                    return "I was unable to generate a response. Please try again."
+                continue
+            result = await self._handle_text_response(raw)
+            if result is not None:
+                return result
+
+    async def _invoke_llm_safe(self) -> Any:
+        try:
+            response = await self._llm.ainvoke(self._messages)
+            print(response)
+            return response
+        except Exception as e:
+            if is_context_length_exceeded(e):
+                self._messages = await handle_context_length(messages=self._messages, respect_context_window=True)
+                return None
+            raise
+
+    def _handle_empty_response(self) -> bool:
+        """Handle empty LLM response. Returns True if max retries exceeded."""
+        logger.warning("LLM returned empty content")
+        empty_retries = sum(1 for m in self._messages if m.get("content") == "Please provide a response.")
+        if empty_retries >= 3:
+            logger.error("LLM returned empty 3 times, aborting")
+            return True
+        self._messages.append({"role": "user", "content": "Please provide a response."})
+        return False
+
+    async def _handle_native_tool_calls(self, response: Any) -> str | None:
+        """Process native tool calls from LLM response. Returns final answer or None."""
+        await self._emit_status("Checking information...")
+        self._messages.append({"role": "assistant", "content": response.content or "", "tool_calls": response.tool_calls})
+        for tc in response.tool_calls:
+            tool_result = await self._execute_tool(tc)
+            self._messages.append({"role": "tool", "tool_call_id": tc["id"], "content": str(tool_result)})
+        return None
+
+
+    async def _handle_text_response(self, raw: str) -> str | None:
+        fa_match = FINAL_ANSWER_REGEX.search(raw)
+        if fa_match:
+            content = fa_match.group(1).strip()
+            if not content:
+                self._messages.append({"role": "assistant", "content": raw})
+                self._messages.append({"role": "user", "content": "Your response was empty. Please provide a complete answer based on the information you retrieved."})
+                return None
+            try:
+                parsed = parse_json_output(content)
+                if isinstance(parsed, dict):
+                    return json.dumps(parsed)
+            except (json.JSONDecodeError, ValueError, TypeError):
+                pass
+            return content
+
+        action_match = ACTION_REGEX.search(raw)
+        input_match = ACTION_INPUT_REGEX.search(raw)
+        await self._emit_status("Checking information...")
+        if action_match and not input_match:
+            self._messages.append({"role": "assistant", "content": raw})
+            self._messages.append({"role": "user", "content": "You provided an <Action> but missing <Action_Input>. Please provide the complete tool call with <Action_Input>{JSON}</Action_Input>."})
+            return None
+        if action_match and input_match:
+            return await self._handle_xml_action(raw, action_match, input_match)
+        return await self._handle_json_or_final(raw)
+
+    async def _handle_xml_action(self, raw: str, action_match: re.Match, input_match: re.Match) -> str | None:
+        """Process XML <Action>/<Action_Input> tool call."""
+        tool_name = action_match.group(1).strip()
+        tool_args = self._parse_tool_input(input_match.group(1).strip())
+        if tool_args is None:
+            self._messages.append({"role": "assistant", "content": raw})
+            self._messages.append({"role": "user", "content": "Error: Could not parse your <Action_Input> as valid JSON. Please retry with valid JSON enclosed in <Action_Input>...</Action_Input> tags."})
+            return None
+        self._messages.append({"role": "assistant", "content": raw})
+        tool_call = {"name": tool_name, "args": tool_args, "id": f"text_{tool_name}"}
+        result_str = await self._execute_tool(tool_call)
+        self._messages.append({"role": "user", "content": f"Observation: {result_str}"})
+        return None
+
+    async def _handle_json_or_final(self, raw: str) -> str | None:
+        parsed_data = None
+        try:
+            parsed_data = parse_json_output(raw)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            if self._response_model:
+                self._messages.append({"role": "assistant", "content": raw})
+                self._messages.append({"role": "user", "content": "Error: Your response is not valid JSON. Please respond with a valid JSON object."})
+                return None
+            return raw
+        await self._emit_status("Checking information...")
+        if parsed_data and isinstance(parsed_data, dict):
+            if self._is_waiting_for_user(raw):
+                response_text = parsed_data.get("response", "")
+                if response_text:
+                    await self._emit_thinking(response_text)
+                return raw
+            tool_requests = parsed_data.get("tool_requests")
+            if tool_requests and isinstance(tool_requests, list) and len(tool_requests) > 0:
+                return await self._handle_json_tool_requests(raw, parsed_data, tool_requests)
+            # Detect raw tool call attempts (no tools bound or hallucinated tool names)
+            if parsed_data.get("tool") or parsed_data.get("arguments") is not None:
+                self._messages.append({"role": "assistant", "content": raw})
+                self._messages.append({"role": "user", "content": "You do not have access to that tool. Answer the user's question using only the information you already have. If you don't have the information, say so clearly."})
+                return None
+            # Detect raw data dumps (not a proper response to the user)
+            if not parsed_data.get("response") and not self._is_waiting_for_user(raw) and len(parsed_data) > 1:
+                self._messages.append({"role": "assistant", "content": raw})
+                self._messages.append({"role": "user", "content": "Do not return raw JSON data to the user. Summarize this information in a clear, natural response that directly answers the user's question."})
+                return None
+            if self._is_waiting_for_user(raw):
+                return raw
+            return raw
+        return self._extract_final_answer(raw)
+
+    async def _handle_json_tool_requests(self, raw: str, parsed_data: dict, tool_requests: list) -> str | None:
+        """Execute tool_requests from JSON response."""
+        await self._emit_status("Checking information...")
+        response_text = parsed_data.get("response", "")
+        if response_text:
+            await self._emit_thinking(response_text)
+        self._messages.append({"role": "assistant", "content": raw})
+        all_results = []
+        for tr in tool_requests:
+            tool_name = tr.get("tool", "")
+            tool_args = tr.get("arguments", tr.get("params", {}))
+            tool_call = {"name": tool_name, "args": tool_args, "id": f"text_{tool_name}"}
+            result_str = await self._execute_tool(tool_call)
+            logger.info(f"[Runtime] Tool '{tool_name}' result: {result_str[:200]}")
+            all_results.append(f"Tool '{tool_name}': {result_str[:500]}")
+        self._messages.append({"role": "user", "content": f"Observation: {chr(10).join(all_results)}"})
+        return None
+
+    def _extract_final_answer(self, raw: str) -> str:
+        """Extract final answer from text, handling <Final_Answer> tags."""
+        fa_match = FINAL_ANSWER_REGEX.search(raw)
+        if fa_match:
+            return fa_match.group(1).strip()
+        return raw
+
+    async def _force_final_answer(self) -> str:
+        force_msg = _get_i18n().get("slices.force_final_answer")
+        self._messages.append({"role": "user", "content": force_msg})
+        response = await self._llm.ainvoke(self._messages)
+        content = response.content
+        if isinstance(content, list):
+            content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
+        raw = content.strip() if content else ""
+        fa_match = FINAL_ANSWER_REGEX.search(raw)
+        if fa_match:
+            return fa_match.group(1).strip()
+        return raw

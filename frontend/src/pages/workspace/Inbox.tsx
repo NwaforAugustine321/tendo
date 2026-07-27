@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { io } from 'socket.io-client'
 import {
   RefreshCw,
   MoreVertical,
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { ChatPanel } from '../../components/containers/ChatPanel'
+import { AiDisplay } from '../../components/atoms/AiDisplay'
 import { Dashboard } from './Dashboard'
 import { getInsights } from '../../lib/services/insights'
 import { getSnapshot } from '../../lib/services/snapshot'
@@ -104,6 +106,26 @@ const TABS: { id: InboxTab; label: string; badge?: number; badgeColor?: string }
   { id: 'recommendations', label: 'Recommendations', badge: 1, badgeColor: 'bg-amber-500/20 text-amber-400' },
 ]
 
+// --- Relative time formatter (Gmail style) ---
+function formatRelativeTime(dateStr: string): string {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  const diffHr = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+
+  if (diffMin < 1) return 'Just now'
+  if (diffMin < 60) return `${diffMin} min ago`
+  if (diffHr < 24) return `${diffHr} hr ago`
+  if (diffDays === 1) return 'Yesterday'
+  if (diffDays < 7) return `${diffDays} days ago`
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  }
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 // --- Collapsible Section ---
 
 function CollapsibleSection({ title, subtitle, avatarColor, defaultOpen = false, icon, processing, children }: {
@@ -129,7 +151,7 @@ function CollapsibleSection({ title, subtitle, avatarColor, defaultOpen = false,
   }
 
   return (
-    <div className="mb-4 border-t border-zinc-800/20 bg-zinc-900/20">
+    <div className="mb-4 bg-zinc-900/20 rounded-lg border border-zinc-800/20">
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -168,6 +190,103 @@ function MessageDetail({
   const [loadingContent, setLoadingContent] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const recordId = message.id.startsWith('record-') ? message.id.replace('record-', '') : ''
+  const [insight, setInsight] = useState<string | null>(null)
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([])
+  const [loadingInsight, setLoadingInsight] = useState(true)
+  const [insightExpanded, setInsightExpanded] = useState(false)
+  const insightPanelRef = useRef<HTMLDivElement>(null)
+  const [panelPos, setPanelPos] = useState<{ x: number; y: number } | null>(null)
+  const dragging = useRef(false)
+  const dragOffset = useRef({ x: 0, y: 0 })
+
+  // Clamp panel to viewport when it expands/collapses
+  useEffect(() => {
+    const el = insightPanelRef.current
+    if (!el) return
+    requestAnimationFrame(() => {
+      const rect = el.getBoundingClientRect()
+      const h = window.innerHeight
+      let newY = panelPos ? panelPos.y : undefined
+      let newX = panelPos ? panelPos.x : undefined
+      if (rect.bottom > h - 10) {
+        newY = h - rect.height - 10
+      }
+      if (rect.top < 10) {
+        newY = 10
+      }
+      if (newY !== undefined && newX !== undefined) {
+        setPanelPos({ x: newX, y: newY })
+      } else if (newY !== undefined) {
+        setPanelPos((prev) => prev ? { ...prev, y: newY! } : null)
+      }
+    })
+  }, [insightExpanded, insight, suggestedQuestions])
+
+  const handlePanelMouseDown = (e: React.MouseEvent) => {
+    const el = insightPanelRef.current
+    if (!el) return
+    dragging.current = true
+    const rect = el.getBoundingClientRect()
+    dragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current) return
+      const w = window.innerWidth
+      const h = window.innerHeight
+      let x = ev.clientX - dragOffset.current.x
+      let y = ev.clientY - dragOffset.current.y
+      if (x < 0) x = 0
+      if (y < 0) y = 0
+      if (x + 280 > w) x = w - 280
+      const elH = el.getBoundingClientRect().height
+      if (y + elH > h) y = h - elH - 10
+      setPanelPos({ x, y })
+    }
+    const onUp = () => {
+      dragging.current = false
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
+  // Fetch insight
+  useEffect(() => {
+    if (!recordId) return
+    setLoadingInsight(true)
+    recordsApi.getRecordUnderstanding(recordId).then((data) => {
+      if (data?.insight) setInsight(data.insight)
+      if (data?.suggested_questions) setSuggestedQuestions(data.suggested_questions)
+    }).catch(() => {}).finally(() => setLoadingInsight(false))
+  }, [recordId])
+
+  // Listen for record processing completion to refresh insight
+  useEffect(() => {
+    if (!recordId) return
+    const { currentProfile } = useBusinessStore.getState()
+    const businessId = currentProfile?.id || ''
+    if (!businessId) return
+
+    const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:8000'
+    const baseUrl = wsUrl.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://').replace(/\/ws\/voice$/, '')
+
+    const socket = io(baseUrl, {
+      path: '/ws/voice',
+      transports: ['websocket'],
+      query: { business_id: businessId },
+    })
+
+    socket.on('record_processing_status', (data: any) => {
+      if (data?.record_id === recordId && data?.status === 'completed') {
+        if (data?.summary) setInsight(data.summary)
+        if (data?.suggested_questions?.length) setSuggestedQuestions(data.suggested_questions)
+        setLoadingInsight(false)
+      }
+    })
+
+    return () => { socket.disconnect() }
+  }, [recordId])
 
   // Fetch all record contents on mount
   useEffect(() => {
@@ -182,7 +301,6 @@ function MessageDetail({
       // Resume polling for any content still processing (status === 'processing')
       data.forEach((c: any) => {
         if (c.status === 'processing' && c.id) {
-          toast.loading('Processing...', { id: `processing-${c.id}` })
           const pollInterval = setInterval(async () => {
             try {
               const updated = await recordsApi.getRecordContents(recordId)
@@ -191,10 +309,8 @@ function MessageDetail({
                 clearInterval(pollInterval)
                 if (found.status === 'failed') {
                   setContents((prev) => prev.map((p) => p.id === c.id ? { ...found, _processing: false } : p))
-                  toast.error('Processing failed', { id: `processing-${c.id}` })
                 } else {
                   setContents((prev) => prev.map((p) => p.id === c.id ? { ...found, _processing: false } : p))
-                  toast.success('Content processed', { id: `processing-${c.id}` })
                 }
               }
             } catch { /* retry */ }
@@ -232,7 +348,6 @@ function MessageDetail({
       _processing: true,
       _fileName: fileName,
     }])
-    toast.loading('Processing...', { id: `processing-${tempId}` })
 
     const reader = new FileReader()
     reader.onload = async () => {
@@ -262,17 +377,14 @@ function MessageDetail({
               clearInterval(pollInterval)
               if (found.status === 'failed') {
                 setContents((prev) => prev.map((c) => c.id === contentId ? { ...c, _processing: false } : c))
-                toast.error('Processing failed', { id: `processing-${tempId}` })
               } else {
                 setContents((prev) => prev.map((c) => c.id === contentId ? { ...found, _processing: false } : c))
-                toast.success('Content processed', { id: `processing-${tempId}` })
               }
             }
           } catch { /* retry */ }
         }, 4000)
       } catch {
         setContents((prev) => prev.filter((c) => c.id !== tempId))
-        toast.error('Failed to upload', { id: `processing-${tempId}` })
       }
       finally { setSaving(false) }
     }
@@ -295,7 +407,6 @@ function MessageDetail({
       }])
       setAddingType(null)
       setNewContent('')
-      toast.loading('Processing...', { id: `processing-${contentId}` })
 
       // Poll for processing completion
       const pollInterval = setInterval(async () => {
@@ -306,10 +417,8 @@ function MessageDetail({
             clearInterval(pollInterval)
             if (found.status === 'failed') {
               setContents((prev) => prev.map((c) => c.id === contentId ? { ...c, _processing: false } : c))
-              toast.error('Processing failed', { id: `processing-${contentId}` })
             } else {
               setContents((prev) => prev.map((c) => c.id === contentId ? { ...found, _processing: false } : c))
-              toast.success('Processed', { id: `processing-${contentId}` })
             }
           }
         } catch { /* retry */ }
@@ -321,7 +430,7 @@ function MessageDetail({
   return (
     <div className="flex h-full bg-[#0a0a0a]">
       {/* Left: Record detail */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col relative">
         {/* Detail toolbar */}
         <div className="flex items-center gap-1 border-b border-zinc-800/60 px-4 py-2">
           <button type="button" onClick={onBack} className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200" aria-label="Back"><ArrowLeft size={18} /></button>
@@ -337,12 +446,112 @@ function MessageDetail({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          {/* Subject */}
-          <div className="flex items-center gap-2 mb-6">
-            <h1 className="text-[18px] font-normal text-zinc-100">{message.sender}</h1>
-          </div>
+              {/* Subject */}
+              <div className="flex items-center gap-2 mb-4">
+                <h1 className="text-[18px] font-normal text-zinc-100">{message.sender}</h1>
+              </div>
 
-          {/* Record contents — each as collapsible */}
+            {/* Insight panel — draggable floating, defaults to bottom-right of left column */}
+            <div
+              ref={insightPanelRef}
+              className="fixed w-[350px] z-[9999] cursor-move select-none"
+              style={panelPos ? { left: panelPos.x, top: panelPos.y } : { bottom: '70px', right: '356px' }}
+              onMouseDown={handlePanelMouseDown}
+            >
+              <div className="rounded-lg border border-zinc-800/40 bg-[#141414] p-3">
+                {loadingInsight ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles size={11} className="text-emerald-500" />
+                      <span className="text-[10px] font-medium text-zinc-400">Overview</span>
+                    </div>
+                    <div className="animate-pulse space-y-1.5">
+                      <div className="h-2.5 w-full rounded bg-zinc-800" />
+                      <div className="h-2.5 w-4/5 rounded bg-zinc-800" />
+                      <div className="h-2.5 w-3/5 rounded bg-zinc-800" />
+                    </div>
+                    <div className="flex gap-1.5 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          useWorkspaceStore.getState().setPendingChatMessage('list all main points')
+                        }}
+                        className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
+                      >
+                        <Sparkles size={8} />
+                        <span>Ask Tendo</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : insight ? (
+                  <>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <Sparkles size={11} className="text-emerald-500" />
+                      <span className="text-[10px] font-medium text-zinc-400">Overview</span>
+                    </div>
+                    <div className={clsx(
+                      "overflow-hidden transition-all duration-200",
+                      insightExpanded ? "max-h-[300px] overflow-y-auto" : "max-h-[90px]"
+                    )}>
+                      <AiDisplay content={insight || ''} className="text-[11px] leading-relaxed text-zinc-300" />
+                    </div>
+                    {insight.length > 120 && (
+                      <button
+                        type="button"
+                        onClick={() => setInsightExpanded(!insightExpanded)}
+                        className="mt-1 text-[10px] text-[#3ecf8e] hover:text-[#3ecf8e]/80 transition-colors"
+                      >
+                        {insightExpanded ? 'See less' : 'See more'}
+                      </button>
+                    )}
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {suggestedQuestions.map((q, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => {
+                            useWorkspaceStore.getState().setPendingChatMessage(q)
+                          }}
+                          className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-zinc-700/50 bg-[#1a1a1a] text-[9px] text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
+                        >
+                          <Sparkles size={8} className="text-[#3ecf8e] shrink-0" />
+                          <span>{q}</span>
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          useWorkspaceStore.getState().setPendingChatMessage('list all main points')
+                        }}
+                        className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
+                      >
+                        <Sparkles size={8} />
+                        <span>Ask Tendo</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles size={11} className="text-emerald-500" />
+                      <span className="text-[10px] text-zinc-500">No insights yet</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        useWorkspaceStore.getState().setPendingChatMessage('list all main points')
+                      }}
+                      className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
+                    >
+                      <Sparkles size={8} />
+                      <span>Ask Tendo</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+              {/* Record contents — each as collapsible */}
           {contents.length > 0 ? (
             contents.map((content, idx) => (
               <CollapsibleSection
@@ -352,9 +561,9 @@ function MessageDetail({
                   : content.content && !content.content.startsWith('data:') && !content.content.startsWith('[Processing') ? (content.content.slice(0, 60) + (content.content.length > 60 ? '...' : ''))
                   : content._fileName || (content.content_type.charAt(0).toUpperCase() + content.content_type.slice(1))
                 }
-                subtitle={content._processing ? '' : new Date(content.created_at).toLocaleString()}
+                subtitle={content._processing ? '' : formatRelativeTime(content.created_at)}
                 avatarColor="bg-zinc-600"
-                defaultOpen={idx === 0 || idx === contents.length - 1}
+                defaultOpen={idx === 0}
                 icon={content.content_type}
                 processing={content._processing}
               >
@@ -397,12 +606,12 @@ function MessageDetail({
           ) : !addingType ? (
             loadingContent ? (
               <div className="space-y-3 animate-pulse py-4">
-                <div className="rounded-lg border border-zinc-800/40 bg-zinc-900/30 p-4">
+                <div className="rounded-lg border border-zinc-800/40 bg-zinc-900/30 p-4" style={{ overflow: 'auto' }}>
                   <div className="h-2.5 w-full rounded bg-zinc-800 mb-2" />
                   <div className="h-2.5 w-3/4 rounded bg-zinc-800 mb-2" />
                   <div className="h-2.5 w-1/2 rounded bg-zinc-800" />
                 </div>
-                <div className="rounded-lg border border-zinc-800/40 bg-zinc-900/30 p-4">
+                <div className="rounded-lg border border-zinc-800/40 bg-zinc-900/30 p-4" style={{ overflow: 'auto' }}>
                   <div className="h-2.5 w-full rounded bg-zinc-800 mb-2" />
                   <div className="h-2.5 w-2/3 rounded bg-zinc-800" />
                 </div>

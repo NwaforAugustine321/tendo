@@ -11,9 +11,11 @@ export function EmptyState() {
       </div>
 
       <h2 className="mt-5 text-sm font-semibold tracking-tight text-zinc-500">
+        Ask me anything
       </h2>
-
-      
+      <p className="mt-1 text-xs text-zinc-600">
+        or questions
+      </p>
     </div>
   )
 }

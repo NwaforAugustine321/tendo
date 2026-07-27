@@ -1,29 +1,20 @@
-"""Understanding agent — LangChain stateful agent for generating record overviews."""
+"""Understanding agent — uses AgentRuntime for generating record overviews."""
 
-import asyncio
 import json
 import logging
 import re
 from typing import TypedDict
-import dirtyjson
-from json_repair import repair_json
-from pydantic import BaseModel, Field
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
-from app.memory.tools import get_record_knowledge_tools
-from app.llm.client import get_client as get_llm_client
+import dirtyjson
+from pydantic import BaseModel, Field
+
+from app.lib.json_parser import parse_json_output
 from app.lib.pydantic_schema_utils import generate_model_description
+from app.runtime import AgentRuntime, ToolBinder
 
 logger = logging.getLogger(__name__)
 
-
 FINAL_ANSWER_PATTERN = re.compile(r"<Final Answer>(.*?)(?:</Final Answer>|$)", re.DOTALL)
-
-
-
-class AgentState(TypedDict):
-    messages: list[BaseMessage]
-    final_answer: str
 
 
 class UnderstandingResult(TypedDict):
@@ -32,24 +23,19 @@ class UnderstandingResult(TypedDict):
 
 
 class UnderstandingOutput(BaseModel):
-    """The final output format for record understanding."""
-    insight: str = Field(description="A condensed comprehensive overview of all retrieved information. Write specific details, not generic descriptions.")
+    insight: str = Field(description="A condensed comprehensive overview of all retrieved information.")
     suggestions: list[str] = Field(description="Exactly 2 short follow-up questions. Each must be 30 characters or fewer.", max_length=2)
 
 
-# Generate schema description for the LLM
 _OUTPUT_SCHEMA = generate_model_description(UnderstandingOutput)
 _OUTPUT_FORMAT_DESC = json.dumps(_OUTPUT_SCHEMA["json_schema"]["schema"], indent=2)
 
-
 SYSTEM_PROMPT = (
     "You are an autonomous agent.\n\n"
-
     "Retrieve ALL available information before answering:\n"
-    "1. Call count_row.\n"
-    "2. Fetch all records with fetch using dynamically calculated pages. Track offsets to avoid duplicate reads.\n"
-    "3. Use search_information only when additional context is needed.\n\n"
-
+    "1. Call count_knowledge.\n"
+    "2. Fetch all records with fetch_knowledge using dynamically calculated pages. Track offsets to avoid duplicate reads.\n"
+    "3. Use search_knowledge only when additional context is needed.\n\n"
     "Write one complete, natural explanation of the information.\n"
     "- Focus on the subject, purpose, and important details.\n"
     "- Combine related information into one coherent overview.\n"
@@ -60,141 +46,85 @@ SYSTEM_PROMPT = (
     "- Describe the meaning of the information, never its representation.\n"
     "- Do not invent, infer, enrich, or embellish information.\n"
     "- If information is unavailable, clearly state that it is unavailable.\n\n"
-
     "Write as though the explanation was written independently.\n"
     "The reader should never know the information came from retrieved material.\n"
     "Never refer to or describe where the information came from, how it was stored, retrieved, formatted, structured, or represented.\n"
     "Begin immediately with the topic itself.\n\n"
-
     "Wrap the final response in <Final Answer>...</Final Answer>.\n"
     "Inside the tags, return ONLY a JSON object matching the schema below.\n"
-    "The schema is for reference only; return actual values.\n\n"
     f"{_OUTPUT_FORMAT_DESC}\n\n"
-
     "Example:\n"
-    "{\"insight\":\"Comprehensive explanation.\","
-    "\"suggestions\":[\"Question 1\",\"Question 2\"]}\n\n"
-
+    '{"insight":"Comprehensive explanation.",'
+    '"suggestions":["Question 1","Question 2"]}\n\n'
     "Rules:\n"
     "- insight: one unified explanation, not a list of records or documents.\n"
     "- suggestions: exactly 2 follow-up questions, each 30 characters or fewer.\n"
     "- Return only the JSON object inside <Final Answer> tags."
 )
 
+
 def _extract_final_answer(text: str) -> UnderstandingResult | None:
     match = FINAL_ANSWER_PATTERN.search(text)
     if not match:
         return None
-
     content = match.group(1).strip()
-
-    data = dirtyjson.loads(content)
-
-    # dirtyjson may return a string if content isn't valid JSON object
+    try:
+        data = dirtyjson.loads(content)
+    except Exception:
+        return None
     if not isinstance(data, dict):
         return None
-
     return {
-        "insight": data["insight"],
+        "insight": data.get("insight", ""),
         "suggested_questions": list(data.get("suggestions", [])),
     }
 
 
-
-
 async def run_understanding_agent(business_id: str, record_id: str) -> UnderstandingResult:
+    from app.llm.client import get_client
+    from app.runtime.tool_registry import build_tool_registry
+    from app.memory.tools import get_knowledge_tools
 
-    tools = get_record_knowledge_tools(business_id, record_id)
-    llm = get_llm_client()
-    llm_with_tools = llm.bind_tools(tools)
-    # llm.with_thinking_mode(enabled=False)
+    all_tools = get_knowledge_tools(business_id, scopes=None)
+    registry = build_tool_registry(tools=all_tools)
 
-    state: AgentState = {
-        "messages": [
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content="Fetch all available information and give me a comprehensive overview."),
-        ],
-        "final_answer": "",
-    }
+    llm = get_client()
+    tool_binder = ToolBinder(tool_registry=registry)
 
-    while True:
-        try:
-            response = await llm_with_tools.ainvoke(state["messages"])
-        except Exception as e:
-            if "Timeout" in str(e) or "timeout" in str(e):
-                logger.warning(f"LLM timeout, retrying: {e}")
-                wait_time = 2
-                await asyncio.sleep(wait_time)
-                continue
-            # Handle context length exceeded — summarize messages and retry
-            from app.lib.context_handler import is_context_length_exceeded, summarize_messages
-            if is_context_length_exceeded(e):
-                logger.warning(f"Context length exceeded, summarizing messages: {e}")
-                state["messages"] = await summarize_messages(
-                    [{"role": getattr(m, "type", "user"), "content": getattr(m, "content", "")} for m in state["messages"]]
-                )
-                continue
-            raise
+    runtime = AgentRuntime(
+        llm=llm,
+        tool_binder=tool_binder,
+        max_iter=25,
+    )
 
-        if not response.tool_calls:
-            raw = response.content if hasattr(response, "content") else str(response)
+    # Set up runtime state with system prompt and tools
+    from app.contexts.models import ToolReference
+    from app.lib.tool_schema import tools_schema_and_description
 
-            result = _extract_final_answer(raw)
-            if result:
-                return result
+    bound_tools = await tool_binder.bind([
+        ToolReference(tool_id=name, capability=name) for name in registry
+    ])
+    runtime._tools = bound_tools
+    runtime._tools_names = ", ".join(t.name for t in bound_tools)
+    runtime._tools_description = tools_schema_and_description(bound_tools)
+    runtime._iterations = 0
+    runtime._tool_call_history = set()
 
-            state["messages"].append(AIMessage(content=raw))
-            continue
+    # Bind tools to LLM for native tool calling
+    try:
+        runtime._llm = llm.bind_tools(bound_tools)
+    except Exception:
+        pass
 
-        # Execute all tool calls in parallel
-        state["messages"].append(response)
-        print(response.tool_calls)
-        async def _execute_tool(tc):
-            tool_name = tc["name"]
-            tool_args = tc["args"]
-            tool_fn = next((t for t in tools if t.name == tool_name), None)
-            if not tool_fn:
-                return ToolMessage(content="Tool not found.", tool_call_id=tc["id"])
-            result = await tool_fn.ainvoke(tool_args)
-            result_str = str(result)
+    runtime._messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": "Fetch all available information and give me a comprehensive overview."},
+    ]
 
-            # If paged fetch result contains images, build multimodal content blocks
-            if tool_name == "record_knowledge_paged_fetch":
-                try:
-                    parsed = json.loads(result_str)
-                    has_images = False
-                    if isinstance(parsed, list):
-                        for page_result in parsed:
-                            for entry in page_result.get("entries", []):
-                                if entry.get("images"):
-                                    has_images = True
-                                    break
-                            if has_images:
-                                break
+    raw = await runtime._invoke_loop()
 
-                    if has_images:
-                        content_blocks = []
-                        # Add the text result first (without images to keep text clean)
-                        text_entries = []
-                        image_urls = []
-                        for page_result in parsed:
-                            for entry in page_result.get("entries", []):
-                                text_entries.append({"content": entry.get("content", "")})
-                                for img_url in entry.get("images", []):
-                                    image_urls.append(img_url)
+    result = _extract_final_answer(raw)
+    if result:
+        return result
 
-                        content_blocks.append({"type": "text", "text": result_str})
-                        for img_url in image_urls:
-                            content_blocks.append({"type": "image_url", "image_url": {"url": img_url}})
-
-                        return ToolMessage(content=content_blocks, tool_call_id=tc["id"])
-                except (json.JSONDecodeError, TypeError, KeyError):
-                    pass
-
-            return ToolMessage(content=result_str, tool_call_id=tc["id"])
-
-        tool_messages = await asyncio.gather(*[_execute_tool(tc) for tc in response.tool_calls])
-
-
-        state["messages"].extend(tool_messages)
-            
+    return {"insight": raw, "suggested_questions": []}

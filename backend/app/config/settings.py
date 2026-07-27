@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     wake_phrase: str = ""
     silence_timeout_seconds: int = 120
 
+    # Feature flags
+    use_planner_path: bool = False
+
     # Dev
     spec_hot_reload: bool = True
 

@@ -55,8 +55,8 @@ def load(agent_name: str, tools: list = None) -> AgentConfig:
 
     # Inject tools passed from the node
     if tools and "{TOOLS}" in system_prompt:
-        from app.lib.tool_schema import tools_to_prompt
-        system_prompt = system_prompt.replace("{TOOLS}", tools_to_prompt(tools))
+        from app.lib.tool_schema import tools_schema_and_description
+        system_prompt = system_prompt.replace("{TOOLS}", tools_schema_and_description(tools))
 
     config = AgentConfig(system_prompt=system_prompt, agent_name=agent_name, has_tools=has_tools)
 

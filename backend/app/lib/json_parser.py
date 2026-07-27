@@ -1,5 +1,7 @@
 import json
 from typing import Any
+import dirtyjson
+from json_repair import repair_json
 
 
 def parse_json_output(raw: str, fallback: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -16,4 +18,4 @@ def parse_json_output(raw: str, fallback: dict[str, Any] | None = None) -> dict[
                 depth -= 1
             if depth == 0:
                 return json.loads(clean[start:i + 1])
-    return json.loads(clean)
+    return dirtyjson.loads(clean)

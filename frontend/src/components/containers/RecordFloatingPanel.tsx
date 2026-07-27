@@ -44,6 +44,10 @@ function RecordContentTab({ recordId }: { recordId: string }) {
   const [, setCapturingIds] = useState<Set<string>>(new Set())
   const [showMoreTypes, setShowMoreTypes] = useState(false)
   const [loadingContent, setLoadingContent] = useState(false)
+  const [insight, setInsight] = useState<string | null>(null)
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([])
+  const [loadingInsight, setLoadingInsight] = useState(false)
+  const [insightExpanded, setInsightExpanded] = useState(false)
   const textareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map())
   const prevRecordIdRef = useRef<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -68,6 +72,15 @@ function RecordContentTab({ recordId }: { recordId: string }) {
         setCapturedIds(new Set(entries.map((e) => e.id)))
       }).catch(() => {}).finally(() => setLoadingContent(false))
     }
+  }, [recordId])
+
+  useEffect(() => {
+    if (!recordId) return
+    setLoadingInsight(true)
+    recordsApi.getRecordUnderstanding(recordId).then((data) => {
+      if (data?.insight) setInsight(data.insight)
+      if (data?.suggested_questions) setSuggestedQuestions(data.suggested_questions)
+    }).catch(() => {}).finally(() => setLoadingInsight(false))
   }, [recordId])
 
   const handleEntryChange = useCallback((entryId: string, newContent: string) => {
@@ -115,8 +128,11 @@ function RecordContentTab({ recordId }: { recordId: string }) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Entries — scrollable area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
-        {loadingContent && (
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3">
+        <div className="flex gap-3">
+          {/* Main content column */}
+          <div className="flex-1 space-y-3">
+            {loadingContent && (
           <div className="space-y-3 animate-pulse">
             <div className="rounded-lg border border-white/5 bg-[#141414] p-3">
               <div className="flex items-center gap-1.5 mb-2">
@@ -232,6 +248,84 @@ function RecordContentTab({ recordId }: { recordId: string }) {
             )}
           </div>
         ))}
+          </div>
+          {/* Insight panel — right column, always visible */}
+          <div className="w-[200px] shrink-0 sticky top-0 self-start">
+            <div className="rounded-lg border border-zinc-800/40 bg-[#141414] p-2.5">
+              {loadingInsight ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles size={10} className="text-emerald-500" />
+                    <span className="text-[9px] font-medium text-zinc-400">Overview</span>
+                  </div>
+                  <div className="animate-pulse space-y-1.5">
+                    <div className="h-2 w-full rounded bg-zinc-800" />
+                    <div className="h-2 w-4/5 rounded bg-zinc-800" />
+                    <div className="h-2 w-3/5 rounded bg-zinc-800" />
+                  </div>
+                  <div className="flex gap-1.5 mt-2 animate-pulse">
+                    <div className="h-5 w-16 rounded-full bg-zinc-800" />
+                    <div className="h-5 w-14 rounded-full bg-zinc-800" />
+                  </div>
+                </div>
+              ) : insight ? (
+                <>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Sparkles size={10} className="text-emerald-500" />
+                    <span className="text-[9px] font-medium text-zinc-400">Overview</span>
+                  </div>
+                  <div className={clsx(
+                    "overflow-hidden transition-all duration-200",
+                    insightExpanded ? "max-h-[250px] overflow-y-auto" : "max-h-[80px]"
+                  )}>
+                    <p className="text-[10px] leading-relaxed text-zinc-300">{insight}</p>
+                  </div>
+                  {insight.length > 120 && (
+                    <button
+                      type="button"
+                      onClick={() => setInsightExpanded(!insightExpanded)}
+                      className="mt-1 text-[9px] text-[#3ecf8e] hover:text-[#3ecf8e]/80 transition-colors"
+                    >
+                      {insightExpanded ? 'See less' : 'See more'}
+                    </button>
+                  )}
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {suggestedQuestions.map((q, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => {
+                          useWorkspaceStore.getState().setPendingChatMessage(q)
+                          useWorkspaceStore.getState().setDashboardChatVisible(true)
+                        }}
+                        className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-zinc-700/50 bg-[#1a1a1a] text-[9px] text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
+                      >
+                        <Lightbulb size={8} className="text-[#3ecf8e] shrink-0" />
+                        <span>{q}</span>
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        useWorkspaceStore.getState().setPendingChatMessage('list all main points')
+                        useWorkspaceStore.getState().setDashboardChatVisible(true)
+                      }}
+                      className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
+                    >
+                      <Sparkles size={8} />
+                      <span>Ask Tendo</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <Sparkles size={10} className="text-emerald-500" />
+                  <span className="text-[9px] text-zinc-500">No insights yet</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Fixed bottom — input source buttons */}
@@ -292,11 +386,10 @@ function SingleRecordPanel({ recordId, index }: { recordId: string; index: numbe
       visible={true}
       title={title}
       onClose={() => useWorkspaceStore.getState().closeRecord(recordId)}
-      defaultWidth={600}
-      defaultHeight={420}
+      defaultWidth={700}
+      defaultHeight={480}
       offsetIndex={index}
     >
-      {/* Content — no tabs, just record content */}
       <div className="min-h-0 flex-1 flex flex-col overflow-hidden">
         <RecordContentTab recordId={recordId} />
       </div>

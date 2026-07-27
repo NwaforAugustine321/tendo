@@ -1,8 +1,4 @@
-"""Business Snapshot Agent — generates narrative snapshots from business knowledge.
-
-Uses the same Agent.from_spec + execute_task pattern as business_knowledge/agent.py.
-The agent uses search_business_knowledge tool to retrieve information before generating.
-"""
+"""Business Snapshot Agent — generates narrative snapshots from business knowledge."""
 
 from __future__ import annotations
 
@@ -14,7 +10,7 @@ from app.business_snapshot.config import get_snapshot_config
 from app.business_snapshot.models import BusinessSnapshot, SnapshotRecommendation, SnapshotStory
 from app.db.tools.snapshot import save_snapshot as db_save_snapshot
 from app.lib.json_parser import parse_json_output
-from app.memory.tools import get_business_memory_tools
+from app.memory.tools import get_knowledge_tools
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +18,7 @@ _snapshot_agent = Agent.from_spec("snapshot")
 
 
 async def generate_snapshot(business_id: str) -> BusinessSnapshot:
-    from app.lib.agent_executor import execute_task
+    from app.llm.client import get_client
 
     config = get_snapshot_config()
 
@@ -32,16 +28,12 @@ async def generate_snapshot(business_id: str) -> BusinessSnapshot:
 
     context = f"business_id: {business_id}"
 
-    raw = await execute_task(
-        agent=_snapshot_agent,
-        description=description,
-        tools=get_business_memory_tools(business_id),
-        expected_output=_snapshot_agent.expected_output,
-        context=context,
-        output_pydantic=BusinessSnapshot,
-        use_system_prompt=True,
-        max_iter=config.max_iterations,
-    )
+    llm = get_client()
+    response = await llm.ainvoke([
+        {"role": "system", "content": _snapshot_agent.backstory or ""},
+        {"role": "user", "content": description},
+    ])
+    raw = response.content.strip() if response.content else ""
 
     logger.info(f"Snapshot agent output: {raw[:200]}")
     snapshot = _parse_snapshot_output(raw, business_id)

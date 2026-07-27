@@ -10,59 +10,45 @@ from app.memory.lancedb import LanceDBStorage
 logger = logging.getLogger(__name__)
 
 
-
 class MemoryRecord(BaseModel):
-    """A single memory entry stored in the memory system."""
-
     id: str = Field(default_factory=lambda: str(uuid4()))
     content: str
     scope: str = Field(default="/")
-    categories: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
-    importance: float = Field(default=0.5, ge=0.0, le=1.0)
+    images: list[str] = Field(default_factory=list)
+    audio: list[str] = Field(default_factory=list)
+    videos: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    last_accessed: datetime = Field(default_factory=datetime.utcnow)
     embedding: list[float] | None = Field(default=None, exclude=True, repr=False)
-    source: str | None = Field(default=None)
-    private: bool = Field(default=False)
-
-    def format(self) -> str:
-        lines = [f"- {self.content}"]
-        if self.categories:
-            lines.append(f"  categories: {', '.join(self.categories)}")
-        return "\n".join(lines)
-
-
-_storage: LanceDBStorage | None = None
-
-
-def _get_storage() -> LanceDBStorage:
-    global _storage
-    if _storage is None:
-        _storage = LanceDBStorage()
-    return _storage
 
 
 class Memory:
 
     def __init__(
         self,
-        scope: str,
+        scopes: list[str] | str = "/",
         storage: LanceDBStorage | None = None,
+        business_id: str = "",
     ) -> None:
-        self._scope = scope.rstrip("/") or "/"
-        self._storage = storage or _get_storage()
+        if isinstance(scopes, str):
+            self._scopes = [scopes.rstrip("/") or "/"]
+        else:
+            self._scopes = [s.rstrip("/") or "/" for s in scopes]
+        if storage:
+            self._storage = storage
+        elif business_id:
+            self._storage = LanceDBStorage(business_id=business_id)
+        else:
+            raise ValueError("Either 'storage' or 'business_id' must be provided to Memory.")
 
     async def _embed(self, text: str) -> list[float]:
         from app.embeddings.client import get_embedding_client
-
         embedder = get_embedding_client()
         embeddings = await embedder.aembed_documents([text])
         return embeddings[0] if embeddings else []
 
     async def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         from app.embeddings.client import get_embedding_client
-
         embedder = get_embedding_client()
         return await embedder.aembed_documents(texts)
 
@@ -70,51 +56,44 @@ class Memory:
         self,
         content: str,
         scope: str | None = None,
-        categories: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
-        importance: float | None = None,
-        source: str | None = None,
+        images: list[str] | None = None,
+        audio: list[str] | None = None,
+        videos: list[str] | None = None,
     ) -> MemoryRecord | None:
-        """Store a single item in memory."""
         if not content or not content.strip():
             return None
 
         embedding = await self._embed(content)
         if not embedding:
-            logger.warning("Failed to embed content for memory save")
             return None
 
-        effective_scope = self._scope
-        if scope:
-            effective_scope = f"{self._scope}/{scope.strip('/')}"
+        effective_scope = scope or self._scopes[0]
 
         record = MemoryRecord(
             id=str(uuid4()),
             content=content,
             scope=effective_scope,
-            categories=categories or [],
             metadata=metadata or {},
-            importance=importance or 0.5,
+            images=images or [],
+            audio=audio or [],
+            videos=videos or [],
             created_at=datetime.utcnow(),
-            last_accessed=datetime.utcnow(),
             embedding=embedding,
-            source=source,
         )
 
         self._storage.save([record])
-        logger.debug(f"Memory saved: {content[:50]}...")
         return record
 
     async def remember_many(
         self,
         contents: list[str],
         scope: str | None = None,
-        categories: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
-        importance: float | None = None,
-        source: str | None = None,
+        images: list[str] | None = None,
+        audio: list[str] | None = None,
+        videos: list[str] | None = None,
     ) -> list[MemoryRecord]:
-        """Store multiple items in memory efficiently (single embed call)."""
         if not contents:
             return []
 
@@ -124,9 +103,7 @@ class Memory:
 
         embeddings = await self._embed_batch(valid_contents)
 
-        effective_scope = self._scope
-        if scope:
-            effective_scope = f"{self._scope}/{scope.strip('/')}"
+        effective_scope = scope or self._scopes[0]
 
         records = []
         for content, embedding in zip(valid_contents, embeddings):
@@ -134,28 +111,26 @@ class Memory:
                 id=str(uuid4()),
                 content=content,
                 scope=effective_scope,
-                categories=categories or [],
                 metadata=metadata or {},
-                importance=importance or 0.5,
+                images=images or [],
+                audio=audio or [],
+                videos=videos or [],
                 created_at=datetime.utcnow(),
-                last_accessed=datetime.utcnow(),
                 embedding=embedding if embedding else None,
-                source=source,
             )
             records.append(record)
 
         self._storage.save(records)
-        logger.debug(f"Memory saved {len(records)} items")
         return records
 
     async def recall(
         self,
         query: str,
         limit: int = 5,
-        scope: str | None = None,
+        columns: list[str] | None = None,
+        filters: str | None = None,
         use_query_analysis: bool = False,
     ) -> list[MemoryRecord]:
-        """Retrieve relevant memories using semantic search."""
         if not query or not query.strip():
             return []
 
@@ -167,14 +142,13 @@ class Memory:
         if not query_embedding:
             return []
 
-        effective_scope = self._scope
-        if scope:
-            effective_scope = f"{self._scope}/{scope.strip('/')}"
-
         raw_results = self._storage.search(
             query_embedding=query_embedding,
-            scope_prefix=effective_scope,
+            query_text=search_query,
+            scope_prefixes=self._scopes,
+            filters=filters,
             limit=limit,
+            columns=columns,
         )
 
         if not raw_results:
@@ -183,7 +157,6 @@ class Memory:
         return [record for record, _ in raw_results]
 
     async def _analyze_query(self, query: str) -> str:
-        """Analyze and rewrite a query using LLM for better recall."""
         from app.lib.i18n import _get_i18n
         from app.llm.client import get_client
 
@@ -199,7 +172,7 @@ class Memory:
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_template.format(
-                    query=query, available_scopes=self._scope, scope_desc=""
+                    query=query, available_scopes=", ".join(self._scopes), scope_desc=""
                 )},
             ]
             response = await llm.ainvoke(messages)
@@ -216,16 +189,10 @@ class Memory:
             return query
 
     def forget(self, scope: str | None = None) -> int:
-        """Delete memories in the given scope."""
-        effective_scope = self._scope
         if scope:
-            effective_scope = f"{self._scope}/{scope.strip('/')}"
-        return self._storage.delete(scope_prefix=effective_scope)
+            return self._storage.delete(scope_prefixes=[scope])
+        return self._storage.delete(scope_prefixes=self._scopes)
 
     @property
     def count(self) -> int:
-        """Get the number of records in this memory scope."""
-        return self._storage.count(scope_prefix=self._scope)
-
-
-
+        return self._storage.count(scope_prefix=self._scopes[0] if self._scopes else None)

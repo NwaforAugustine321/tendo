@@ -14,7 +14,8 @@ _bla_agent = Agent.from_spec("bla")
 
 
 async def process_events(job: Job, events: list[BusinessEvent]) -> None:
-    from app.lib.agent_executor import execute_task
+    from app.llm.client import get_client
+    from app.lib.json_parser import parse_json_output
 
     config = get_intelligence_config()
     business_id = job.business_id
@@ -24,10 +25,7 @@ async def process_events(job: Job, events: list[BusinessEvent]) -> None:
             {
                 "event_type": e.event_type,
                 "entity_type": e.entity_type,
-                "entity_id": e.entity_id,
-                "source": e.source,
                 **(e.payload or {}),
-                **(e.metadata or {}),
             }
             for e in events
         ],
@@ -35,22 +33,17 @@ async def process_events(job: Job, events: list[BusinessEvent]) -> None:
     )
 
     description = (
-        f"Process these business events and operations and records for business_id={business_id}:\n\n"
+        f"Process these business events and operations and records:\n\n"
         f"{events_summary}"
     )
 
-    context = f"business_id: {business_id}\njob_id: {job.id}"
-
-    raw = await execute_task(
-        agent=_bla_agent,
-        description=description,
-        tools=INTELLIGENCE_TOOLS(business_id),
-        expected_output=_bla_agent.expected_output,
-        context=context,
-        output_pydantic=InsightOutput,
-        use_system_prompt=True,
-        max_iter=config.max_iterations,
-    )
+    raw = ""
+    llm = get_client()
+    response = await llm.ainvoke([
+        {"role": "system", "content": _bla_agent.backstory or ""},
+        {"role": "user", "content": description},
+    ])
+    raw = response.content.strip() if response.content else ""
 
     logger.info(f"BLA raw output: {raw}")
 

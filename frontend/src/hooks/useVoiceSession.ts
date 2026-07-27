@@ -147,13 +147,12 @@ export function useVoiceSession() {
     return audioUrl
   }, [])
 
-  const sendText = useCallback((text: string) => {
+  const sendText = useCallback((text: string, scope?: string, businessId?: string, recordId?: string, sessionId?: string) => {
     setLastMessage(null)
     setTurnComplete(false)
 
     const client = clientRef.current
 
-    // If no client or WebSocket is not open, force fresh reconnect
     if (!client || !client.isConnected?.()) {
       if (client) {
         client.disconnect()
@@ -161,19 +160,18 @@ export function useVoiceSession() {
       clientRef.current = null
       setState('connecting')
       connect(connectParamsRef.current).then(() => {
-        clientRef.current?.sendText(text)
+        clientRef.current?.sendText(text, scope, recordId, businessId, sessionId)
       })
       return
     }
 
-    // Try to send — if it fails (returns false), reconnect
-    const sent = client.sendText(text)
+    const sent = client.sendText(text, scope, recordId, businessId, sessionId)
     if (!sent) {
       client.disconnect()
       clientRef.current = null
       setState('connecting')
       connect(connectParamsRef.current).then(() => {
-        clientRef.current?.sendText(text)
+        clientRef.current?.sendText(text, scope, recordId, businessId, sessionId)
       })
     }
   }, [connect])

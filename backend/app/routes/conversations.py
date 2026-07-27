@@ -72,3 +72,17 @@ async def get_messages_route(
     messages = await fetch_messages(business_id, session_id, limit=limit, offset=offset)
     logger.info(f"[Conversations] fetch messages session={session_id}, business={business_id}, count={len(messages)}, offset={offset}")
     return [{"role": m["role"], "content": m["content"]} for m in messages]
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session_route(
+    session_id: str,
+    business_id: str = Query(...),
+    user: dict = Depends(get_current_user),
+):
+    """Delete a session and its messages."""
+    from app.db.client import get_client
+    client = get_client()
+    client.table("conversation_messages").delete().eq("session_id", session_id).eq("business_id", business_id).execute()
+    client.table("conversation_sessions").delete().eq("id", session_id).eq("business_id", business_id).execute()
+    return {"status": "deleted"}

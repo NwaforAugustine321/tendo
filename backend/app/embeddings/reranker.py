@@ -1,61 +1,81 @@
 import logging
 from typing import Any
 
+import pyarrow as pa
+from lancedb.rerankers import Reranker
+
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-_reranker = None
+MAX_RERANK_CHARS = 6000
+SCORE_COL = "_relevance_score"
 
 
-def get_reranker():
-   
-    global _reranker
-    if _reranker is not None:
-        return _reranker
+class LanceReranker(Reranker):
 
-    try:
-        from langchain_nvidia_ai_endpoints import NVIDIARerank
-        _reranker = NVIDIARerank(
-            model=settings.nvidia_rerank_model,
-            api_key=settings.nvidia_api_key,
-        )
-        logger.info(f"NVIDIA Reranker initialized: {settings.nvidia_rerank_model}")
-        return _reranker
-    except Exception as e:
-        logger.warning(f"Failed to initialize NVIDIA reranker: {e}")
-        return None
+    def __init__(self, return_score="relevance"):
+        super().__init__(return_score)
+        self._client = None
 
+    def _get_client(self):
+        if self._client is None:
+            from langchain_nvidia_ai_endpoints import NVIDIARerank
+            self._client = NVIDIARerank(
+                model=settings.nvidia_rerank_model,
+                api_key=settings.nvidia_api_key,
+            )
+        return self._client
 
-def rerank_results(query: str, documents: list[str], top_k: int = 30) -> list[str]:
-    """Rerank a list of document strings by relevance to the query.
-
-    Args:
-        query: The search query.
-        documents: List of document text strings to rerank.
-        top_k: Number of top results to return after reranking.
-
-    Returns:
-        List of reranked document strings (most relevant first), trimmed to top_k.
-    """
-    if not documents:
-        return []
-
-    reranker = get_reranker()
-    if reranker is None:
-        # Fallback: return original order, trimmed to top_k
-        return documents[:top_k]
-
-    try:
+    def _score_documents(self, query: str, texts: list[str]) -> list[float]:
         from langchain_core.documents import Document
 
-        # Truncate documents to fit reranker's 8192 token limit (~6000 chars safe)
-        MAX_RERANK_CHARS = 6000
-        docs = [Document(page_content=text[:MAX_RERANK_CHARS]) for text in documents]
-        reranked = reranker.compress_documents(query=query, documents=docs)
-        # Map back to original full documents
-        truncated_to_full = {text[:MAX_RERANK_CHARS]: text for text in documents}
-        return [truncated_to_full.get(doc.page_content, doc.page_content) for doc in reranked[:top_k]]
-    except Exception as e:
-        logger.warning(f"Reranking failed, using original order: {e}")
-        return documents[:top_k]
+        client = self._get_client()
+        docs = [Document(page_content=t[:MAX_RERANK_CHARS]) for t in texts]
+        try:
+            results = client.compress_documents(query=query, documents=docs)
+            score_map = {}
+            for doc in results:
+                score_map[doc.page_content] = doc.metadata.get("relevance_score", 0.0)
+            return [score_map.get(t[:MAX_RERANK_CHARS], 0.0) for t in texts]
+        except Exception as e:
+            logger.warning(f"Reranking failed: {e}")
+            return [1.0 / (i + 1) for i in range(len(texts))]
+
+    def rerank_hybrid(self, query: str, vector_results: pa.Table, fts_results: pa.Table) -> pa.Table:
+        combined = self.merge_results(vector_results, fts_results)
+        texts = combined.column("content").to_pylist()
+        scores = self._score_documents(query, texts)
+        combined = combined.append_column(
+            SCORE_COL, pa.array(scores, type=pa.float64())
+        )
+        indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+        return combined.take(indices)
+
+    def rerank_vector(self, query: str, vector_results: pa.Table) -> pa.Table:
+        texts = vector_results.column("content").to_pylist()
+        scores = self._score_documents(query, texts)
+        vector_results = vector_results.append_column(
+            SCORE_COL, pa.array(scores, type=pa.float64())
+        )
+        indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+        return vector_results.take(indices)
+
+    def rerank_fts(self, query: str, fts_results: pa.Table) -> pa.Table:
+        texts = fts_results.column("content").to_pylist()
+        scores = self._score_documents(query, texts)
+        fts_results = fts_results.append_column(
+            SCORE_COL, pa.array(scores, type=pa.float64())
+        )
+        indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+        return fts_results.take(indices)
+
+
+_reranker_instance: LanceReranker | None = None
+
+
+def get_lancedb_reranker() -> LanceReranker:
+    global _reranker_instance
+    if _reranker_instance is None:
+        _reranker_instance = LanceReranker()
+    return _reranker_instance

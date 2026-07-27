@@ -45,3 +45,9 @@ export async function updateSessionTitle(sessionId: string, title: string): Prom
     body: { title },
   })
 }
+
+export async function deleteSession(sessionId: string, businessId: string): Promise<void> {
+  await request(`/conversations/sessions/${sessionId}?business_id=${businessId}`, {
+    method: 'DELETE',
+  })
+}

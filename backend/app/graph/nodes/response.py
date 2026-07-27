@@ -27,15 +27,12 @@ async def response_node(state: GraphState) -> dict:
     # Persist turn to LanceDB memory
     if user_message and assistant_text:
         try:
-            memory = Memory(scope=f"/business/{business_id}")
+            memory = Memory(scopes=[f"/business/{business_id}"], business_id=business_id)
             content = f"User: {user_message}\nAssistant: {assistant_text}"
             await memory.remember(
                 content=content,
                 scope="conversations",
-                categories=["conversation_turn"],
                 metadata={"thread_id": thread_id, "business_id": business_id},
-                importance=0.5,
-                source=thread_id,
             )
             logger.debug("Persisted turn to memory: %s:%s", business_id, thread_id)
         except Exception as e:

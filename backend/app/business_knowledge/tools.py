@@ -1,4 +1,3 @@
-from app.memory.tools import get_business_memory_tools
+from app.memory.tools import get_knowledge_tools
 
-# Re-export for backward compatibility — callers should pass business_id
-INTELLIGENCE_TOOLS = get_business_memory_tools
+INTELLIGENCE_TOOLS = get_knowledge_tools

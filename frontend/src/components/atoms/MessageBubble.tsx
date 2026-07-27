@@ -3,6 +3,7 @@ import { Play, Pause } from 'lucide-react'
 import clsx from 'clsx'
 import { BotAvatar } from './BotAvatar'
 import { UserAvatar } from './UserAvatar'
+import { AiDisplay } from './AiDisplay'
 
 type Props = {
   role: 'user' | 'assistant'
@@ -157,12 +158,14 @@ export function MessageBubble({ role, content, audioUrl }: Props) {
         >
           {isVoice ? (
             <VoiceWaveform audioUrl={audioUrl} />
-          ) : (
+          ) : isUser ? (
             displayContent.split('\n').map((line, i) => (
               <p key={i} className={i > 0 ? 'mt-0.5' : ''}>
                 {line}
               </p>
             ))
+          ) : (
+            <AiDisplay content={displayContent} className="text-[13px] leading-snug" />
           )}
 
           <span className={clsx(

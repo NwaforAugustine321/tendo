@@ -15,9 +15,11 @@ type Props = {
   transparentBg?: boolean
   flipCharacter?: boolean
   characterRightOffset?: number
+  recordId?: string
+  onFirstMessage?: () => void
 }
 
-export function Conversation({ initialMessages, sessionTitle, sessionId, fullScreen = false, showHeader = false, transparentBg = false, flipCharacter = false, characterRightOffset = 0 }: Props) {
+export function Conversation({ initialMessages, sessionTitle, sessionId, fullScreen = false, showHeader = false, transparentBg = false, flipCharacter = false, characterRightOffset = 0, recordId, onFirstMessage }: Props) {
   const [messages, setMessages] = useState<MessageItem[]>(initialMessages ?? [])
   const [thinking, setThinking] = useState(false)
   const [wakeActive, setWakeActive] = useState(false)
@@ -167,7 +169,9 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
 
     setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: displayText, type: 'text' }])
     setThinking(true)
-    voice.sendText(sendText)
+    if (onFirstMessage && messages.length === 0) onFirstMessage()
+    const scope = recordId ? 'record' : undefined
+    voice.sendText(sendText, undefined, currentProfile?.id, recordId, sessionId)
   }
 
   const pendingMsg = useWorkspaceStore((s) => s.pendingChatMessage)
@@ -175,25 +179,11 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
 
   useEffect(() => {
     if (pendingMsg && pendingMsg !== pendingSentRef.current) {
-      // Wait for voice to be connected before sending
-      if (!voice.isConnected) {
-        const interval = setInterval(() => {
-          if (voice.isConnected) {
-            clearInterval(interval)
-            pendingSentRef.current = pendingMsg
-            handleSendText(pendingMsg)
-            useWorkspaceStore.getState().setPendingChatMessage(null)
-          }
-        }, 200)
-        // Timeout after 5s
-        setTimeout(() => clearInterval(interval), 5000)
-        return () => clearInterval(interval)
-      }
       pendingSentRef.current = pendingMsg
       handleSendText(pendingMsg)
       useWorkspaceStore.getState().setPendingChatMessage(null)
     }
-  }, [pendingMsg, voice.isConnected])
+  }, [pendingMsg])
 
   const findPendingQuestion = (): string | null => {
     for (let i = messages.length - 1; i >= 0; i--) {

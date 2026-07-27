@@ -20,6 +20,7 @@ from app.lib.errors import register_error_handlers
 # Socket.IO for real-time events (voice handler disabled)
 import socketio
 from app.ws.socketio_server import sio
+import app.ws.chat_handler  # noqa: F401 — registers Socket.IO chat events
 # import app.ws.voice_handler  # Voice handler disabled for now
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -32,12 +33,10 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     from app.graph.workflow import init_graph
     from app.scheduler import start_scheduler, stop_scheduler
-    from app.record_knowledge.record_agent import _get_record_storage
 
     try:
         await init_graph()
         start_scheduler()
-        _get_record_storage()
         logger.info("Application ready")
     except Exception as e:
         logger.critical("STARTUP FAILED: %s", e)
