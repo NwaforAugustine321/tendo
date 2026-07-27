@@ -28,6 +28,7 @@ class ProcessingResult(BaseModel):
     success: bool
     entry: KnowledgeEntry | None = None
     error: str | None = None
+    suggested_questions: list[str] = Field(default_factory=list)
 
 
 class AIUnderstanding(BaseModel):
@@ -39,6 +40,8 @@ class ProcessingStatus(BaseModel):
     status: str
     record_id: str
     error: str | None = None
+    summary: str | None = None
+    suggested_questions: list[str] = Field(default_factory=list)
 
 
 class CreateFolderRequest(BaseModel):

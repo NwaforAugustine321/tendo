@@ -34,38 +34,32 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
   const lastMsgId = useRef('')
   const currentBusinessId = useRef<string | null>(null)
 
+  // Voice connection disabled for now
   // Connect/reconnect when profile or session changes
-  useEffect(() => {
-    const businessId = currentProfile?.id || ''
-    if (!businessId) return
-
-    // Disconnect existing session before connecting new one
-    if (connected.current) {
-      voice.disconnect()
-      setThinking(false)
-      connected.current = false
-    }
-
-    currentBusinessId.current = businessId
-
-    // Connect with the specific session ID
-    if (sessionId) {
-      connected.current = true
-      voice.connect({ sessionId, businessId })
-    } else {
-      // Fallback: resume session from backend
-      resumeSession(businessId).then(({ session_id }) => {
-        connected.current = true
-        voice.connect({ sessionId: session_id, businessId })
-      }).catch((err) => {
-        console.error('Failed to resume session:', err)
-        connected.current = true
-        voice.connect({ businessId })
-      })
-    }
-
-    navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {})
-  }, [currentProfile?.id, sessionId])
+  // useEffect(() => {
+  //   const businessId = currentProfile?.id || ''
+  //   if (!businessId) return
+  //   if (connected.current) {
+  //     voice.disconnect()
+  //     setThinking(false)
+  //     connected.current = false
+  //   }
+  //   currentBusinessId.current = businessId
+  //   if (sessionId) {
+  //     connected.current = true
+  //     voice.connect({ sessionId, businessId })
+  //   } else {
+  //     resumeSession(businessId).then(({ session_id }) => {
+  //       connected.current = true
+  //       voice.connect({ sessionId: session_id, businessId })
+  //     }).catch((err) => {
+  //       console.error('Failed to resume session:', err)
+  //       connected.current = true
+  //       voice.connect({ businessId })
+  //     })
+  //   }
+  //   navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {})
+  // }, [currentProfile?.id, sessionId])
 
   // Listen for voice toggle from the insights big mic circle
   useEffect(() => {

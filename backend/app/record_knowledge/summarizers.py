@@ -331,17 +331,14 @@ async def summarize_pdf(content: str) -> dict:
             page_num = page["page_number"]
             md_text = page["markdown"]
             json_blocks = page.get("json_blocks", [])
+            page_images = page.get("images", [])
 
             if not md_text.strip():
                 all_page_texts.append("")
                 continue
 
-            # Combine markdown with JSON block descriptions for richer context
+            # Embed only the markdown text — JSON blocks go into metadata
             chunk_text = md_text
-            if json_blocks:
-                block_descriptions = _match_json_blocks_to_markdown(md_text, json_blocks)
-                if block_descriptions:
-                    chunk_text = block_descriptions
 
             all_page_texts.append(md_text)
 
@@ -354,12 +351,17 @@ async def summarize_pdf(content: str) -> dict:
                 embed_text = ". ".join(s.strip() for s in prev_sentences if s.strip()) + "\n\n" + embed_text
                 pages_covered.insert(0, page_num - 1)
 
-            page_chunks.append({
+            chunk_entry = {
                 "page_number": page_num,
                 "pages_covered": pages_covered,
                 "text": embed_text,
                 "raw_text": md_text,
-            })
+                "json_blocks": json_blocks,
+            }
+            if page_images:
+                chunk_entry["images"] = page_images
+
+            page_chunks.append(chunk_entry)
 
         # Add next-page overlap (second pass)
         for i in range(len(page_chunks) - 1):
@@ -446,6 +448,7 @@ async def _extract_pdf_with_opendataloader(content: str) -> list[dict]:
 
         # Step 2: Run opendataloader on all single-page PDFs in one batch call
         import opendataloader_pdf
+        import glob as glob_mod
 
         output_dir = tempfile.mkdtemp()
         opendataloader_pdf.convert(
@@ -453,13 +456,13 @@ async def _extract_pdf_with_opendataloader(content: str) -> list[dict]:
             output_dir=output_dir,
             format="markdown,json",
             quiet=True,
-            image_output="embedded",
+            image_output="external",
             image_format="jpeg",
-            content_safety_off="all"  ,
-            use_struct_tree=True   
+            content_safety_off="all",
+            use_struct_tree=True,
         )
 
-        # Step 3: Read each page's markdown and JSON output
+        # Step 3: Read each page's markdown and JSON output + external images
         pages: list[dict] = []
 
         for page_idx, page_path in enumerate(page_paths):
@@ -480,6 +483,26 @@ async def _extract_pdf_with_opendataloader(content: str) -> list[dict]:
                 with open(json_path, "r", encoding="utf-8") as f:
                     json_content = json_mod.load(f)
 
+            # Collect external images for this page as base64 data URLs
+            page_images: list[str] = []
+            # Look for images in a subdirectory named after the stem or in output_dir directly
+            image_dir = os.path.join(output_dir, stem)
+            if not os.path.isdir(image_dir):
+                image_dir = output_dir
+
+            for img_file in sorted(glob_mod.glob(os.path.join(image_dir, f"{stem}*.jpeg")) +
+                                   glob_mod.glob(os.path.join(image_dir, f"{stem}*.jpg")) +
+                                   glob_mod.glob(os.path.join(image_dir, f"{stem}*.png"))):
+                try:
+                    with open(img_file, "rb") as img_f:
+                        img_bytes = img_f.read()
+                    ext = os.path.splitext(img_file)[1].lower().lstrip(".")
+                    mime = "image/jpeg" if ext in ("jpeg", "jpg") else f"image/{ext}"
+                    b64 = base64.b64encode(img_bytes).decode("utf-8")
+                    page_images.append(f"data:{mime};base64,{b64}")
+                except Exception as img_err:
+                    logger.warning(f"Failed to read image {img_file}: {img_err}")
+
             # Step 4: Extract JSON blocks (type, content, bounding_box) and match to markdown
             blocks = _extract_page_blocks(json_content)
             matched_blocks = _match_blocks_to_markdown(md_content, blocks)
@@ -488,6 +511,7 @@ async def _extract_pdf_with_opendataloader(content: str) -> list[dict]:
                 "page_number": page_num,
                 "markdown": md_content,
                 "json_blocks": matched_blocks,
+                "images": page_images,
             })
 
         # Cleanup

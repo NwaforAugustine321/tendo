@@ -108,10 +108,9 @@ def _create_client(callbacks=None):
             model=settings.nvidia_model,
             api_key=settings.nvidia_api_key,
             callbacks=cb,
-            model_kwargs={
-                "chat_template_kwargs": {"enable_thinking":True},
-            }
-            
+            timeout=None,
+            temperature=1,
+            top_p=0.95,
             
         )
         

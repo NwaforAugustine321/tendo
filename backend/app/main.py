@@ -3,7 +3,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query, WebSocket
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
@@ -17,9 +17,10 @@ from app.routes.conversations import router as conversations_router
 from app.routes.snapshot import router as snapshot_router
 from app.lib.errors import register_error_handlers
 
+# Socket.IO for real-time events (voice handler disabled)
 import socketio
 from app.ws.socketio_server import sio
-import app.ws.voice_handler  # noqa: F401 — registers Socket.IO event handlers
+# import app.ws.voice_handler  # Voice handler disabled for now
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -66,7 +67,7 @@ app.include_router(conversations_router)
 app.include_router(snapshot_router)
 register_error_handlers(app)
 
-# Mount Socket.IO on /ws/voice path
+# Socket.IO mounted for real-time events (voice handler not loaded)
 asgi_app = socketio.ASGIApp(sio, other_asgi_app=app, socketio_path='/ws/voice')
 
 
@@ -99,8 +100,4 @@ async def whatsapp_receive(payload: dict):
     return {"status": "received"}
 
 
-@app.websocket("/ws/voice")
-async def voice_websocket(websocket: WebSocket):
-    """Real-time voice-to-voice WebSocket."""
-    # await handle_session(websocket)
-    pass
+# Voice websocket handler not loaded — Socket.IO handles the path

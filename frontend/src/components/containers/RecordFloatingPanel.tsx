@@ -43,6 +43,7 @@ function RecordContentTab({ recordId }: { recordId: string }) {
   const [capturedIds, setCapturedIds] = useState<Set<string>>(new Set())
   const [, setCapturingIds] = useState<Set<string>>(new Set())
   const [showMoreTypes, setShowMoreTypes] = useState(false)
+  const [loadingContent, setLoadingContent] = useState(false)
   const textareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map())
   const prevRecordIdRef = useRef<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -54,6 +55,7 @@ function RecordContentTab({ recordId }: { recordId: string }) {
         setLocalEntries([])
         return
       }
+      setLoadingContent(true)
       setLocalEntries([])
       recordsApi.getRecordContents(recordId).then((contents) => {
         const entries: RecordEntry[] = contents.map((c) => ({
@@ -64,7 +66,7 @@ function RecordContentTab({ recordId }: { recordId: string }) {
         }))
         setLocalEntries(entries)
         setCapturedIds(new Set(entries.map((e) => e.id)))
-      }).catch(() => {})
+      }).catch(() => {}).finally(() => setLoadingContent(false))
     }
   }, [recordId])
 
@@ -114,7 +116,32 @@ function RecordContentTab({ recordId }: { recordId: string }) {
     <div className="flex flex-col h-full overflow-hidden">
       {/* Entries — scrollable area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
-        {localEntries.length === 0 && (
+        {loadingContent && (
+          <div className="space-y-3 animate-pulse">
+            <div className="rounded-lg border border-white/5 bg-[#141414] p-3">
+              <div className="flex items-center gap-1.5 mb-2">
+                <div className="h-3 w-3 rounded bg-zinc-700" />
+                <div className="h-2 w-10 rounded bg-zinc-700" />
+              </div>
+              <div className="space-y-1.5">
+                <div className="h-2.5 w-full rounded bg-zinc-800" />
+                <div className="h-2.5 w-3/4 rounded bg-zinc-800" />
+              </div>
+            </div>
+            <div className="rounded-lg border border-white/5 bg-[#141414] p-3">
+              <div className="flex items-center gap-1.5 mb-2">
+                <div className="h-3 w-3 rounded bg-zinc-700" />
+                <div className="h-2 w-10 rounded bg-zinc-700" />
+              </div>
+              <div className="space-y-1.5">
+                <div className="h-2.5 w-full rounded bg-zinc-800" />
+                <div className="h-2.5 w-1/2 rounded bg-zinc-800" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!loadingContent && localEntries.length === 0 && (
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <p className="text-xs text-zinc-500 mb-1">Add content to this record</p>
             <p className="text-[10px] text-zinc-600">Choose an input type below</p>

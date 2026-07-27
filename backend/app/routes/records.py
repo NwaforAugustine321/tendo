@@ -105,4 +105,4 @@ async def delete_content_endpoint(record_id: str, content_id: str, business_id: 
 @router.get("/records/{record_id}/understanding")
 async def record_understanding(record_id: str, business_id: str = Query(...), user=Depends(get_current_user)):
     result = await get_record_understanding(business_id, record_id)
-    return {"insight": result}
+    return result

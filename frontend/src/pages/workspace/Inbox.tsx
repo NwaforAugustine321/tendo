@@ -165,12 +165,17 @@ function MessageDetail({
   const [addingType, setAddingType] = useState<string | null>(null)
   const [newContent, setNewContent] = useState('')
   const [saving, setSaving] = useState(false)
+  const [loadingContent, setLoadingContent] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const recordId = message.id.startsWith('record-') ? message.id.replace('record-', '') : ''
 
   // Fetch all record contents on mount
   useEffect(() => {
-    if (!recordId) return
+    if (!recordId) {
+      setLoadingContent(false)
+      return
+    }
+    setLoadingContent(true)
     recordsApi.getRecordContents(recordId).then((data) => {
       setContents(data)
 
@@ -198,7 +203,7 @@ function MessageDetail({
           setContents((prev) => prev.map((p) => p.id === c.id ? { ...p, _processing: true, _fileName: c.content_type } : p))
         }
       })
-    }).catch(() => {})
+    }).catch(() => {}).finally(() => setLoadingContent(false))
   }, [recordId])
 
   useEffect(() => {
@@ -390,7 +395,21 @@ function MessageDetail({
               </CollapsibleSection>
             ))
           ) : !addingType ? (
-            <div className="py-8 text-center text-[13px] text-zinc-500">No content yet. Add some below.</div>
+            loadingContent ? (
+              <div className="space-y-3 animate-pulse py-4">
+                <div className="rounded-lg border border-zinc-800/40 bg-zinc-900/30 p-4">
+                  <div className="h-2.5 w-full rounded bg-zinc-800 mb-2" />
+                  <div className="h-2.5 w-3/4 rounded bg-zinc-800 mb-2" />
+                  <div className="h-2.5 w-1/2 rounded bg-zinc-800" />
+                </div>
+                <div className="rounded-lg border border-zinc-800/40 bg-zinc-900/30 p-4">
+                  <div className="h-2.5 w-full rounded bg-zinc-800 mb-2" />
+                  <div className="h-2.5 w-2/3 rounded bg-zinc-800" />
+                </div>
+              </div>
+            ) : (
+              <div className="py-8 text-center text-[13px] text-zinc-500">No content yet. Add some below.</div>
+            )
           ) : null}
 
           {/* New content input area — text only */}

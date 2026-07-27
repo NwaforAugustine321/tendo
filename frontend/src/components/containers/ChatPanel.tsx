@@ -1,7 +1,10 @@
-import { useState, useEffect } from 'react'
-import { Plus, History, X, Sparkles } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Plus, History, X, Sparkles, Lightbulb } from 'lucide-react'
+import clsx from 'clsx'
+import { io, type Socket } from 'socket.io-client'
 import { Conversation } from '../../pages/Conversation'
 import { useBusinessStore } from '../../store/business'
+import { useWorkspaceStore } from '../../store/workspace'
 import { listSessions, createSession, getSessionMessages, type ChatSession, type ChatMessage } from '../../lib/services/conversations'
 import * as recordsApi from '../../lib/services/records'
 import type { MessageItem } from './ConversationPage'
@@ -15,7 +18,9 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
   const [loading, setLoading] = useState(true)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [recordInsight, setRecordInsight] = useState<string | null>(null)
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([])
   const [insightVisible, setInsightVisible] = useState(true)
+  const [insightExpanded, setInsightExpanded] = useState(false)
   const [loadingInsight, setLoadingInsight] = useState(false)
   const { currentProfile } = useBusinessStore()
   const businessId = currentProfile?.id || ''
@@ -26,7 +31,44 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
     setLoadingInsight(true)
     recordsApi.getRecordUnderstanding(recordId).then((data) => {
       if (data?.insight) setRecordInsight(data.insight)
+      if (data?.suggested_questions) setSuggestedQuestions(data.suggested_questions)
     }).catch(() => {}).finally(() => setLoadingInsight(false))
+  }, [recordId])
+
+  // Connect to Socket.IO for real-time processing events
+  const socketRef = useRef<Socket | null>(null)
+
+  useEffect(() => {
+    if (!recordId) return
+
+    const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:8000'
+    const baseUrl = wsUrl.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://').replace(/\/ws\/voice$/, '')
+
+    const socket = io(baseUrl, {
+      path: '/ws/voice',
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      withCredentials: true,
+    })
+
+    socket.on('record_processing_status', (data: any) => {
+      if (data?.record_id === recordId) {
+        if (data?.status === 'completed') {
+          if (data?.summary) setRecordInsight(data.summary)
+          if (data?.suggested_questions?.length) setSuggestedQuestions(data.suggested_questions)
+          setLoadingInsight(false)
+        } else if (data?.status === 'processing') {
+          setLoadingInsight(true)
+        }
+      }
+    })
+
+    socketRef.current = socket
+    return () => {
+      socket.disconnect()
+      socketRef.current = null
+    }
   }, [recordId])
 
   // Load sessions on mount or business change
@@ -198,14 +240,53 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
             <span className="text-xs text-zinc-500">Loading...</span>
           </div>
         ) : loadingMessages ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="flex flex-col items-center gap-2">
-              <span className="flex items-center gap-1">
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:0ms]" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:150ms]" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:300ms]" />
-              </span>
-              <span className="text-[11px] text-zinc-500">Loading messages...</span>
+          <div className="flex flex-col h-full">
+            {/* Show insight skeleton while messages load */}
+            {insightVisible && (loadingInsight || recordInsight) && (
+              <div className="shrink-0 p-3 space-y-2">
+                {loadingInsight ? (
+                  <div className="rounded-lg border border-zinc-800/40 bg-[#141414] p-3 space-y-2.5">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Sparkles size={11} className="text-emerald-500" />
+                      <span className="text-[10px] font-medium text-zinc-400">Overview</span>
+                    </div>
+                    <div className="animate-pulse space-y-2">
+                      <div className="h-2.5 w-full rounded bg-zinc-800" />
+                      <div className="h-2.5 w-4/5 rounded bg-zinc-800" />
+                      <div className="h-2.5 w-3/5 rounded bg-zinc-800" />
+                    </div>
+                    <div className="flex gap-2 mt-3 animate-pulse">
+                      <div className="h-6 w-24 rounded-full bg-zinc-800" />
+                      <div className="h-6 w-20 rounded-full bg-zinc-800" />
+                      <div className="h-6 w-16 rounded-full bg-zinc-800" />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
+            {/* Messages skeleton */}
+            <div className="flex-1 p-4 space-y-4 animate-pulse">
+              <div className="flex gap-2">
+                <div className="h-7 w-7 rounded-full bg-zinc-800 shrink-0" />
+                <div className="space-y-1.5 flex-1">
+                  <div className="h-2.5 w-3/4 rounded bg-zinc-800" />
+                  <div className="h-2.5 w-1/2 rounded bg-zinc-800" />
+                </div>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <div className="space-y-1.5 flex-1 max-w-[70%]">
+                  <div className="h-2.5 w-full rounded bg-zinc-800 ml-auto" />
+                  <div className="h-2.5 w-2/3 rounded bg-zinc-800 ml-auto" />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <div className="h-7 w-7 rounded-full bg-zinc-800 shrink-0" />
+                <div className="space-y-1.5 flex-1">
+                  <div className="h-2.5 w-full rounded bg-zinc-800" />
+                  <div className="h-2.5 w-4/5 rounded bg-zinc-800" />
+                  <div className="h-2.5 w-2/5 rounded bg-zinc-800" />
+                </div>
+              </div>
             </div>
           </div>
         ) : activeSessionId ? (
@@ -214,24 +295,71 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
             {insightVisible && initialMessages.length === 0 && (
               <div className="shrink-0 p-3 space-y-2">
                 {loadingInsight ? (
-                  <div className="flex items-center gap-2 py-4 justify-center">
-                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-zinc-600 border-t-emerald-500" />
-                    <span className="text-[11px] text-zinc-500">Generating insights...</span>
+                  <div className="rounded-lg border border-zinc-800/40 bg-[#141414] p-3 space-y-2.5">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Sparkles size={11} className="text-emerald-500" />
+                      <span className="text-[10px] font-medium text-zinc-400">Overview</span>
+                    </div>
+                    <div className="animate-pulse space-y-2">
+                      <div className="h-2.5 w-full rounded bg-zinc-800" />
+                      <div className="h-2.5 w-4/5 rounded bg-zinc-800" />
+                      <div className="h-2.5 w-3/5 rounded bg-zinc-800" />
+                    </div>
+                    <div className="flex gap-2 mt-3 animate-pulse">
+                      <div className="h-6 w-24 rounded-full bg-zinc-800" />
+                      <div className="h-6 w-20 rounded-full bg-zinc-800" />
+                      <div className="h-6 w-16 rounded-full bg-zinc-800" />
+                    </div>
                   </div>
                 ) : recordInsight ? (
-                  <>
-                    <div className="rounded-lg border border-zinc-800/40 bg-[#141414] p-3">
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <Sparkles size={11} className="text-emerald-500" />
-                        <span className="text-[10px] font-medium text-zinc-400">Overview</span>
-                      </div>
+                  <div className="rounded-lg border border-zinc-800/40 bg-[#141414] p-3">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <Sparkles size={11} className="text-emerald-500" />
+                      <span className="text-[10px] font-medium text-zinc-400">Overview</span>
+                    </div>
+                    <div className={clsx(
+                      "overflow-hidden transition-all duration-200",
+                      insightExpanded ? "max-h-[300px] overflow-y-auto" : "max-h-[72px]"
+                    )}>
                       <p className="text-[11px] leading-relaxed text-zinc-300">{recordInsight}</p>
                     </div>
-                    <button type="button" className="rounded-full border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-1 text-[10px] text-emerald-400 hover:bg-emerald-500/10 transition-colors">
-                      Ask Tendo
-                    </button>
-                  </>
+                    {recordInsight.length > 150 && (
+                      <button
+                        type="button"
+                        onClick={() => setInsightExpanded(!insightExpanded)}
+                        className="mt-1.5 text-[10px] text-[#3ecf8e] hover:text-[#3ecf8e]/80 transition-colors"
+                      >
+                        {insightExpanded ? 'See less' : 'See more'}
+                      </button>
+                    )}
+                  </div>
                 ) : null}
+                {/* Ask Tendo + suggestions — always visible */}
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  {suggestedQuestions.map((q, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        useWorkspaceStore.getState().setPendingChatMessage(q)
+                      }}
+                      className="flex items-center gap-1 rounded-full px-2.5 py-1 border border-zinc-700/50 bg-[#1a1a1a] text-[10px] text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
+                    >
+                      <Lightbulb size={9} className="text-[#3ecf8e] shrink-0" />
+                      <span>{q}</span>
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      useWorkspaceStore.getState().setPendingChatMessage(`Tell me more about this`)
+                    }}
+                    className="flex items-center gap-1 rounded-full px-2.5 py-1 border border-emerald-500/30 bg-emerald-500/5 text-[10px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
+                  >
+                    <Sparkles size={9} />
+                    <span>Ask Tendo</span>
+                  </button>
+                </div>
               </div>
             )}
             <div className="min-h-0 flex-1">
@@ -253,9 +381,50 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
               <div className="w-full rounded-lg border border-zinc-800/40 bg-[#141414] p-3 mb-3">
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <Sparkles size={11} className="text-emerald-500" />
-                  <span className="text-[10px] font-medium text-zinc-400">Record Overview</span>
+                  <span className="text-[10px] font-medium text-zinc-400">Overview</span>
                 </div>
-                <p className="text-[11px] leading-relaxed text-zinc-300">{recordInsight}</p>
+                <div className={clsx(
+                  "overflow-hidden transition-all duration-200",
+                  insightExpanded ? "max-h-[300px] overflow-y-auto" : "max-h-[72px]"
+                )}>
+                  <p className="text-[11px] leading-relaxed text-zinc-300">{recordInsight}</p>
+                </div>
+                {recordInsight.length > 150 && (
+                  <button
+                    type="button"
+                    onClick={() => setInsightExpanded(!insightExpanded)}
+                    className="mt-1.5 text-[10px] text-[#3ecf8e] hover:text-[#3ecf8e]/80 transition-colors"
+                  >
+                    {insightExpanded ? 'See less' : 'See more'}
+                  </button>
+                )}
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  {suggestedQuestions.map((q, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        useWorkspaceStore.getState().setPendingChatMessage(q)
+                        useWorkspaceStore.getState().setDashboardChatVisible(true)
+                      }}
+                      className="flex items-center gap-1 rounded-full px-2.5 py-1 border border-zinc-700/50 bg-[#1a1a1a] text-[10px] text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
+                    >
+                      <Lightbulb size={9} className="text-[#3ecf8e] shrink-0" />
+                      <span>{q}</span>
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      useWorkspaceStore.getState().setPendingChatMessage(`Tell me more about this`)
+                      useWorkspaceStore.getState().setDashboardChatVisible(true)
+                    }}
+                    className="flex items-center gap-1 rounded-full px-2.5 py-1 border border-emerald-500/30 bg-emerald-500/5 text-[10px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
+                  >
+                    <Sparkles size={9} />
+                    <span>Ask Tendo</span>
+                  </button>
+                </div>
               </div>
             )}
             <button onClick={handleNewSession} className="text-xs text-zinc-400 hover:text-zinc-300">

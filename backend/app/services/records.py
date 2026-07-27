@@ -9,7 +9,7 @@ from app.record_knowledge.models import RecordContentInput, ProcessingStatus
 
 async def process_content_background(business_id: str, record_id: str, content_id: str, content_type: str, content: str, metadata: dict):
     try:
-        from app.communication.layer import sio
+        from app.ws.socketio_server import sio
         await sio.emit("record_processing_status", ProcessingStatus(status="processing", record_id=record_id).model_dump())
     except Exception:
         pass
@@ -26,6 +26,10 @@ async def process_content_background(business_id: str, record_id: str, content_i
         if not result.success:
             raise Exception(result.error or "Processing failed")
 
+        # Get the summary from the processed entry
+        summary = result.entry.summary if result.entry else ""
+        suggestions = result.suggested_questions or []
+
         from app.events.writer import EventWriter
         EventWriter().write(
             business_id=business_id,
@@ -37,8 +41,13 @@ async def process_content_background(business_id: str, record_id: str, content_i
         )
 
         try:
-            from app.communication.layer import sio
-            await sio.emit("record_processing_status", ProcessingStatus(status="completed", record_id=record_id).model_dump())
+            from app.ws.socketio_server import sio
+            await sio.emit("record_processing_status", ProcessingStatus(
+                status="completed",
+                record_id=record_id,
+                summary=summary,
+                suggested_questions=suggestions,
+            ).model_dump())
         except Exception:
             pass
 
@@ -51,7 +60,7 @@ async def process_content_background(business_id: str, record_id: str, content_i
         except Exception:
             pass
         try:
-            from app.communication.layer import sio
+            from app.ws.socketio_server import sio
             await sio.emit("record_processing_status", ProcessingStatus(status="failed", record_id=record_id, error=str(e)).model_dump())
         except Exception:
             pass
