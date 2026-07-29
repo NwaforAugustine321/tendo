@@ -1,1 +1,7 @@
-Tools available to this agent are defined at runtime.
+- fetch_inventory: Check current stock
+- fetch_products: Search products
+- add_inventory_item: Add inventory entry
+- record_movement: Log stock changes
+- create_product: Register new product
+- get_business_profile: Get business context
+- search_knowledge: Search knowledge base

@@ -8,11 +8,14 @@ from typing import TypedDict
 import dirtyjson
 from pydantic import BaseModel, Field
 
+from app.agents.specs.record_insight.agent import RecordInsightAgent
 from app.lib.json_parser import parse_json_output
 from app.lib.pydantic_schema_utils import generate_model_description
 from app.runtime import AgentRuntime, ToolBinder
 
 logger = logging.getLogger(__name__)
+
+_agent = RecordInsightAgent()
 
 FINAL_ANSWER_PATTERN = re.compile(r"<Final Answer>(.*?)(?:</Final Answer>|$)", re.DOTALL)
 
@@ -83,9 +86,8 @@ def _extract_final_answer(text: str) -> UnderstandingResult | None:
 async def run_understanding_agent(business_id: str, record_id: str) -> UnderstandingResult:
     from app.llm.client import get_client
     from app.runtime.tool_registry import build_tool_registry
-    from app.memory.tools import get_knowledge_tools
 
-    all_tools = get_knowledge_tools(business_id, scopes=None)
+    all_tools = _agent.get_tools(business_id=business_id)
     registry = build_tool_registry(tools=all_tools)
 
     llm = get_client()
@@ -97,7 +99,6 @@ async def run_understanding_agent(business_id: str, record_id: str) -> Understan
         max_iter=25,
     )
 
-    # Set up runtime state with system prompt and tools
     from app.contexts.models import ToolReference
     from app.lib.tool_schema import tools_schema_and_description
 
@@ -110,7 +111,6 @@ async def run_understanding_agent(business_id: str, record_id: str) -> Understan
     runtime._iterations = 0
     runtime._tool_call_history = set()
 
-    # Bind tools to LLM for native tool calling
     try:
         runtime._llm = llm.bind_tools(bound_tools)
     except Exception:

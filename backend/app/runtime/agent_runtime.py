@@ -6,11 +6,10 @@ import logging
 import re
 import time
 from typing import Any, TYPE_CHECKING
-
-from app.contexts.models import ExecutionContext, SharedContext
+from app.llm.client import get_client
 from app.execution.models import (
-    AgentExecution,
-    DomainResult,
+    Execution,
+    Result,
     ExecutionMetrics,
     ReflectionOutput,
 )
@@ -20,9 +19,11 @@ from app.lib.json_parser import parse_json_output
 from app.lib.prompts import SystemPromptResult
 from app.lib.tool_schema import tools_schema_and_description
 from app.runtime.tool_binder import ToolBinder
+from app.lib.prompts import build_execution_prompt
+from app.lib.task_prompt import prepare_task_prompt
 
 if TYPE_CHECKING:
-    from app.agents.protocol import DomainAgentProtocol
+    from app.agents.models import DomainAgentProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -32,20 +33,33 @@ ACTION_INPUT_REGEX = re.compile(r"<Action_Input>(.*?)(?:</Action_Input>|$)", re.
 WAITING_USER_INPUT_REGEX = re.compile(r"<Waiting_User_Input>(.*?)(?:</Waiting_User_Input>|$)", re.DOTALL)
 
 
+
 class AgentRuntime:
 
 
     def __init__(
         self,
-        llm: Any,
         tool_binder: ToolBinder,
+        llm: Any = None,
+        agent: Any = None,
+        context: str = '',
+        tools: list = [],
+        expected_output: str | None = None,
         reflection_stage: Any | None = None,
-        max_iter: int = 25,
-        max_validation_retries: int = 2,
+        conversation_messages:list[dict[str, Any]] | None  = [],
+        max_iter: int = 5,
+        max_validation_retries: int = 5,
         thinking_callback: Any | None = None,
+        output_pydantic: type | None = None,
+        output_json: type | None = None,
     ) -> None:
         self._llm = llm
+        self._context = context
+        self._tools = tools
         self._tool_binder = tool_binder
+        self._agent = agent
+        self._conversation_messages:list[dict[str, Any]] | None =  conversation_messages or []
+        self._expected_output = expected_output
         self._reflection_stage = reflection_stage
         self._max_iter = max_iter
         self._max_validation_retries = max_validation_retries
@@ -56,94 +70,107 @@ class AgentRuntime:
         self._tools: list[Any] = []
         self._tools_names: str = ""
         self._tools_description: str = ""
-        self._response_model: type | None = None
+        self._output_pydantic: type | None = output_pydantic
+        self._output_json: type | None = output_json
+        self._bound_tools: list[Any] = []
+        
+        if self._llm == None:
+            self._llm = get_client()
 
-    async def execute(
-        self,
-        execution_context: ExecutionContext,
-        shared_context: SharedContext,
-        domain_agent: "DomainAgentProtocol",
-    ) -> AgentExecution:
-        """Full lifecycle: validate EC → bind tools → run agent → reflect → return."""
-        agent_id = getattr(domain_agent, "agent_id", domain_agent.__class__.__name__)
-        start = time.perf_counter()
+        
+    def bind_tool(self,tools: list[Any] = []):
+        _tools: list[Any] = []
 
+        if len(tools) > 0:
+            _tools.extend(tools)
+        if len(self._tools) > 0:
+            _tools.extend(self._tools)
 
-        if not execution_context.objective or not execution_context.objective.strip():
-            return AgentExecution(
-                agent_id=agent_id,
-                execution_context=execution_context,
-                result=DomainResult(status="failure", response_text=""),
-                error="Invalid ExecutionContext: objective is empty",
+        self._tools = _tools
+
+        if self._tool_binder and len(_tools) > 0:
+            self._bound_tools = self._tool_binder.bind(_tools)
+            self._tools_names = ", ".join(getattr(t, "name", str(t)) for t in _tools)
+            self._tools_description = tools_schema_and_description(_tools) if _tools else ""
+            
+       
+       
+    def system_prompt_init(self,tools: list[Any] = []):
+            execution_prompt,stop_word = build_execution_prompt(
+            agent=self._agent,
+            tools=self.tools
             )
+            self._messages.extend([{"role": "system", "content":  execution_prompt}])
+            print(execution_prompt)
+            
 
+    async def execute(self,task, context:str = '', chat_history:list[Any] = []) -> Execution:
+        agent = self._agent
+        self._conversation_messages.extend(chat_history)
+        try:
+            self._llm = self._llm.bind_tools(self._tools)   
+        except Exception as e:
+                raise e
 
-        bound_tools = await self._tool_binder.bind(execution_context.available_tools)
-        self._tools = bound_tools
-        self._tools_names = ", ".join(getattr(t, "name", str(t)) for t in bound_tools)
-        self._tools_description = tools_schema_and_description(bound_tools) if bound_tools else ""
-
-
+        start = time.perf_counter()
         self._iterations = 0
         self._messages = []
         self._tool_call_history = set()
+        
+        self._context += context
 
-        if bound_tools:
-            try:
-                self._llm = self._llm.bind_tools(bound_tools)
-            except Exception:
-                pass
+        execution_prompt,stop_word = build_execution_prompt(
+            agent=self._agent,
+            tools=self._tools
+            )
+        
 
-        result: DomainResult
-        try:
-            # Build messages from execution context for the tool loop
-            system_prompt = self._build_agent_system_prompt(execution_context, shared_context)
-            self._messages = [
-                {"role": "system", "content": system_prompt},
+        task_prompt = await prepare_task_prompt(
+            description=task,
+            expected_output=self._expected_output,
+            output_pydantic= self._output_pydantic,
+            output_json=self._output_json,
+            context=self._context,
+            chat_history= self._conversation_messages,
+        )
+
+        print(task_prompt)
+        self._messages.extend([
+            {"role": "user", "content": task_prompt},
+            {"role": "system", "content":  execution_prompt}
             ]
-            # Include conversation history as actual messages
-            for msg in shared_context.conversation_messages:
-                self._messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
-            # Current user request
-            self._messages.append({"role": "user", "content": execution_context.objective})
+        )
 
-            # Run the tool loop
+        try:
             raw = await self._invoke_loop()
-
-            result = DomainResult(
-                payload={"raw": raw},
+            result = Result(
+         
                 status="success",
-                response_text=raw,
+                response=raw,
             )
         except Exception as e:
-            logger.error("Domain agent execution failed: %s", e)
+            logger.error("Execution failed: %s", e)
             elapsed_ms = (time.perf_counter() - start) * 1000
             await self._tool_binder.release()
-            return AgentExecution(
-                agent_id=agent_id,
-                execution_context=execution_context,
-                result=DomainResult(status="failure", response_text=""),
+            return Execution(
+                result=Result(status="failure", response=""),
                 metrics=ExecutionMetrics(
                     iterations=self._iterations,
                     duration_ms=elapsed_ms,
                     tools_invoked=[],
                 ),
-                error=f"Domain agent failed: {e}",
+                error=f"Failed: {e}",
             )
-
 
         reflection = ReflectionOutput()
         if self._reflection_stage is not None:
             try:
                 reflection = await self._reflection_stage.reflect(
-                    execution_context=execution_context,
                     messages=self._messages,
-                    tools_used=[getattr(t, "name", str(t)) for t in bound_tools],
-                    knowledge_used=[k.collection_id for k in execution_context.knowledge],
-                    skills_used=[s.skill_id for s in execution_context.skills],
+                    tools_used=[getattr(t, "name", str(t)) for t in self._bound_tools],
                     iterations=self._iterations,
                     duration_ms=(time.perf_counter() - start) * 1000,
-                    domain_output=result.payload,
+                    domain_output=result.response,
                 )
             except Exception as e:
                 logger.warning("Reflection failed: %s", e)
@@ -151,7 +178,7 @@ class AgentRuntime:
 
         elapsed_ms = (time.perf_counter() - start) * 1000
         tools_invoked = [
-            {"name": getattr(t, "name", str(t)), "count": 1} for t in bound_tools
+            {"name": getattr(t, "name", str(t)), "count": 1} for t in self._bound_tools
         ]
         metrics = ExecutionMetrics(
             iterations=self._iterations,
@@ -161,9 +188,7 @@ class AgentRuntime:
 
         await self._tool_binder.release()
 
-        return AgentExecution(
-            agent_id=agent_id,
-            execution_context=execution_context,
+        return Execution(
             result=result,
             reflection=reflection,
             metrics=metrics,
@@ -192,23 +217,19 @@ class AgentRuntime:
         except Exception:
             pass
 
-    def _build_agent_system_prompt(self, ec: ExecutionContext, sc: SharedContext) -> str:
-        parts = [
-            f"You are a domain agent. Your objective: {ec.objective}",
-            "IMPORTANT: Never expose internal system errors, tool errors, implementation details, or technical messages to the user. If a tool returns an error or no results, respond naturally without mentioning the error.",
-            "CRITICAL: You MUST use your available tools to retrieve information. NEVER invent, fabricate, or hallucinate information. If you cannot retrieve data using your tools, say you don't have that information yet. Do NOT make up names, numbers, emails, addresses, or any other details.",
-            "NEVER expose internal IDs, business IDs, record IDs, scope paths, or any system identifiers to the user.",
-        ]
-        if ec.knowledge:
-            parts.append("Relevant knowledge: " + ", ".join(k.content for k in ec.knowledge))
-        if ec.skills:
-            parts.append("Available skills: " + ", ".join(s.content for s in ec.skills))
-        if ec.constraints:
-            parts.append("Constraints: " + "; ".join(f"{c.name}: {c.condition}" for c in ec.constraints))
-        if self._tools_names:
-            parts.append(f"Available tools: {self._tools_names}")
-            parts.append(f"\n{self._tools_description}")
-        return "\n".join(parts)
+    def _build_agent_system_prompt(self, domain_agent: Any = None) -> str:
+        from app.lib.prompts import build_execution_prompt
+
+        # domain_agent should already have goal, role, backstory pre-loaded
+        prompt_result, _, _ = build_execution_prompt(
+            agent=domain_agent,
+            tools=self._tools,
+            use_system_prompt=True,
+        )
+
+        if hasattr(prompt_result, 'system') and prompt_result.system:
+            return prompt_result.system
+        return prompt_result.prompt
 
     @staticmethod
     def _parse_tool_input(raw_input: str) -> dict[str, Any] | None:
@@ -258,17 +279,48 @@ class AgentRuntime:
             error_msg = f"Error: Tool '{tool_name}' not found. Available tools: {self._tools_names}"
             self._messages.append({"role": "user", "content": f"Observation: {error_msg}"})
             return error_msg
-        return await self._run_tool_fn(tool_name, tool_args, tool_fn)
+        r = await self._run_tool_fn(tool_name, tool_args, tool_fn)
+        return r
 
     async def _run_tool_fn(self, tool_name: str, tool_args: dict, tool_fn: Any) -> str:
+        from app.runtime.tool_result import ToolResult
+
         try:
             result = await tool_fn.ainvoke(tool_args)
-            result_str = str(result)
-            self._messages.append({"role": "user", "content": f"Observation: {result_str}"})
+
+      
+            if isinstance(result, dict) and "content" in result:
+                tool_result = ToolResult(**result)
+            elif isinstance(result, ToolResult):
+                tool_result = result
+            else:
+                tool_result = ToolResult(content=str(result))
+
+            message_parts: list[dict] = []
+
+            text_content = tool_result.content
+            if tool_result.metadata:
+                text_content += f"\n {json.dumps(tool_result.metadata, default=str)}"
+
+        
+            message_parts.append({"type": "text", "text": f"Observation: {text_content}"})
+
+            for img in tool_result.images:
+                if img.startswith("data:") or img.startswith("http"):
+                    message_parts.append({"type": "image_url", "image_url": {"url": img}})
+                else:
+                    message_parts.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}"}})
+
+            # Append as multimodal message if images present, otherwise plain text
+            if tool_result.images:
+                self._messages.append({"role": "user", "content": message_parts})
+            else:
+                self._messages.append({"role": "user", "content": f"Observation: {text_content}"})
+
             post_reasoning = _get_i18n().get("slices.post_tool_reasoning")
             if post_reasoning:
                 self._messages.append({"role": "user", "content": post_reasoning})
-            return result_str
+            return text_content
         except Exception as e:
             logger.warning(f"Tool '{tool_name}' failed: {e}")
             error_msg = "No results."
@@ -276,14 +328,19 @@ class AgentRuntime:
             return error_msg
 
 
-    async def _validate_and_retry(self, final_answer: str) -> str:
-        if not self._response_model:
+    async def _validate_and_retry(self, final_answer: str, output_pydantic: type | None = None, output_json: type | None = None) -> str:
+        """Validate the final answer against a response model.
+        
+        Uses output_pydantic/output_json explicitly passed. No fallback.
+        """
+        validation_model = output_pydantic or output_json
+        if not validation_model:
             return final_answer
         for _ in range(self._max_validation_retries):
             try:
                 data = parse_json_output(final_answer)
                 if data:
-                    self._response_model(**data)
+                    validation_model(**data)
                 return final_answer
             except Exception as e:
                 error_str = str(e)
@@ -293,31 +350,46 @@ class AgentRuntime:
                     retry_msg = validation_msg.format(guardrail_result_error=error_str[:500], task_output=final_answer[:500])
                     self._messages.append({"role": "assistant", "content": final_answer})
                     self._messages.append({"role": "user", "content": retry_msg})
-                    final_answer = await self._invoke_loop()
+                    final_answer = await self._raw_invoke_loop()
                 else:
                     break
         return final_answer
 
 
     async def _invoke_loop(self) -> str:
-        """Run the LLM invocation loop with dual-mode tool calling."""
+        """Run the LLM invocation loop and validate the final answer."""
+        raw_answer = await self._raw_invoke_loop()
+        return raw_answer
+
+    async def _raw_invoke_loop(self) -> str:
+        """Run the LLM invocation loop with dual-mode tool calling"""
         while True:
             self._iterations += 1
             if self._iterations > self._max_iter:
                 return await self._force_final_answer()
             response = await self._invoke_llm_safe()
+
             if response is None:
                 self._messages.append({"role": "user", "content": "Please provide a response."})
                 continue
+            print(response)
+            print('\n\n\n')
+            if response.tool_calls:
+                result = await self._handle_native_tool_calls(response)
+                continue
+
             content = response.content
             if isinstance(content, list):
                 content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
             raw = content.strip() if content else ""
-            if response.tool_calls:
-                result = await self._handle_native_tool_calls(response)
-                if result is not None:
-                    return result
-                continue
+
+            raw = await self._validate_and_retry(
+                                raw,
+                                output_pydantic=self._output_pydantic,
+                                output_json=self._output_json,
+                        )
+
+  
             if not raw:
                 if self._handle_empty_response():
                     return "I was unable to generate a response. Please try again."
@@ -328,8 +400,8 @@ class AgentRuntime:
 
     async def _invoke_llm_safe(self) -> Any:
         try:
+         
             response = await self._llm.ainvoke(self._messages)
-            print(response)
             return response
         except Exception as e:
             if is_context_length_exceeded(e):
@@ -348,8 +420,6 @@ class AgentRuntime:
         return False
 
     async def _handle_native_tool_calls(self, response: Any) -> str | None:
-        """Process native tool calls from LLM response. Returns final answer or None."""
-        await self._emit_status("Checking information...")
         self._messages.append({"role": "assistant", "content": response.content or "", "tool_calls": response.tool_calls})
         for tc in response.tool_calls:
             tool_result = await self._execute_tool(tc)
@@ -403,7 +473,7 @@ class AgentRuntime:
         try:
             parsed_data = parse_json_output(raw)
         except (json.JSONDecodeError, ValueError, TypeError):
-            if self._response_model:
+            if self._output_pydantic or self._output_json:
                 self._messages.append({"role": "assistant", "content": raw})
                 self._messages.append({"role": "user", "content": "Error: Your response is not valid JSON. Please respond with a valid JSON object."})
                 return None
@@ -418,18 +488,18 @@ class AgentRuntime:
             tool_requests = parsed_data.get("tool_requests")
             if tool_requests and isinstance(tool_requests, list) and len(tool_requests) > 0:
                 return await self._handle_json_tool_requests(raw, parsed_data, tool_requests)
-            # Detect raw tool call attempts (no tools bound or hallucinated tool names)
-            if parsed_data.get("tool") or parsed_data.get("arguments") is not None:
-                self._messages.append({"role": "assistant", "content": raw})
-                self._messages.append({"role": "user", "content": "You do not have access to that tool. Answer the user's question using only the information you already have. If you don't have the information, say so clearly."})
-                return None
-            # Detect raw data dumps (not a proper response to the user)
-            if not parsed_data.get("response") and not self._is_waiting_for_user(raw) and len(parsed_data) > 1:
-                self._messages.append({"role": "assistant", "content": raw})
-                self._messages.append({"role": "user", "content": "Do not return raw JSON data to the user. Summarize this information in a clear, natural response that directly answers the user's question."})
-                return None
-            if self._is_waiting_for_user(raw):
-                return raw
+            # Detect raw tool call attempts — only when no output model expects JSON
+            if not (self._output_pydantic or self._output_json):
+                if parsed_data.get("tool") and parsed_data.get("arguments") is not None:
+                    self._messages.append({"role": "assistant", "content": raw})
+                    self._messages.append({"role": "user", "content": "You do not have access to that tool. Answer the user's question using only the information you already have. If you don't have the information, say so clearly."})
+                    return None
+                # Detect raw data dumps (not a proper response to the user)
+                if not parsed_data.get("response") and not self._is_waiting_for_user(raw) and len(parsed_data) > 1:
+                    self._messages.append({"role": "assistant", "content": raw})
+                    self._messages.append({"role": "user", "content": "Do not return raw JSON data to the user. Summarize this information in a clear, natural response that directly answers the user's question."})
+                    return None
+            # Valid JSON response — return it as the final answer
             return raw
         return self._extract_final_answer(raw)
 

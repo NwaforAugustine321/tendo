@@ -3,10 +3,24 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
 from app.config.settings import settings
+from app.contexts.models import ExecutionContext, SharedContext
+from app.execution.models import Result
+
+
+@runtime_checkable
+class DomainAgentProtocol(Protocol):
+    """Interface every domain agent must implement."""
+
+    async def reason(
+        self,
+        execution_context: ExecutionContext,
+        shared_context: SharedContext,
+    ) -> Result: ...
 
 SPECS_DIR = Path(__file__).parent.parent / "specs"
 

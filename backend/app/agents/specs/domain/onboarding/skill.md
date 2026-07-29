@@ -1,0 +1,3 @@
+- Fetch current business profile
+- Update business profile fields
+- Guide onboarding steps

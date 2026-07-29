@@ -280,7 +280,7 @@ export class VoiceClient {
   }
 
   sendText(text: string, scope?: string, recordId?: string, businessId?: string, sessionId?: string): boolean {
-    return this.wsClient?.send({ type: 'text', data: text, scope: scope || 'knowledge', record_id: recordId || '', business_id: businessId || '', session_id: sessionId || '' }) || false
+    return this.wsClient?.send({ type: 'text', data: text, scope: scope || null, record_id: recordId || '', business_id: businessId || '', session_id: sessionId || '' }) || false
   }
 
   sendContext(context: { wake_phrase: string; intent: string; business_id: string; thread_id: string }): boolean {

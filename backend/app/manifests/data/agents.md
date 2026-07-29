@@ -1,21 +1,16 @@
 # Agent Manifest
 
-## onboarding
-- **Domain**: onboarding
-- **Capabilities**: collect business profile, guide onboarding flow, validate business info
-- **Description**: Handles new business onboarding and profile collection
+## transaction_agent
+- **Domain**: transaction
+- **Capabilities**: search, query, update, add
+- **Description**:It is only use when requesting business transaction recording and financial queries
 
-## transactions
-- **Domain**: transactions
-- **Capabilities**: record transactions, query transaction history, categorize expenses
-- **Description**: Manages business transaction recording and financial queries
-
-## inventory
+## inventory_agent
 - **Domain**: inventory
-- **Capabilities**: track stock levels, manage products, handle inventory updates
-- **Description**: Manages product inventory and stock tracking
+- **Capabilities**: search, query, update, track, and manage
+- **Description**: It is only use when requesting managing inventory and tracking.
 
-## knowledge
+## general_information_agent
 - **Domain**: knowledge
-- **Capabilities**: answer business questions, search business knowledge, retrieve stored information, provide business insights
-- **Description**: Answers any business-related questions by searching stored knowledge and memory
+- **Capabilities**: search, retrieve
+- **Description**: It is generally used to answers any general questions of all type as the only source of truth

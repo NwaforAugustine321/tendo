@@ -8,7 +8,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.contexts.models import ExecutionContext
 from app.execution.models import ReflectionOutput
 from app.lib.json_parser import parse_json_output
 from app.runtime import AgentRuntime, ToolBinder
@@ -25,13 +24,8 @@ class _ReflectionLLMOutput(BaseModel):
 
 _REFLECTION_PROMPT = """Analyze the following agent execution and produce structured feedback.
 
-## Execution Context
-Objective: {objective}
-
 ## Execution Data
 - Tools used: {tools_used}
-- Knowledge used: {knowledge_used}
-- Skills used: {skills_used}
 - Iterations: {iterations}
 - Duration: {duration_ms:.0f}ms
 
@@ -68,26 +62,20 @@ class ReflectionStage:
 
     async def reflect(
         self,
-        execution_context: ExecutionContext,
         messages: list[dict[str, Any]],
         tools_used: list[str],
-        knowledge_used: list[str],
-        skills_used: list[str],
         iterations: int,
         duration_ms: float,
-        domain_output: dict[str, Any] | None,
+        domain_output: Any | None = None,
     ) -> ReflectionOutput:
         messages_summary = self._summarize_messages(messages)
 
         prompt = _REFLECTION_PROMPT.format(
-            objective=execution_context.objective,
             tools_used=", ".join(tools_used) if tools_used else "none",
-            knowledge_used=", ".join(knowledge_used) if knowledge_used else "none",
-            skills_used=", ".join(skills_used) if skills_used else "none",
             iterations=iterations,
             duration_ms=duration_ms,
             messages_summary=messages_summary,
-            domain_output=json.dumps(domain_output or {}, default=str)[:2000],
+            domain_output=json.dumps(domain_output or {}, default=str)[:2000] if isinstance(domain_output, dict) else str(domain_output or "")[:2000],
         )
 
         raw = await self._invoke_runtime(prompt)

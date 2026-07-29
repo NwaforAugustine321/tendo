@@ -1,4 +1,4 @@
-"""Pydantic models for the Planner's ExecutionPlan output."""
+
 
 from enum import Enum
 
@@ -13,9 +13,10 @@ class ExecutionOrder(str, Enum):
 
 
 class AgentAssignment(BaseModel):
-    agent_id: str
+    agent_id: str = ''
     execution_context: ExecutionContext
     depends_on: list[str] = Field(default_factory=list)
+    constraints: str  = Field(default_factory=str)
 
 
 class ExecutionPlan(BaseModel):

@@ -1,15 +1,15 @@
-"""AgentExecution output models."""
+"""Execution output models."""
 
 from app.execution.models import (
-    AgentExecution,
-    DomainResult,
+    Execution,
+    Result,
     ExecutionMetrics,
     ReflectionOutput,
 )
 
 __all__ = [
-    "AgentExecution",
-    "DomainResult",
+    "Execution",
+    "Result",
     "ExecutionMetrics",
     "ReflectionOutput",
 ]

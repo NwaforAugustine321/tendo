@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from app.execution.models import AgentExecution, ExecutionMetrics
+from app.execution.models import Execution, ExecutionMetrics
 
 
 class MergedResult(BaseModel):
@@ -14,35 +14,29 @@ class MergedResult(BaseModel):
 
 
 class Merger:
-    """Combines outputs from multiple AgentExecution results.
-    """
+    """Combines outputs from multiple Execution results."""
 
-    async def merge(self, executions: list[AgentExecution]) -> MergedResult:
+    async def merge(self, executions: list[Execution]) -> MergedResult:
         if len(executions) == 1:
             return self._pass_through(executions[0])
         return self._combine(executions)
 
-    def _pass_through(self, execution: AgentExecution) -> MergedResult:
+    def _pass_through(self, execution: Execution) -> MergedResult:
         errors: list[str] = []
         if execution.error:
             errors.append(execution.error)
 
         return MergedResult(
-            events=execution.result.payload.get("events", []),
             combined_output={
-                execution.agent_id: {
-                    **execution.result.payload,
-                    "response_text": execution.result.response_text,
-                    "status": execution.result.status,
-                }
+                "response": execution.result.response,
+                "status": execution.result.status,
             },
             reflection_summary=self._summarize_reflection(execution),
             total_metrics=execution.metrics,
             errors=errors,
         )
 
-    def _combine(self, executions: list[AgentExecution]) -> MergedResult:
-        events: list[dict] = []
+    def _combine(self, executions: list[Execution]) -> MergedResult:
         combined_output: dict = {}
         reflections: list[str] = []
         errors: list[str] = []
@@ -55,17 +49,9 @@ class Merger:
 
         for execution in executions:
             if execution.error:
-                errors.append(
-                    f"[{execution.agent_id}] {execution.error}"
-                )
+                errors.append(f"{execution.error}")
 
-            agent_events = execution.result.payload.get("events", [])
-            events.extend(agent_events)
-            combined_output[execution.agent_id] = {
-                **execution.result.payload,
-                "response_text": execution.result.response_text,
-                "status": execution.result.status,
-            }
+            combined_output[execution.result.status] = execution.result.response
 
             reflection_text = self._summarize_reflection(execution)
             if reflection_text:
@@ -86,7 +72,6 @@ class Merger:
         )
 
         return MergedResult(
-            events=events,
             combined_output=combined_output,
             reflection_summary="\n".join(reflections),
             total_metrics=total_metrics,
@@ -94,8 +79,8 @@ class Merger:
         )
 
     @staticmethod
-    def _summarize_reflection(execution: AgentExecution) -> str:
+    def _summarize_reflection(execution: Execution) -> str:
         observations = execution.reflection.observations
         if not observations:
             return ""
-        return f"[{execution.agent_id}] " + "; ".join(observations)
+        return "; ".join(observations)

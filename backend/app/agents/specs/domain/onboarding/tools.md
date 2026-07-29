@@ -1,0 +1,4 @@
+- fetch_business_profile: Get current profile
+- update_profile: Modify profile fields
+- search_knowledge: Search knowledge base
+- save_knowledge: Store business facts

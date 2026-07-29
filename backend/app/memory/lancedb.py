@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_VECTOR_DIM = 768
 TABLE_NAME = "knowledge"
+CONVERSATIONS_TABLE_NAME = "conversations"
 
 
 def _build_schema(vector_dim: int) -> pa.Schema:
@@ -48,6 +49,7 @@ class LanceDBStorage:
 
         self._db = lancedb.connect(str(self._path))
 
+        # Knowledge table
         try:
             self._table: Any = self._db.open_table(TABLE_NAME)
             self._vector_dim = self._infer_dim(self._table)
@@ -55,7 +57,14 @@ class LanceDBStorage:
             self._table = None
             if vector_dim:
                 self._vector_dim = vector_dim
-                self._table = self._create_table(vector_dim)
+                self._table = self._create_table(TABLE_NAME, vector_dim)
+
+        # Conversations table (auto-created alongside knowledge)
+        try:
+            self._conversations_table: Any = self._db.open_table(CONVERSATIONS_TABLE_NAME)
+        except Exception:
+            dim = self._vector_dim or DEFAULT_VECTOR_DIM
+            self._conversations_table = self._create_table(CONVERSATIONS_TABLE_NAME, dim)
 
         self._ensure_fts_index()
 
@@ -78,7 +87,7 @@ class LanceDBStorage:
         except Exception:
             pass
 
-    def _create_table(self, vector_dim: int) -> Any:
+    def _create_table(self, name: str, vector_dim: int) -> Any:
         schema = _build_schema(vector_dim)
         placeholder = [
             {
@@ -94,10 +103,10 @@ class LanceDBStorage:
             }
         ]
         try:
-            table = self._db.create_table(TABLE_NAME, data=placeholder, schema=schema)
+            table = self._db.create_table(name, data=placeholder, schema=schema)
         except (ValueError, Exception):
             try:
-                table = self._db.open_table(TABLE_NAME)
+                table = self._db.open_table(name)
             except Exception:
                 return None
         else:
@@ -109,7 +118,20 @@ class LanceDBStorage:
             return self._table
         dim = vector_dim or self._vector_dim or DEFAULT_VECTOR_DIM
         self._vector_dim = dim
-        self._table = self._create_table(dim)
+        self._table = self._create_table(TABLE_NAME, dim)
+        return self._table
+
+    def _ensure_conversations_table(self, vector_dim: int | None = None) -> Any:
+        if self._conversations_table is not None:
+            return self._conversations_table
+        dim = vector_dim or self._vector_dim or DEFAULT_VECTOR_DIM
+        self._conversations_table = self._create_table(CONVERSATIONS_TABLE_NAME, dim)
+        return self._conversations_table
+
+    def get_table(self, table_name: str | None = None) -> Any:
+        """Get the appropriate table by name."""
+        if table_name == CONVERSATIONS_TABLE_NAME:
+            return self._conversations_table
         return self._table
 
     def _record_to_row(self, record: Any) -> dict[str, Any]:
@@ -204,16 +226,21 @@ class LanceDBStorage:
 
         return MemoryRecord(**record_data)
 
-    def save(self, records: list) -> None:
+    def save_embedded(self, records: list, table_name: str | None = None) -> None:
         if not records:
             return
         dim = next((len(r.embedding) for r in records if r.embedding), None)
-        self._ensure_table(vector_dim=dim)
+        if table_name == CONVERSATIONS_TABLE_NAME:
+            self._ensure_conversations_table(vector_dim=dim)
+            target_table = self._conversations_table
+        else:
+            self._ensure_table(vector_dim=dim)
+            target_table = self._table
         rows = [self._record_to_row(rec) for rec in records]
         for row in rows:
             if row["vector"] is None or len(row["vector"]) != self._vector_dim:
                 row["vector"] = [0.0] * self._vector_dim
-        self._table.add(rows)
+        target_table.add(rows)
 
     def search(
         self,
@@ -223,11 +250,13 @@ class LanceDBStorage:
         filters: str | None = None,
         limit: int = 10,
         columns: list[str] | None = None,
+        table_name: str | None = None,
     ) -> list[tuple[Any, float]]:
-        if self._table is None:
+        target_table = self.get_table(table_name)
+        if target_table is None:
             return []
 
-        query = self._table.search(query_embedding)
+        query = target_table.search(query_embedding)
 
         scope_expr = None
         if scope_prefixes:
@@ -240,13 +269,13 @@ class LanceDBStorage:
 
         if scope_expr and filters:
             combined = f"({scope_expr}) AND ({filters})"
-            query = query.where(combined, prefilter=False)
+            query = query.where(combined, prefilter=True)
         elif scope_expr:
-            query = query.where(scope_expr, prefilter=False)
+            query = query.where(scope_expr, prefilter=True)
         elif filters:
             query = query.where(filters, prefilter=True)
 
-        fetch_limit = limit * 3 if scope_expr else limit * 2
+        fetch_limit = limit * 2
         results = query.limit(fetch_limit).to_list()
 
         out: list[tuple[Any, float]] = []
@@ -287,6 +316,90 @@ class LanceDBStorage:
         if self._table is None:
             return
         self._table.delete(f"id = '{record_id}'")
+
+    def fetch(
+        self,
+        scope_prefixes: list[str] | None = None,
+        filters: str | None = None,
+        limit: int = 10,
+        table_name: str | None = None,
+    ) -> list[Any]:
+
+        target_table = self.get_table(table_name)
+        if target_table is None:
+            return []
+
+        try:
+            # Build scope filter
+            scope_expr = None
+            if scope_prefixes:
+                valid = [s.rstrip("/") for s in scope_prefixes if s and s.strip("/")]
+                if len(valid) == 1:
+                    scope_expr = f"scope LIKE '{valid[0]}%'"
+                elif len(valid) > 1:
+                    parts = [f"scope LIKE '{p}%'" for p in valid]
+                    scope_expr = "(" + " OR ".join(parts) + ")"
+
+     
+            combined_filter = None
+            if scope_expr and filters:
+                combined_filter = f"({scope_expr}) AND ({filters})"
+            elif scope_expr:
+                combined_filter = scope_expr
+            elif filters:
+                combined_filter = filters
+
+        
+            if combined_filter:
+                df = target_table.to_pandas()
+                # Apply filter manually using pandas
+                if scope_prefixes:
+                    valid = [s.rstrip("/") for s in scope_prefixes if s and s.strip("/")]
+                    mask = None
+                    for prefix in valid:
+                        cond = df["scope"].str.startswith(prefix)
+                        mask = cond if mask is None else (mask | cond)
+                    if mask is not None:
+                        df = df[mask]
+            else:
+                df = target_table.to_pandas()
+
+            if df.empty:
+                return []
+
+            records = []
+            for _, row in df.iterrows():
+                record = self._row_to_record(row.to_dict())
+                records.append(record)
+
+
+            records.sort(key=lambda r: r.created_at)
+            return records[:limit]
+
+        except Exception as e:
+            logger.warning("fetch failed: %s", e)
+            return []
+
+    def save(self, records: list, table_name: str | None = None) -> None:
+   
+        if not records:
+            return
+
+        if table_name == CONVERSATIONS_TABLE_NAME:
+            self._ensure_conversations_table()
+            target_table = self._conversations_table
+        else:
+            self._ensure_table()
+            target_table = self._table
+
+        if target_table is None:
+            return
+
+        rows = [self._record_to_row(rec) for rec in records]
+        for row in rows:
+           
+            row["vector"] = [0.0] * self._vector_dim
+        target_table.add(rows)
 
     def count(self, scope_prefix: str | None = None) -> int:
         if self._table is None:

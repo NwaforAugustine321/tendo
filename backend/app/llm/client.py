@@ -49,7 +49,6 @@ def _create_client(callbacks=None):
                 "max_soft_tokens": 1120,
                 "temperature": 1.0,
                 "top_p":0.95,
-                "top_k":64  
              }
              }
         )
@@ -109,7 +108,7 @@ def _create_client(callbacks=None):
             api_key=settings.nvidia_api_key,
             callbacks=cb,
             timeout=None,
-            temperature=1,
+            temperature=0.6,
             top_p=0.95,
             
         )

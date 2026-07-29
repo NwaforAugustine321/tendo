@@ -16,3 +16,6 @@ class GraphState(TypedDict, total=False):
     error: str | None
     pending_question: str | None
     thinking_callback: Any
+    # Callable for emitting messages back to the client (e.g. Socket.IO emit).
+    # Signature: async def emit_callback(event: str, data: dict) -> None
+    emit_callback: Any

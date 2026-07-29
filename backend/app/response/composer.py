@@ -104,13 +104,18 @@ class ResponseComposer:
         output = merged_result.combined_output
 
         if isinstance(output, dict):
-            for agent_id, payload in output.items():
-                if isinstance(payload, dict):
-                    text = payload.get("response_text", "")
-                    if text:
-                        parts.append(text)
-                    elif payload.get("status") != "failure":
-                        parts.append(str(payload))
+            # Try direct response field first
+            response = output.get("response", "")
+            if response:
+                parts.append(response)
+            else:
+                for key, value in output.items():
+                    if isinstance(value, str) and value:
+                        parts.append(value)
+                    elif isinstance(value, dict):
+                        text = value.get("response", "")
+                        if text:
+                            parts.append(text)
 
         if merged_result.errors:
             parts.append(

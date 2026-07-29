@@ -1,1 +1,0 @@
-Detect growth patterns, seasonal shifts, category movements, customer segment changes, and revenue trajectory changes. Quantify trends with directional language (growing, declining, accelerating, plateauing).

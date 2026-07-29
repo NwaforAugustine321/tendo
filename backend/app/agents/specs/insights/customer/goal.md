@@ -1,1 +1,0 @@
-Search business knowledge for customer-related patterns. Identify VIP customers, at-risk relationships, buying preferences, and loyalty signals. Produce insights that help the owner nurture customer relationships.

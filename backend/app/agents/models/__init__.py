@@ -1,6 +1,6 @@
 """Agent models."""
 
-from app.agents.models.agent import Agent
+from app.agents.models.agent import Agent, DomainAgentProtocol
 from app.agents.models.domain_output import (
     ChoiceField,
     DomainAgentOutput,
@@ -10,6 +10,7 @@ from app.agents.models.domain_output import (
 
 __all__ = [
     "Agent",
+    "DomainAgentProtocol",
     "ChoiceField",
     "DomainAgentOutput",
     "TextField",

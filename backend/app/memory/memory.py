@@ -29,11 +29,13 @@ class Memory:
         scopes: list[str] | str = "/",
         storage: LanceDBStorage | None = None,
         business_id: str = "",
+        table_name: str | None = None,
     ) -> None:
         if isinstance(scopes, str):
             self._scopes = [scopes.rstrip("/") or "/"]
         else:
             self._scopes = [s.rstrip("/") or "/" for s in scopes]
+        self._table_name = table_name
         if storage:
             self._storage = storage
         elif business_id:
@@ -82,7 +84,7 @@ class Memory:
             embedding=embedding,
         )
 
-        self._storage.save([record])
+        self._storage.save_embedded([record], table_name=self._table_name)
         return record
 
     async def remember_many(
@@ -120,23 +122,21 @@ class Memory:
             )
             records.append(record)
 
-        self._storage.save(records)
+        self._storage.save_embedded(records, table_name=self._table_name)
         return records
 
     async def recall(
         self,
         query: str,
-        limit: int = 5,
+        limit: int = 20,
         columns: list[str] | None = None,
-        filters: str | None = None,
-        use_query_analysis: bool = False,
+        filters: str | None = None
     ) -> list[MemoryRecord]:
         if not query or not query.strip():
             return []
 
         search_query = query
-        if use_query_analysis:
-            search_query = await self._analyze_query(query)
+       
 
         query_embedding = await self._embed(search_query)
         if not query_embedding:
@@ -149,6 +149,7 @@ class Memory:
             filters=filters,
             limit=limit,
             columns=columns,
+            table_name=self._table_name,
         )
 
         if not raw_results:
@@ -156,37 +157,51 @@ class Memory:
 
         return [record for record, _ in raw_results]
 
-    async def _analyze_query(self, query: str) -> str:
-        from app.lib.i18n import _get_i18n
-        from app.llm.client import get_client
 
-        i18n = _get_i18n()
-        system_prompt = i18n.get("memory.query_system")
-        user_template = i18n.get("memory.query_user")
+    async def fetch(
+        self,
+        limit: int = 10,
+        filters: str | None = None,
+    ) -> list[MemoryRecord]:
+        """Fetch recent messages by scope without semantic search.
+        
+        Simply retrieves the most recent rows from the table, ordered by created_at.
+        No embedding or vector similarity is used.
+        """
+        return self._storage.fetch(
+            scope_prefixes=self._scopes,
+            filters=filters,
+            limit=limit,
+            table_name=self._table_name,
+        )
 
-        if not system_prompt or not user_template:
-            return query
+    async def save(
+        self,
+        content: str,
+        scope: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> MemoryRecord | None:
+        """Save a message as a plain row without generating an embedding.
+        
+        No vector embedding is computed — the row is stored with a zero vector.
+        Use this for conversation messages that only need chronological retrieval.
+        """
+        if not content or not content.strip():
+            return None
 
-        try:
-            llm = get_client()
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_template.format(
-                    query=query, available_scopes=", ".join(self._scopes), scope_desc=""
-                )},
-            ]
-            response = await llm.ainvoke(messages)
-            raw = response.content.strip() if response.content else ""
+        effective_scope = scope or self._scopes[0]
 
-            if raw.startswith("```"):
-                raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-            analysis = json.loads(raw)
+        record = MemoryRecord(
+            id=str(uuid4()),
+            content=content,
+            scope=effective_scope,
+            metadata=metadata or {},
+            created_at=datetime.utcnow(),
+            embedding=None,
+        )
 
-            recall_queries = analysis.get("recall_queries", [])
-            return " ".join(recall_queries) if recall_queries else query
-        except Exception as e:
-            logger.debug(f"Query analysis failed, using original: {e}")
-            return query
+        self._storage.save([record], table_name=self._table_name)
+        return record
 
     def forget(self, scope: str | None = None) -> int:
         if scope:

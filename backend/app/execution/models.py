@@ -1,16 +1,12 @@
-"""Pydantic models for AgentExecution output."""
+
 
 from __future__ import annotations
-
 from pydantic import BaseModel, Field
 
-from app.contexts.models import ExecutionContext
 
-
-class DomainResult(BaseModel):
-    payload: dict = Field(default_factory=dict)
+class Result(BaseModel):
     status: str = "success"
-    response_text: str = ""
+    response: str = ""
 
 
 class ExecutionMetrics(BaseModel):
@@ -28,10 +24,8 @@ class ReflectionOutput(BaseModel):
     observations: list[str] = Field(default_factory=list)
 
 
-class AgentExecution(BaseModel):
-    agent_id: str
-    execution_context: ExecutionContext
-    result: DomainResult
+class Execution(BaseModel):
+    result: Result
     reflection: ReflectionOutput = Field(default_factory=ReflectionOutput)
     metrics: ExecutionMetrics = Field(default_factory=ExecutionMetrics)
     error: str | None = None
