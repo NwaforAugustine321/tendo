@@ -264,8 +264,11 @@ class AgentRuntime:
 
 
     async def _execute_tool(self, tool_call: dict[str, Any]) -> str:
-        tool_name = tool_call.get("name", "")
+        tool_name = tool_call.get("name", "").strip()
         tool_args = tool_call.get("args", {})
+        # Strip whitespace from keys (LLMs sometimes add trailing spaces)
+        if isinstance(tool_args, dict):
+            tool_args = {k.strip(): v for k, v in tool_args.items()}
         call_signature = f"{tool_name}:{json.dumps(tool_args, sort_keys=True, default=str)}"
         if call_signature in self._tool_call_history:
             i18n = _get_i18n()

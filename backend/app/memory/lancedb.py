@@ -372,9 +372,9 @@ class LanceDBStorage:
                 record = self._row_to_record(row.to_dict())
                 records.append(record)
 
-
+            # Sort ascending by time, then take the LAST N (most recent) messages
             records.sort(key=lambda r: r.created_at)
-            return records[:limit]
+            return records[-limit:]
 
         except Exception as e:
             logger.warning("fetch failed: %s", e)

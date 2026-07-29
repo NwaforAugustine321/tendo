@@ -2,12 +2,19 @@ import json
 import logging
 from langchain_core.tools import tool
 from app.memory.memory import Memory
-from pydantic import BaseModel
-from typing import TypedDict
+from pydantic import BaseModel, model_validator
+from typing import TypedDict, Any
 
 class Page(BaseModel):
     limit: int
     offset: int
+
+    @model_validator(mode="before")
+    @classmethod
+    def strip_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            return {k.strip(): v for k, v in data.items()}
+        return data
 
 logger = logging.getLogger(__name__)
 
