@@ -73,6 +73,7 @@ class AgentRuntime:
         self._output_pydantic: type | None = output_pydantic
         self._output_json: type | None = output_json
         self._bound_tools: list[Any] = []
+
         
         if self._llm == None:
             self._llm = get_client()
@@ -104,7 +105,7 @@ class AgentRuntime:
             print(execution_prompt)
             
 
-    async def execute(self,task, context:str = '', chat_history:list[Any] = []) -> Execution:
+    async def execute(self,task, context:str = '', chat_history:list[Any] = [], system_prompt: str = '') -> Execution:
         agent = self._agent
         self._conversation_messages.extend(chat_history)
         try:
@@ -124,7 +125,7 @@ class AgentRuntime:
             tools=self._tools
             )
         
-
+        execution_prompt.join(system_prompt)
         task_prompt = await prepare_task_prompt(
             description=task,
             expected_output=self._expected_output,
@@ -134,7 +135,6 @@ class AgentRuntime:
             chat_history= self._conversation_messages,
         )
 
-        print(task_prompt)
         self._messages.extend([
             {"role": "user", "content": task_prompt},
             {"role": "system", "content":  execution_prompt}

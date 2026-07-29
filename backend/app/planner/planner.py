@@ -138,20 +138,15 @@ class Planner:
         knowledge_manifest = manifests["knowledge"]
         tools_manifest = manifests['tools'] 
 
-        context = (
-            f"User Question:\n\n{user_request}\n\n"
-            f"Available Agents:\n\n{agents_manifest}\n\n"
-            f"Available Skills:\n\n{skills_manifest}\n\n"
-            f"Available Knowledge:\n\n{knowledge_manifest}\n\n"
-            f"Available Tools:\n\n{tools_manifest}\n\n"
+        system_prompt = (
+            f"Available Agents:\n{agents_manifest}\n\n"
+            f"Skill Manifest:\n{skills_manifest}\n\n"
+            f"Knowledge Manifest:\n{knowledge_manifest}\n\n"
+            f"Tool Manifest:\n{tools_manifest}\n\n"
         )
 
-  
-
-        # raw = await self._agent.execute(user_request,context=context)
-        
-        raw = await self._agent.execute(context, chat_history=chat_history)
-        
+        raw = await self._agent.execute(user_request,system_prompt=system_prompt,chat_history=chat_history)
+    
        
         try:
             raw_text = raw.result.response if hasattr(raw, 'result') else str(raw)

@@ -62,11 +62,10 @@ async def moa_orchestrator(
        
     except PlanningError as e:
         logger.error("Planning failed: %s — falling back to direct response", e)
-        response_text = plan.unresolvable_reason #await _direct_response(llm, user_request, conversation_messages)
+        response_text = await _direct_response(llm, user_request, conversation_messages)
         return {"response": {"mode": "conversation", "text": response_text}}
 
     if plan.unresolvable:
-        # response_text = await _direct_response(llm, user_request, [])
         return {"response": {"mode": "conversation", "text": plan.unresolvable_reason}}
 
     executions = await _execute_plan(user_request,plan, thinking_callback, business_id, scopes)
@@ -111,7 +110,8 @@ async def _execute_parallel(user_request:str, plan: ExecutionPlan, thinking_call
             agent.bind_tools(business_id, scopes=scopes)
             
             return await agent.execute_agent(
-                assignment.execution_context,
+                #assignment.execution_context,
+                user_request,
                 chat_history=plan.shared_context.conversation_messages
             )
 
@@ -156,7 +156,8 @@ async def _execute_sequential(user_request:str, plan: ExecutionPlan, thinking_ca
                     agent.bind_tools(business_id, scopes=scopes)
             
                     result = await agent.execute_agent(
-                       assignment.execution_context,
+                    #    assignment.execution_context,
+                        user_request,
                        chat_history=plan.shared_context.conversation_messages
                     )
 
@@ -211,6 +212,8 @@ async def moa_orchestrator_node(state: "GraphState") -> dict:
         thinking_callback = state.get("thinking_callback")
     
     async def save_msg_to_long_term_mem(messages):
+        if not session_id:
+            return
         await save_messages(business_id, session_id, messages)
 
     conversation_scope_id = session_id
