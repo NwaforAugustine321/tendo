@@ -13,15 +13,15 @@ from app.execution.models import (
     ExecutionMetrics,
     ReflectionOutput,
 )
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from app.lib.context_handler import handle_context_length, is_context_length_exceeded
 from app.lib.i18n import _get_i18n
 from app.lib.json_parser import parse_json_output
-from app.lib.prompts import SystemPromptResult
 from app.lib.tool_schema import tools_schema_and_description
 from app.runtime.tool_binder import ToolBinder
-from app.lib.prompts import build_execution_prompt
-from app.lib.task_prompt import prepare_task_prompt
-
+from app.lib.prompts import prepare_system_prompt,prepare_planner_task_prompt,format_conversation
+from app.lib.prompts import prepare_task_prompt
+from langchain_core.runnables import RunnableLambda, RunnableConfig
 if TYPE_CHECKING:
     from app.agents.models import DomainAgentProtocol
 
@@ -52,6 +52,14 @@ class AgentRuntime:
         thinking_callback: Any | None = None,
         output_pydantic: type | None = None,
         output_json: type | None = None,
+        guardrail_llm: Any | None = None,
+        allowed_input_guardrail: bool = False,
+        allowed_output_guardrail: bool = False,
+        allowed_retrieval_guardrail: bool = False,
+        allowed_tool_guardrail: bool = False,
+        allowed_dialog_guardrail: bool = False,
+        use_system_prompt: bool = False,
+        system_prompt : str  = '',
     ) -> None:
         self._llm = llm
         self._context = context
@@ -73,8 +81,20 @@ class AgentRuntime:
         self._output_pydantic: type | None = output_pydantic
         self._output_json: type | None = output_json
         self._bound_tools: list[Any] = []
-
+        self._guardrail_llm = guardrail_llm
+        self._allowed_input_guardrail = allowed_input_guardrail
+        self._allowed_output_guardrail = allowed_output_guardrail
+        self._allowed_tool_guardrail = allowed_tool_guardrail
+        self._allowed_dialog_guardrail = allowed_dialog_guardrail
+        self._allowed_retrieval_guardrail = allowed_retrieval_guardrail
+        self._rail_options: dict = {}
+        self._use_system_prompt = use_system_prompt
+        self._system_prompt  = system_prompt
+        self._chat_history: list[Any] = []
         
+        if self._use_system_prompt and not self._system_prompt:
+          raise "System prompt is enable and it require system prompt param"
+
         if self._llm == None:
             self._llm = get_client()
 
@@ -94,60 +114,107 @@ class AgentRuntime:
             self._tools_names = ", ".join(getattr(t, "name", str(t)) for t in _tools)
             self._tools_description = tools_schema_and_description(_tools) if _tools else ""
             
-       
-       
-    def system_prompt_init(self,tools: list[Any] = []):
-            execution_prompt,stop_word = build_execution_prompt(
-            agent=self._agent,
-            tools=self.tools
-            )
-            self._messages.extend([{"role": "system", "content":  execution_prompt}])
-            print(execution_prompt)
-            
-
-    async def execute(self,task, context:str = '', chat_history:list[Any] = [], system_prompt: str = '') -> Execution:
+          
+        
+    async def execute(self,task, context:str = '', chat_history:list[Any] = [], use_plan_mode:bool = False) -> Execution:
         agent = self._agent
-        self._conversation_messages.extend(chat_history)
-        try:
-            self._llm = self._llm.bind_tools(self._tools)   
-        except Exception as e:
-                raise e
-
         start = time.perf_counter()
+        self._chat_history = chat_history
+        # self._conversation_messages.extend(chat_history)
+
+        if self._tools and hasattr(self._llm, 'bind_tools'):
+            self._llm = self._llm.bind_tools(self._tools)
+   
+
         self._iterations = 0
         self._messages = []
         self._tool_call_history = set()
-        
         self._context += context
-
-        execution_prompt,stop_word = build_execution_prompt(
+        
+        if self._use_system_prompt is False:
+          prompt, _ = await prepare_system_prompt(
             agent=self._agent,
             tools=self._tools
+          )
+          
+          self._system_prompt = prompt + self._system_prompt
+
+        if use_plan_mode:
+            task_prompt = await prepare_planner_task_prompt(
+                description=task,
+                output_pydantic=self._output_pydantic
             )
-        
-        execution_prompt.join(system_prompt)
-        task_prompt = await prepare_task_prompt(
+        else:
+          task_prompt = await prepare_task_prompt(
             description=task,
             expected_output=self._expected_output,
-            output_pydantic= self._output_pydantic,
+            output_pydantic=self._output_pydantic,
             output_json=self._output_json,
-            context=self._context,
-            chat_history= self._conversation_messages,
-        )
+            context=self._context
+            # chat_history=chat_history
+,
+          )
 
-        self._messages.extend([
-            {"role": "user", "content": task_prompt},
-            {"role": "system", "content":  execution_prompt}
-            ]
-        )
+
+        self._task_prompt = task_prompt
+        # print(self._system_prompt)
+        self._prompt_template = ChatPromptTemplate.from_messages([
+            ("system", "{system_prompt}"),
+            MessagesPlaceholder("chat_history",optional=True), 
+            MessagesPlaceholder("history",optional=True),
+            ("user", "{user_message}"),
+        ])
 
         try:
-            raw = await self._invoke_loop()
+            # if self._guardrail_llm:
+            #     rails = []
+
+            #     if self._allowed_input_guardrail:
+            #         rails.append("input")
+
+            #     if self._allowed_output_guardrail:
+            #         rails.append("output")
+
+            #     if self._allowed_dialog_guardrail:
+            #         rails.append("dialog")
+
+            #     if self._allowed_retrieval_guardrail:
+            #         rails.append("retrieval")
+
+            #     if self._allowed_tool_guardrail:
+            #         rails.append("execution")                
+
+            #     self._rail_options = {
+            #            "rails": rails,
+            #            "output_vars": ["allowed"]
+            #     }
+
+                
+                # input_guardrail_response = await self._guardrail.generate_async([
+                #     {"role": "user", "content": task}
+                # ], 
+                # options={
+                #        "rails": rails,
+                #        "output_vars": ["allowed"]
+                # })
+
+                # if input_guardrail_response.output_data.get("allowed", False) is False:
+                #     return Execution(
+                #          result=Result(status="failure", response=input_guardrail_response.response),
+                #          metrics=ExecutionMetrics(
+                #          iterations=self._iterations,
+                #          duration_ms=(time.perf_counter() - start) * 1000,
+                #          tools_invoked=[],
+                #         ),
+                #         error=f"Failed: {input_guardrail_response.response}",
+                #     )
+             
+            raw = await self._invoke_loop()   
             result = Result(
-         
-                status="success",
-                response=raw,
+                  status="success",
+                  response=raw,
             )
+
         except Exception as e:
             logger.error("Execution failed: %s", e)
             elapsed_ms = (time.perf_counter() - start) * 1000
@@ -218,10 +285,10 @@ class AgentRuntime:
             pass
 
     def _build_agent_system_prompt(self, domain_agent: Any = None) -> str:
-        from app.lib.prompts import build_execution_prompt
+        from app.lib.prompts import prepare_system_prompt
 
         # domain_agent should already have goal, role, backstory pre-loaded
-        prompt_result, _, _ = build_execution_prompt(
+        prompt_result, _ = prepare_system_prompt(
             agent=domain_agent,
             tools=self._tools,
             use_system_prompt=True,
@@ -240,23 +307,6 @@ class AgentRuntime:
         except (json.JSONDecodeError, ValueError, TypeError):
             pass
         return None
-
-    def _build_initial_messages(self, task_prompt: str, prompt: Any = None) -> list[dict[str, Any]]:
-        messages: list[dict[str, Any]] = []
-        if prompt and isinstance(prompt, SystemPromptResult):
-            system_content = prompt.system
-            if self._tools_names:
-                system_content = system_content.replace("{tools}", self._tools_description).replace("{tool_names}", self._tools_names)
-            messages.append({"role": "system", "content": system_content})
-            messages.append({"role": "user", "content": prompt.user.replace("{input}", task_prompt)})
-        elif prompt:
-            content = prompt.prompt
-            if self._tools_names:
-                content = content.replace("{tools}", self._tools_description).replace("{tool_names}", self._tools_names)
-            messages.append({"role": "user", "content": content.replace("{input}", task_prompt)})
-        else:
-            messages.append({"role": "user", "content": task_prompt})
-        return messages
 
     def _is_waiting_for_user(self, raw: str) -> bool:
         """Check if the agent output indicates it's waiting for user input."""
@@ -353,24 +403,31 @@ class AgentRuntime:
                     retry_msg = validation_msg.format(guardrail_result_error=error_str[:500], task_output=final_answer[:500])
                     self._messages.append({"role": "assistant", "content": final_answer})
                     self._messages.append({"role": "user", "content": retry_msg})
-                    final_answer = await self._raw_invoke_loop()
+                    final_answer = await self._invoke_loop()
                 else:
                     break
         return final_answer
 
-
     async def _invoke_loop(self) -> str:
-        """Run the LLM invocation loop and validate the final answer."""
-        raw_answer = await self._raw_invoke_loop()
-        return raw_answer
-
-    async def _raw_invoke_loop(self) -> str:
         """Run the LLM invocation loop with dual-mode tool calling"""
         while True:
+            print(self._agent.name)
+                
             self._iterations += 1
             if self._iterations > self._max_iter:
                 return await self._force_final_answer()
             response = await self._invoke_llm_safe()
+
+            # if response.output_data.get("allowed", False) is False:
+            #     return Execution(
+            #              result=Result(status="failure", response=""),
+            #              metrics=ExecutionMetrics(
+            #              iterations=self._iterations,
+            #              duration_ms=(time.perf_counter() - time.perf_counter()) * 1000,
+            #              tools_invoked=[],
+            #             ),
+            #             error=f"Failed: {response.response}",
+            #     )
 
             if response is None:
                 self._messages.append({"role": "user", "content": "Please provide a response."})
@@ -403,8 +460,19 @@ class AgentRuntime:
 
     async def _invoke_llm_safe(self) -> Any:
         try:
-         
-            response = await self._llm.ainvoke(self._messages)
+            chain = self._prompt_template | self._llm
+            
+            response = await chain.ainvoke({
+                "system_prompt": self._system_prompt,
+                "history": self._messages,
+                "user_message": self._task_prompt,
+                "chat_history": self._chat_history
+            })
+
+            # response = await self._llm.generate_async({
+            #     "role": "system", "content": self._system_prompt ,
+            #     "role": "user", "content": self._task_prompt
+            # }, options=self._rail_options)
             return response
         except Exception as e:
             if is_context_length_exceeded(e):
@@ -480,7 +548,8 @@ class AgentRuntime:
                 self._messages.append({"role": "assistant", "content": raw})
                 self._messages.append({"role": "user", "content": "Error: Your response is not valid JSON. Please respond with a valid JSON object."})
                 return None
-            return raw
+            self._messages.append({"role": "assistant", "content": raw})
+            return None
         await self._emit_status("Checking information...")
         if parsed_data and isinstance(parsed_data, dict):
             if self._is_waiting_for_user(raw):
@@ -502,9 +571,12 @@ class AgentRuntime:
                     self._messages.append({"role": "assistant", "content": raw})
                     self._messages.append({"role": "user", "content": "Do not return raw JSON data to the user. Summarize this information in a clear, natural response that directly answers the user's question."})
                     return None
-            # Valid JSON response — return it as the final answer
-            return raw
-        return self._extract_final_answer(raw)
+            self._messages.append({"role": "assistant", "content": raw})
+            self._messages.append({"role": "user", "content": "Please wrap your final response in <Final_Answer></Final_Answer> tags."})
+            return None
+        self._messages.append({"role": "assistant", "content": raw})
+        self._messages.append({"role": "user", "content": "Please wrap your final response in <Final_Answer></Final_Answer> tags."})
+        return None
 
     async def _handle_json_tool_requests(self, raw: str, parsed_data: dict, tool_requests: list) -> str | None:
         """Execute tool_requests from JSON response."""
@@ -534,7 +606,12 @@ class AgentRuntime:
     async def _force_final_answer(self) -> str:
         force_msg = _get_i18n().get("slices.force_final_answer")
         self._messages.append({"role": "user", "content": force_msg})
-        response = await self._llm.ainvoke(self._messages)
+        chain = self._prompt_template |  self._llm
+        response = await chain.ainvoke({
+            "system_prompt": self._system_prompt,
+            "history": self._messages,
+            "task": self._task_prompt,
+        })
         content = response.content
         if isinstance(content, list):
             content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)

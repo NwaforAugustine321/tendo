@@ -33,3 +33,4 @@ dependencies:
     - ruff
     - psycopg2-binary
     - tiktoken
+    - nemoguardrails

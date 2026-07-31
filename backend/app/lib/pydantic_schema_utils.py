@@ -1,9 +1,3 @@
-"""Pydantic model to JSON schema utilities.
-
-Generates sanitized JSON schema descriptions from Pydantic models,
-suitable for use with LLMs and structured output.
-Based on CrewAI's pydantic_schema_utils.
-"""
 
 import json
 from copy import deepcopy
@@ -84,18 +78,42 @@ def ensure_all_properties_required(schema: Any) -> Any:
 
 
 def generate_model_description(model: type[BaseModel]) -> ModelDescription:
-    """Generate JSON schema description of a Pydantic model.
 
-    Takes a Pydantic model class and returns its JSON schema with
-    all refs resolved, additionalProperties set to false, and all
-    properties marked as required.
+    import typing
+    origin = typing.get_origin(model)
+    if origin is typing.Union:
+        args = [a for a in typing.get_args(model) if a is not type(None)]
+        if not args:
+            return {"type": "json_schema", "json_schema": {"name": "Any", "strict": False, "schema": {}}}
 
-    Args:
-        model: A Pydantic model class.
+        all_schemas = []
+        for arg in args:
+            if hasattr(arg, 'model_json_schema'):
+                s = arg.model_json_schema(ref_template="#/$defs/{model}")
+                s = force_additional_properties_false(s)
+                s = resolve_refs(s)
+                s.pop("$defs", None)
+                s = ensure_all_properties_required(s)
+                all_schemas.append({
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": arg.__name__,
+                        "strict": True,
+                        "schema": s,
+                    },
+                })
 
-    Returns:
-        A ModelDescription with JSON schema representation.
-    """
+        if not all_schemas:
+            return {"type": "json_schema", "json_schema": {"name": "Any", "strict": False, "schema": {}}}
+
+        if len(all_schemas) == 1:
+            return all_schemas[0]
+
+        return all_schemas
+
+    if not hasattr(model, 'model_json_schema'):
+        return {"type": "json_schema", "json_schema": {"name": getattr(model, '__name__', 'Unknown'), "strict": False, "schema": {}}}
+
     json_schema = model.model_json_schema(ref_template="#/$defs/{model}")
     json_schema = force_additional_properties_false(json_schema)
     json_schema = resolve_refs(json_schema)

@@ -1,19 +1,28 @@
-from typing import Any
 
+from typing import Any
+from app.runtime import AgentRuntime, ToolBinder
 from app.execution.models import Result
+from app.db.tools.profile_tools import get_profile_tools
+from app.memory.tools import get_knowledge_tools
+from app.guardrails import GuardrailManager, GuardrailConfig
 
 try:
     from app.agents.models import Agent
-    _spec = Agent.from_spec("planner")
+    agent_spec = Agent.from_spec("planner")
 except Exception:
-    _spec = None
+    agent_spec = None
 
 
 class PlannerAgent:
-    agent_id = "planner"
-    goal = _spec.goal if _spec else "Route user requests to the correct domain agents and build execution plans"
-    role = _spec.role if _spec else "planner agent"
-    backstory = _spec.backstory if _spec else "You are a routing agent that decides which agents should handle the user's request."
 
-    def get_tools(self, business_id: str, scopes: list[str] | None = None) -> list[Any]:
-        return []
+    def __init__(self):
+        self._runtime = AgentRuntime(
+                agent=agent_spec,
+                tool_binder=ToolBinder(),
+        )
+
+    def bind_tools(self, business_id: str, scopes: list[str] = []) -> list[Any]:
+        pass
+
+    async def execute_agent(self, *args, **kwargs):
+        return await self._runtime.execute(*args, **kwargs)

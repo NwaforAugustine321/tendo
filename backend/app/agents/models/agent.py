@@ -44,6 +44,7 @@ class Agent(BaseModel):
     expected_output: str = Field(default="", description="Expected output format (from output.md)")
     skill: str = Field(default="", description="Agent skills/instructions (from skill.md)")
     manager_request: str = Field(default="", description="Context indicating response is for a manager delegation")
+    name:str =Field(default='', description="Agent name (from settings)")
 
     @classmethod
     def from_spec(cls, spec_name: str, manager_request: bool = False) -> Agent:
@@ -85,6 +86,7 @@ class Agent(BaseModel):
             expected_output=_read("output.md"),
             skill=_read("skill.md"),
             manager_request=manager_context,
+            name=spec_name
         )
 
     def get_expected_output(self) -> str:

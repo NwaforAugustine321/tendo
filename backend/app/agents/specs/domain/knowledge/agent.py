@@ -3,12 +3,16 @@ from app.runtime import AgentRuntime, ToolBinder
 from app.execution.models import Result
 from app.db.tools.profile_tools import get_profile_tools
 from app.memory.tools import get_knowledge_tools
+from app.guardrails import GuardrailManager, GuardrailConfig
 
 try:
     from app.agents.models import Agent
     agent_spec = Agent.from_spec("domain/knowledge")
 except Exception:
     agent_spec = None
+
+config = GuardrailConfig(config_dir="app/guardrails/knowledge")
+guardrail_llm = GuardrailManager(config).guardrails
 
 
 class KnowledgeAgent:
@@ -17,6 +21,7 @@ class KnowledgeAgent:
         self._runtime = AgentRuntime(
                 agent=agent_spec,
                 tool_binder=ToolBinder(),
+                guardrail_llm=guardrail_llm
         )
 
     def bind_tools(self, business_id: str, scopes: list[str] = []) -> list[Any]:

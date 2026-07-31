@@ -11,17 +11,29 @@ from app.contexts.models import (
     SharedContext,
 )
 from app.lib.json_parser import parse_json_output
-from app.lib.prompts import build_execution_prompt
-from app.lib.task_prompt import prepare_task_prompt
+from app.lib.prompts import prepare_task_prompt
 from app.manifests import load_manifest
 from app.planner.models import AgentAssignment, ExecutionOrder, ExecutionPlan
 from app.runtime import AgentRuntime, ToolBinder
 from app.llm.client import get_client
+from app.guardrails import GuardrailManager, GuardrailConfig
+from app.lib.i18n import _get_i18n
+from typing import Union
+
+def _planne(key: str) -> str:
+    i18n = _get_i18n()
+    return i18n.get(f"planning.{key}")
+
+config = GuardrailConfig(config_dir="app/guardrails/planner")
+guardrail_llm = GuardrailManager(config).guardrails
 
 logger = logging.getLogger(__name__)
 
-_agent = PlannerAgent()
-
+try:
+    from app.agents.models import Agent
+    agent_spec = Agent.from_spec("planner")
+except Exception:
+    agent_spec = None
 
 
 
@@ -41,7 +53,19 @@ class SelectedAgent(BaseModel):
 class AgentSelectionOutput(BaseModel):
     agents: list[SelectedAgent] = Field(default_factory=list, description="List of agents to handle the request. Each has agent_id, execution_context, and depends_on.")
     shared_constraints: str = Field(default_factory=str, description="Shared constraints for all agents execution")
-    response: str = Field(default_factory=str, description="Direct Response if no sub agent is selected")
+   
+class CoordinatorResponse(BaseModel):
+    is_task_trigger: bool = Field(
+        description="Set to True if this requires sub-agents/planning. Set to False if this is just normal conversation."
+    )
+    conversation_response: Union[str, None] = Field(
+        default=None, 
+        description="The natural language response to the user. ONLY populate this if is_task_trigger is False."
+    )
+    agent_selection: Union[AgentSelectionOutput, None]  = Field(
+        default=None, 
+        description="The structured plan for sub-agents. ONLY populate this if is_task_trigger is True."
+    )
 
 
 class PlanningError(Exception):
@@ -54,21 +78,45 @@ class Planner:
 
     def __init__(self) -> None:
         
-        self._agent = AgentRuntime(
-            tool_binder=ToolBinder(),
-            agent=_agent,
-            expected_output='Return json output',
-            output_pydantic=AgentSelectionOutput,
+        # self._system_prompt = _planne("system_prompt")
+        
+        manifests = self._load_manifests()
+
+        agents_manifest = manifests["agents"]
+        skills_manifest = manifests["skills"]
+        knowledge_manifest = manifests["knowledge"]
+        tools_manifest = manifests['tools'] 
+
+        tools = (
+            f"{agents_manifest}\n\n"
+            f"{skills_manifest}\n\n"
+            f"{knowledge_manifest}\n\n"
+            f"{tools_manifest}\n\n"
         )
+
+        self._runtime = AgentRuntime(
+            tool_binder=ToolBinder(),
+            agent=agent_spec,
+            expected_output='Return json output',
+            output_pydantic=CoordinatorResponse,
+            guardrail_llm=guardrail_llm,
+            allowed_input_guardrail=True,
+            allowed_dialog_guardrail=True,
+            # use_system_prompt=True,
+            system_prompt=tools
+        )
+
+
+
 
     async def plan(
         self,
         user_request: str,
         conversation_messages: list[dict] | None = None,
     ) -> ExecutionPlan:
-        manifests = self._load_manifests()
+        
     
-        result = await self._select_agents(user_request, manifests,conversation_messages)
+        result = await self._select_agents(user_request,conversation_messages)
         selected = result.get('agents', [])
         shared_constraints = result.get('shared_constraints', '')
         response = result.get('response', '')
@@ -132,49 +180,40 @@ class Planner:
         return manifests
 
 
-    async def _select_agents(self, user_request: str, manifests: str, chat_history: list[Any] = []) -> list[dict[str, Any]]:
-        agents_manifest = manifests["agents"]
-        skills_manifest = manifests["skills"]
-        knowledge_manifest = manifests["knowledge"]
-        tools_manifest = manifests['tools'] 
-
-        system_prompt = (
-            f"Available Agents:\n{agents_manifest}\n\n"
-            f"Skill Manifest:\n{skills_manifest}\n\n"
-            f"Knowledge Manifest:\n{knowledge_manifest}\n\n"
-            f"Tool Manifest:\n{tools_manifest}\n\n"
-        )
-
-        raw = await self._agent.execute(user_request,system_prompt=system_prompt,chat_history=chat_history)
+    async def _select_agents(self, user_request: str, chat_history: list[Any] = []) -> list[dict[str, Any]]:
+    
+        raw = await  self._runtime.execute(user_request,chat_history=chat_history,use_plan_mode=True)
     
        
         try:
             raw_text = raw.result.response if hasattr(raw, 'result') else str(raw)
             response = parse_json_output(raw_text)
         except (ValueError, TypeError):
-            logger.warning("Failed to parse agent selection response: %s", response[:200])
+            logger.warning("Failed to parse agent selection response")
             return  {
                 "agents": [],
                 "shared_constraints": '',
                 "response": ''
             }
 
-        agents = response.get("agents", [])
+        agent_selection = response.get("agent_selection", None)
         shared_constraints = response.get("shared_constraints", "")
-        direct_response = response.get("response", "")
- 
-        if not isinstance(agents, list):
+        direct_response = response.get("conversation_response", "")
+        is_task_trigger = response.get("is_task_trigger", "")
+
+        if not is_task_trigger:
             return {
                 "agents": [],
                 "shared_constraints": "",
                 "response": direct_response
-            }
-
-        return {
+            }           
+        else:
+           agents = agent_selection.get("agents", [])
+           return {
             "agents": [a for a in agents if isinstance(a, dict) and "agent_id" in a],
             "shared_constraints": shared_constraints,
             "response": direct_response
-        }
+           }
 
 
     @staticmethod

@@ -20,7 +20,6 @@ llm = get_client()
 logger = logging.getLogger(__name__)
 
 MAX_CONCURRENT_AGENTS = 10
-ORCHESTRATION_TIMEOUT_SECONDS = 120
 
 moa_agent = MoaAgent()
 
@@ -58,7 +57,7 @@ async def moa_orchestrator(
             user_request=user_request,
             conversation_messages=conversation_messages,
         )
-        print(plan)
+     
        
     except PlanningError as e:
         logger.error("Planning failed: %s — falling back to direct response", e)
@@ -110,8 +109,8 @@ async def _execute_parallel(user_request:str, plan: ExecutionPlan, thinking_call
             agent.bind_tools(business_id, scopes=scopes)
             
             return await agent.execute_agent(
-                #assignment.execution_context,
-                user_request,
+                assignment.execution_context,
+                # user_request,
                 chat_history=plan.shared_context.conversation_messages
             )
 
@@ -124,21 +123,8 @@ async def _execute_parallel(user_request:str, plan: ExecutionPlan, thinking_call
                 error=str(e),
             )
 
-    try:
-        async with asyncio.timeout(ORCHESTRATION_TIMEOUT_SECONDS):
-            tasks = [run_agent(a) for a in plan.participating_agents[:MAX_CONCURRENT_AGENTS]]
-            return await asyncio.gather(*tasks)
-    except asyncio.TimeoutError:
-        logger.error("Orchestration timeout after %ds", ORCHESTRATION_TIMEOUT_SECONDS)
-        return [
-            Execution(
-                agent_id=a.agent_id,
-                result=Result(status="failure"),
-                metrics=ExecutionMetrics(),
-                error="Orchestration timeout",
-            )
-            for a in plan.participating_agents
-        ]
+    tasks = [run_agent(a) for a in plan.participating_agents[:MAX_CONCURRENT_AGENTS]]
+    return await asyncio.gather(*tasks)
 
 
 async def _execute_sequential(user_request:str, plan: ExecutionPlan, thinking_callback: Any | None, business_id: str = "", scopes: list[str] | None = None) -> list[Execution]:
@@ -147,37 +133,26 @@ async def _execute_sequential(user_request:str, plan: ExecutionPlan, thinking_ca
     biz_id = business_id or plan.shared_context.business_id
     executions: list[Execution] = []
 
-    try:
-        async with asyncio.timeout(ORCHESTRATION_TIMEOUT_SECONDS):
-            for assignment in plan.participating_agents:
-                try:
-                    
-                    agent = _get_agent(assignment.agent_id)
-                    agent.bind_tools(business_id, scopes=scopes)
+    for assignment in plan.participating_agents:
+        try:
             
-                    result = await agent.execute_agent(
-                    #    assignment.execution_context,
-                        user_request,
-                       chat_history=plan.shared_context.conversation_messages
-                    )
+            agent = _get_agent(assignment.agent_id)
+            agent.bind_tools(business_id, scopes=scopes)
+    
+            result = await agent.execute_agent(
+                assignment.execution_context,
+                # user_request,
+               chat_history=plan.shared_context.conversation_messages
+            )
 
-                    executions.append(result)
-                except Exception as e:
-                    logger.error("Agent '%s' failed: %s", assignment.agent_id, e)
-                    executions.append(Execution(
-                        agent_id=assignment.agent_id,
-                        result=Result(status="failure"),
-                        metrics=ExecutionMetrics(),
-                        error=str(e),
-                    ))
-    except asyncio.TimeoutError:
-        logger.error("Orchestration timeout after %ds", ORCHESTRATION_TIMEOUT_SECONDS)
-        for a in plan.participating_agents[len(executions):]:
+            executions.append(result)
+        except Exception as e:
+            logger.error("Agent '%s' failed: %s", assignment.agent_id, e)
             executions.append(Execution(
-                agent_id=a.agent_id,
+                agent_id=assignment.agent_id,
                 result=Result(status="failure"),
                 metrics=ExecutionMetrics(),
-                error="Orchestration timeout",
+                error=str(e),
             ))
 
     return executions
