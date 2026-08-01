@@ -115,3 +115,36 @@ async def message(sid, data):
 async def disconnect(sid):
     logger.info(f"Socket.IO disconnected: {sid}")
     _chat_sessions.pop(sid, None)
+
+
+@sio.event
+async def get_record_understanding(sid, data):
+    """Handle request for record understanding via WebSocket."""
+    from app.record_knowledge.record_agent import get_record_understanding as fetch_understanding
+
+    session = _chat_sessions.get(sid)
+    business_id = ""
+    if session:
+        business_id = session.get("business_id", "")
+
+    if isinstance(data, dict):
+        record_id = data.get("record_id", "")
+        if data.get("business_id"):
+            business_id = data["business_id"]
+    else:
+        record_id = ""
+
+    if not record_id or not business_id:
+        await sio.emit("record_understanding", {"insight": "", "suggestions": [], "record_id": record_id}, to=sid)
+        return
+
+    try:
+        result = await fetch_understanding(business_id, record_id)
+        await sio.emit("record_understanding", {
+            "record_id": record_id,
+            "insight": result.get("insight", ""),
+            "suggestions": result.get("suggestions", []),
+        }, to=sid)
+    except Exception as e:
+        logger.error(f"Error fetching understanding for {record_id}: {e}", exc_info=True)
+        await sio.emit("record_understanding", {"insight": "", "suggestions": [], "record_id": record_id}, to=sid)

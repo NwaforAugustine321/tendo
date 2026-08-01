@@ -22,6 +22,10 @@ from app.runtime.tool_binder import ToolBinder
 from app.lib.prompts import prepare_system_prompt,prepare_planner_task_prompt,format_conversation
 from app.lib.prompts import prepare_task_prompt
 from langchain_core.runnables import RunnableLambda, RunnableConfig
+from app.guardrails.manager import GuardrailManager
+
+guardrail = GuardrailManager()
+
 if TYPE_CHECKING:
     from app.agents.models import DomainAgentProtocol
 
@@ -31,6 +35,7 @@ FINAL_ANSWER_REGEX = re.compile(r"<Final_Answer>(.*?)(?:</Final_Answer>|$)", re.
 ACTION_REGEX = re.compile(r"<Action>(.*?)(?:</Action>|$)", re.DOTALL)
 ACTION_INPUT_REGEX = re.compile(r"<Action_Input>(.*?)(?:</Action_Input>|$)", re.DOTALL)
 WAITING_USER_INPUT_REGEX = re.compile(r"<Waiting_User_Input>(.*?)(?:</Waiting_User_Input>|$)", re.DOTALL)
+THOUGHT_REGEX = re.compile(r"<Thought>(.*?)(?:</Thought>|$)", re.DOTALL)
 
 
 
@@ -47,7 +52,7 @@ class AgentRuntime:
         expected_output: str | None = None,
         reflection_stage: Any | None = None,
         conversation_messages:list[dict[str, Any]] | None  = [],
-        max_iter: int = 5,
+        max_iter: int = 10,
         max_validation_retries: int = 5,
         thinking_callback: Any | None = None,
         output_pydantic: type | None = None,
@@ -60,6 +65,7 @@ class AgentRuntime:
         allowed_dialog_guardrail: bool = False,
         use_system_prompt: bool = False,
         system_prompt : str  = '',
+        max_token:int | None = None
     ) -> None:
         self._llm = llm
         self._context = context
@@ -91,12 +97,17 @@ class AgentRuntime:
         self._use_system_prompt = use_system_prompt
         self._system_prompt  = system_prompt
         self._chat_history: list[Any] = []
+        self._guardrail = guardrail
+        self._task_msg_check: str = ''
+        self._max_token = max_token
         
         if self._use_system_prompt and not self._system_prompt:
           raise "System prompt is enable and it require system prompt param"
 
         if self._llm == None:
-            self._llm = get_client()
+            self._llm = get_client(config={
+                "max_token":max_token
+            })
 
         
     def bind_tool(self,tools: list[Any] = []):
@@ -116,20 +127,40 @@ class AgentRuntime:
             
           
         
-    async def execute(self,task, context:str = '', chat_history:list[Any] = [], use_plan_mode:bool = False) -> Execution:
+    async def execute(self,task,  context:str = '', task_msg_check: str = '', chat_history:list[Any] = [], use_plan_mode:bool = False) -> Execution:
         agent = self._agent
         start = time.perf_counter()
         self._chat_history = chat_history
-        # self._conversation_messages.extend(chat_history)
-
-        if self._tools and hasattr(self._llm, 'bind_tools'):
-            self._llm = self._llm.bind_tools(self._tools)
-   
 
         self._iterations = 0
         self._messages = []
         self._tool_call_history = set()
         self._context += context
+
+        if self._allowed_input_guardrail:
+            safety_check = await self._guardrail.check_content_safety(
+               [{"role":"user", "content":  task}]
+            )
+
+            if not safety_check.allowed:
+               elapsed_ms = (time.perf_counter() - start) * 1000
+               return Execution(
+                       result=Result(
+                       status="failed",
+                       response=safety_check.response,
+                       ),
+                       metrics=ExecutionMetrics(
+                       iterations=self._iterations,
+                       duration_ms=elapsed_ms,
+                       tools_invoked=[],
+                       ),
+                       error=f"Failed: {safety_check.response}",
+               )
+           
+
+        if self._tools and hasattr(self._llm, 'bind_tools'):
+            self._llm = self._llm.bind_tools(self._tools)
+
         
         if self._use_system_prompt is False:
           prompt, _ = await prepare_system_prompt(
@@ -219,8 +250,17 @@ class AgentRuntime:
             logger.error("Execution failed: %s", e)
             elapsed_ms = (time.perf_counter() - start) * 1000
             await self._tool_binder.release()
+            # Return a structured JSON error response so callers parsing JSON don't crash
+            error_response = json.dumps({
+                "error": True,
+                "message": str(e),
+                "conversation_response": "I'm temporarily unable to process this request. Please try again shortly.",
+                "is_task_trigger": False,
+                "agent_selection": None,
+                "shared_constraints": "",
+            })
             return Execution(
-                result=Result(status="failure", response=""),
+                result=Result(status="failure", response=error_response),
                 metrics=ExecutionMetrics(
                     iterations=self._iterations,
                     duration_ms=elapsed_ms,
@@ -461,23 +501,24 @@ class AgentRuntime:
     async def _invoke_llm_safe(self) -> Any:
         try:
             chain = self._prompt_template | self._llm
-            
+        
             response = await chain.ainvoke({
                 "system_prompt": self._system_prompt,
                 "history": self._messages,
                 "user_message": self._task_prompt,
                 "chat_history": self._chat_history
             })
-
-            # response = await self._llm.generate_async({
-            #     "role": "system", "content": self._system_prompt ,
-            #     "role": "user", "content": self._task_prompt
-            # }, options=self._rail_options)
             return response
+            
         except Exception as e:
             if is_context_length_exceeded(e):
                 self._messages = await handle_context_length(messages=self._messages, respect_context_window=True)
                 return None
+            # Handle rate limit (429) and other transient API errors gracefully
+            error_str = str(e)
+            if "429" in error_str or "rate" in error_str.lower() or "limit" in error_str.lower():
+                logger.warning(f"LLM rate limit hit: {error_str[:200]}")
+                raise RuntimeError(f"LLM rate limit exceeded: {error_str[:200]}")
             raise
 
     def _handle_empty_response(self) -> bool:
@@ -499,7 +540,26 @@ class AgentRuntime:
 
 
     async def _handle_text_response(self, raw: str) -> str | None:
+        thought_match = THOUGHT_REGEX.search(raw)
         fa_match = FINAL_ANSWER_REGEX.search(raw)
+        action_match = ACTION_REGEX.search(raw)
+        input_match = ACTION_INPUT_REGEX.search(raw)
+
+        # <Thought> + <Final_Answer> → only append thought, continue loop (don't return final answer)
+        if thought_match and fa_match:
+            self._messages.append({"role": "assistant", "content": raw})
+            return None
+
+        # <Thought> + <Action> → skip append, execute action directly
+        if thought_match and action_match:
+            await self._emit_status("Checking information...")
+            if not input_match:
+                self._messages.append({"role": "assistant", "content": raw})
+                self._messages.append({"role": "user", "content": "You provided an <Action> but missing <Action_Input>. Please provide the complete tool call with <Action_Input>{JSON}</Action_Input>."})
+                return None
+            return await self._handle_xml_action(raw, action_match, input_match)
+
+        # <Final_Answer> alone
         if fa_match:
             content = fa_match.group(1).strip()
             if not content:
@@ -514,8 +574,7 @@ class AgentRuntime:
                 pass
             return content
 
-        action_match = ACTION_REGEX.search(raw)
-        input_match = ACTION_INPUT_REGEX.search(raw)
+        # <Action> alone
         await self._emit_status("Checking information...")
         if action_match and not input_match:
             self._messages.append({"role": "assistant", "content": raw})
@@ -523,6 +582,12 @@ class AgentRuntime:
             return None
         if action_match and input_match:
             return await self._handle_xml_action(raw, action_match, input_match)
+
+        # <Thought> alone → append message, continue loop
+        if thought_match:
+            self._messages.append({"role": "assistant", "content": raw})
+            return None
+
         return await self._handle_json_or_final(raw)
 
     async def _handle_xml_action(self, raw: str, action_match: re.Match, input_match: re.Match) -> str | None:
@@ -610,7 +675,8 @@ class AgentRuntime:
         response = await chain.ainvoke({
             "system_prompt": self._system_prompt,
             "history": self._messages,
-            "task": self._task_prompt,
+            "user_message": self._task_prompt,
+            "chat_history": self._chat_history
         })
         content = response.content
         if isinstance(content, list):

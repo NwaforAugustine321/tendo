@@ -251,22 +251,23 @@ function MessageDetail({
     document.addEventListener('mouseup', onUp)
   }
 
-  // Fetch insight
+  // Fetch insight via WebSocket and listen for updates
   useEffect(() => {
-    if (!recordId) return
-    setLoadingInsight(true)
-    recordsApi.getRecordUnderstanding(recordId).then((data) => {
-      if (data?.insight) setInsight(data.insight)
-      if (data?.suggested_questions) setSuggestedQuestions(data.suggested_questions)
-    }).catch(() => {}).finally(() => setLoadingInsight(false))
-  }, [recordId])
+    console.log('[Inbox InsightPanel] recordId:', recordId, 'message.id:', message.id)
+    if (!recordId) {
+      console.log('[Inbox InsightPanel] No recordId — skipping insight fetch')
+      setLoadingInsight(false)
+      return
+    }
 
-  // Listen for record processing completion to refresh insight
-  useEffect(() => {
-    if (!recordId) return
     const { currentProfile } = useBusinessStore.getState()
     const businessId = currentProfile?.id || ''
-    if (!businessId) return
+    if (!businessId) {
+      setLoadingInsight(false)
+      return
+    }
+
+    setLoadingInsight(true)
 
     const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:8000'
     const baseUrl = wsUrl.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://').replace(/\/ws\/voice$/, '')
@@ -277,13 +278,28 @@ function MessageDetail({
       query: { business_id: businessId },
     })
 
-    socket.on('record_processing_status', (data: any) => {
-      if (data?.record_id === recordId && data?.status === 'completed') {
-        if (data?.summary) setInsight(data.summary)
-        if (data?.suggested_questions?.length) setSuggestedQuestions(data.suggested_questions)
+    // Listen for understanding response
+    socket.on('record_understanding', (data: any) => {
+      if (data?.record_id === recordId) {
+        console.log('[Inbox InsightPanel] understanding data (ws):', data)
+        setInsight(data?.insight || null)
+        setSuggestedQuestions(data?.suggestions || [])
         setLoadingInsight(false)
       }
     })
+
+    // Listen for processing completion updates
+    socket.on('record_processing_status', (data: any) => {
+      if (data?.record_id === recordId && data?.status === 'completed') {
+        if (data?.summary) setInsight(data.summary)
+        if (data?.suggestions?.length) setSuggestedQuestions(data.suggestions)
+        else if (data?.suggested_questions?.length) setSuggestedQuestions(data.suggested_questions)
+        setLoadingInsight(false)
+      }
+    })
+
+    // Request understanding via WebSocket
+    socket.emit('get_record_understanding', { record_id: recordId, business_id: businessId })
 
     return () => { socket.disconnect() }
   }, [recordId])
@@ -474,7 +490,7 @@ function MessageDetail({
                       <button
                         type="button"
                         onClick={() => {
-                          useWorkspaceStore.getState().setPendingChatMessage('list all main points')
+                          useWorkspaceStore.getState().setPendingChatMessage('Give me a comprehensive insight of the record?')
                         }}
                         className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                       >
@@ -521,7 +537,7 @@ function MessageDetail({
                       <button
                         type="button"
                         onClick={() => {
-                          useWorkspaceStore.getState().setPendingChatMessage('list all main points')
+                          useWorkspaceStore.getState().setPendingChatMessage('Give me a comprehensive insight of the record?')
                         }}
                         className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                       >
@@ -536,10 +552,27 @@ function MessageDetail({
                       <Sparkles size={11} className="text-emerald-500" />
                       <span className="text-[10px] text-zinc-500">No insights yet</span>
                     </div>
+                    {suggestedQuestions.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {suggestedQuestions.map((q, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => {
+                              useWorkspaceStore.getState().setPendingChatMessage(q)
+                            }}
+                            className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-zinc-700/50 bg-[#1a1a1a] text-[9px] text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
+                          >
+                            <Sparkles size={8} className="text-[#3ecf8e] shrink-0" />
+                            <span>{q}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
-                        useWorkspaceStore.getState().setPendingChatMessage('list all main points')
+                        useWorkspaceStore.getState().setPendingChatMessage('Give me a comprehensive insight of the record?')
                       }}
                       className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                     >

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Type, Image, Mic, FileText, X, Plus, Camera, AudioLines, Sparkles, Lightbulb, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
 import { toast } from 'sonner'
+import { io } from 'socket.io-client'
 import { FloatingPanel } from './FloatingPanel'
 import { useWorkspaceStore } from '../../store/workspace'
+import { useBusinessStore } from '../../store/business'
 import type { Record, RecordEntry, EntryType } from '../../lib/workspace/types'
 import * as recordsApi from '../../lib/services/records'
 
@@ -34,7 +36,7 @@ function isLongText(text: string): boolean {
 type InsightEntry = {
   id: string
   insight: string
-  suggested_questions: string[]
+  suggestions: string[]
   timestamp: string
 }
 
@@ -75,12 +77,50 @@ function RecordContentTab({ recordId }: { recordId: string }) {
   }, [recordId])
 
   useEffect(() => {
-    if (!recordId) return
+    if (!recordId) {
+      setLoadingInsight(false)
+      return
+    }
+
+    const { currentProfile } = useBusinessStore.getState()
+    const businessId = currentProfile?.id || ''
+    if (!businessId) {
+      setLoadingInsight(false)
+      return
+    }
+
     setLoadingInsight(true)
-    recordsApi.getRecordUnderstanding(recordId).then((data) => {
-      if (data?.insight) setInsight(data.insight)
-      if (data?.suggested_questions) setSuggestedQuestions(data.suggested_questions)
-    }).catch(() => {}).finally(() => setLoadingInsight(false))
+
+    const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:8000'
+    const baseUrl = wsUrl.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://').replace(/\/ws\/voice$/, '')
+
+    const socket = io(baseUrl, {
+      path: '/ws/voice',
+      transports: ['websocket'],
+      query: { business_id: businessId },
+    })
+
+    socket.on('record_understanding', (data: any) => {
+      if (data?.record_id === recordId) {
+        console.log('[RecordFloatingPanel] understanding data (ws):', data)
+        setInsight(data?.insight || null)
+        setSuggestedQuestions(data?.suggestions || [])
+        setLoadingInsight(false)
+      }
+    })
+
+    socket.on('record_processing_status', (data: any) => {
+      if (data?.record_id === recordId && data?.status === 'completed') {
+        if (data?.summary) setInsight(data.summary)
+        if (data?.suggestions?.length) setSuggestedQuestions(data.suggestions)
+        else if (data?.suggested_questions?.length) setSuggestedQuestions(data.suggested_questions)
+        setLoadingInsight(false)
+      }
+    })
+
+    socket.emit('get_record_understanding', { record_id: recordId, business_id: businessId })
+
+    return () => { socket.disconnect() }
   }, [recordId])
 
   const handleEntryChange = useCallback((entryId: string, newContent: string) => {
@@ -289,7 +329,10 @@ function RecordContentTab({ recordId }: { recordId: string }) {
                       {insightExpanded ? 'See less' : 'See more'}
                     </button>
                   )}
-                  <div className="flex flex-wrap gap-1 mt-2">
+                </> 
+              ) : null}
+              {suggestedQuestions.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
                     {suggestedQuestions.map((q, i) => (
                       <button
                         key={i}
@@ -307,7 +350,7 @@ function RecordContentTab({ recordId }: { recordId: string }) {
                     <button
                       type="button"
                       onClick={() => {
-                        useWorkspaceStore.getState().setPendingChatMessage('list all main points')
+                        useWorkspaceStore.getState().setPendingChatMessage('Give me a comprehensive insight of the record?')
                         useWorkspaceStore.getState().setDashboardChatVisible(true)
                       }}
                       className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
@@ -316,8 +359,8 @@ function RecordContentTab({ recordId }: { recordId: string }) {
                       <span>Ask Tendo</span>
                     </button>
                   </div>
-                </>
-              ) : (
+              )}
+              {!insight && suggestedQuestions.length === 0 && (
                 <div className="flex items-center gap-1.5">
                   <Sparkles size={10} className="text-emerald-500" />
                   <span className="text-[9px] text-zinc-500">No insights yet</span>

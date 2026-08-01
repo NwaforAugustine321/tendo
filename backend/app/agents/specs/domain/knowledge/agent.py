@@ -11,8 +11,7 @@ try:
 except Exception:
     agent_spec = None
 
-config = GuardrailConfig(config_dir="app/guardrails/knowledge")
-guardrail_llm = GuardrailManager(config).guardrails
+
 
 
 class KnowledgeAgent:
@@ -21,7 +20,7 @@ class KnowledgeAgent:
         self._runtime = AgentRuntime(
                 agent=agent_spec,
                 tool_binder=ToolBinder(),
-                guardrail_llm=guardrail_llm
+                max_token=1024
         )
 
     def bind_tools(self, business_id: str, scopes: list[str] = []) -> list[Any]:

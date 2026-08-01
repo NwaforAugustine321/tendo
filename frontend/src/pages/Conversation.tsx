@@ -244,7 +244,7 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
     <ConversationPage
       messages={messages}
       isTyping={thinking || voice.isSpeaking}
-      thinkingText={thinking ? (voice.thinkingText || 'Thinking...') : undefined}
+      thinkingText={thinking ? (voice.thinkingText || '') : undefined}
       thoughtText={thinking ? voice.thoughtText : undefined}
       onSendText={handleSendText}
       onVoiceRecorded={() => {}}

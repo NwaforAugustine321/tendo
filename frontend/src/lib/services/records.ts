@@ -22,7 +22,7 @@ export type Record = {
   business_id: string
   folder_id: string
   title: string
-  ai_insight: { version: number; timestamp: string; insight: string; suggested_questions: string[] }[]
+  ai_insight: { version: number; timestamp: string; insight: string; suggestions: string[] }[]
   created_at: string
   updated_at: string
 }
@@ -97,6 +97,6 @@ export async function deleteRecordContent(recordId: string, contentId: string): 
   await request(`/records/${recordId}/content/${contentId}?business_id=${getBusinessId()}`, { method: 'DELETE' })
 }
 
-export async function getRecordUnderstanding(recordId: string): Promise<{ insight: string; suggested_questions: string[] }> {
-  return await request<{ insight: string; suggested_questions: string[] }>(`/records/${recordId}/understanding?business_id=${getBusinessId()}`, { silent: true })
+export async function getRecordUnderstanding(recordId: string): Promise<{ insight: string; suggestions: string[] }> {
+  return await request<{ insight: string; suggestions: string[] }>(`/records/${recordId}/understanding?business_id=${getBusinessId()}`, { silent: true })
 }

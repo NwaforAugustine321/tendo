@@ -19,6 +19,7 @@ class PlannerAgent:
         self._runtime = AgentRuntime(
                 agent=agent_spec,
                 tool_binder=ToolBinder(),
+                max_token=150
         )
 
     def bind_tools(self, business_id: str, scopes: list[str] = []) -> list[Any]:

@@ -1,4 +1,4 @@
-"""Understanding agent — uses AgentRuntime for generating record overviews."""
+
 
 import json
 import logging
@@ -12,17 +12,20 @@ from app.agents.specs.record_insight.agent import RecordInsightAgent
 from app.lib.json_parser import parse_json_output
 from app.lib.pydantic_schema_utils import generate_model_description
 from app.runtime import AgentRuntime, ToolBinder
+from app.lib.i18n import _get_i18n
+
 
 logger = logging.getLogger(__name__)
 
 _agent = RecordInsightAgent()
 
-FINAL_ANSWER_PATTERN = re.compile(r"<Final Answer>(.*?)(?:</Final Answer>|$)", re.DOTALL)
-
+def _slice(key: str) -> str:
+    i18n = _get_i18n()
+    return i18n.get(f"slices.{key}")
 
 class UnderstandingResult(TypedDict):
     insight: str
-    suggested_questions: list[str]
+    suggestions: list[str]
 
 
 class UnderstandingOutput(BaseModel):
@@ -30,40 +33,36 @@ class UnderstandingOutput(BaseModel):
     suggestions: list[str] = Field(description="Exactly 2 short follow-up questions. Each must be 30 characters or fewer.", max_length=2)
 
 
+FINAL_ANSWER_PATTERN = re.compile(r"<Final Answer>(.*?)(?:</Final Answer>|$)", re.DOTALL)
 _OUTPUT_SCHEMA = generate_model_description(UnderstandingOutput)
 _OUTPUT_FORMAT_DESC = json.dumps(_OUTPUT_SCHEMA["json_schema"]["schema"], indent=2)
 
+# SYSTEM_PROMPT = (
+#     # "You are an autonomous agent.\n\n"
+#     "Retrieve ALL available information before answering:\n"
+#     "Write one complete, natural explanation of the information.\n"
+#     "- Focus on the subject, purpose, and important details.\n"
+#     "- Combine related information into one coherent overview.\n"
+#     "- Include important people, organisations, dates, places, amounts, and other key facts when relevant.\n"
+#     "- If an image's visual content is available, naturally incorporate what it shows.\n"
+#     "- Ignore image encodings, base64 strings, MIME types, metadata, filenames, URLs, formatting, layout, and storage details.\n"
+#     "- If only an image reference exists without visible content, ignore it instead of describing it.\n"
+#     "- Describe the meaning of the information, never its representation.\n"
+#     "- Do not invent, infer, enrich, or embellish information.\n"
+#     "- If information is unavailable, clearly state that it is unavailable.\n\n"
+#     "Write as though the explanation was written independently.\n"
+#     "The reader should never know the information came from retrieved material.\n"
+#     "Never refer to or describe where the information came from, how it was stored, retrieved, formatted, structured, or represented.\n"
+#     "Begin immediately with the topic itself.\n\n"
+# )
+
 SYSTEM_PROMPT = (
-    "You are an autonomous agent.\n\n"
-    "Retrieve ALL available information before answering:\n"
-    "1. Call count_knowledge.\n"
-    "2. Fetch all records with fetch_knowledge using dynamically calculated pages. Track offsets to avoid duplicate reads.\n"
-    "3. Use search_knowledge only when additional context is needed.\n\n"
-    "Write one complete, natural explanation of the information.\n"
-    "- Focus on the subject, purpose, and important details.\n"
-    "- Combine related information into one coherent overview.\n"
-    "- Include important people, organisations, dates, places, amounts, and other key facts when relevant.\n"
-    "- If an image's visual content is available, naturally incorporate what it shows.\n"
-    "- Ignore image encodings, base64 strings, MIME types, metadata, filenames, URLs, formatting, layout, and storage details.\n"
-    "- If only an image reference exists without visible content, ignore it instead of describing it.\n"
-    "- Describe the meaning of the information, never its representation.\n"
-    "- Do not invent, infer, enrich, or embellish information.\n"
-    "- If information is unavailable, clearly state that it is unavailable.\n\n"
-    "Write as though the explanation was written independently.\n"
-    "The reader should never know the information came from retrieved material.\n"
-    "Never refer to or describe where the information came from, how it was stored, retrieved, formatted, structured, or represented.\n"
-    "Begin immediately with the topic itself.\n\n"
-    "Wrap the final response in <Final Answer>...</Final Answer>.\n"
-    "Inside the tags, return ONLY a JSON object matching the schema below.\n"
-    f"{_OUTPUT_FORMAT_DESC}\n\n"
-    "Example:\n"
-    '{"insight":"Comprehensive explanation.",'
-    '"suggestions":["Question 1","Question 2"]}\n\n'
-    "Rules:\n"
-    "- insight: one unified explanation, not a list of records or documents.\n"
-    "- suggestions: exactly 2 follow-up questions, each 30 characters or fewer.\n"
-    "- Return only the JSON object inside <Final Answer> tags."
+    """
+    Give comprehensive Overview
+    """
 )
+
+
 
 
 def _extract_final_answer(text: str) -> UnderstandingResult | None:
@@ -79,52 +78,21 @@ def _extract_final_answer(text: str) -> UnderstandingResult | None:
         return None
     return {
         "insight": data.get("insight", ""),
-        "suggested_questions": list(data.get("suggestions", [])),
+        "suggestions": list(data.get("suggestions", [])),
     }
 
 
 async def run_understanding_agent(business_id: str, record_id: str) -> UnderstandingResult:
-    from app.llm.client import get_client
-    from app.runtime.tool_registry import build_tool_registry
 
-    all_tools = _agent.get_tools(business_id=business_id)
-    registry = build_tool_registry(tools=all_tools)
+    prompt = "Fetch write comprehensive overview of it from current knowledge system"
+    #f"/business/{business_id}", 
+    scopes = [f"/{business_id}/record/{record_id}"]
+    _agent.bind_tools(business_id)
+    response = await _agent.execute_agent(SYSTEM_PROMPT)
 
-    llm = get_client()
-    tool_binder = ToolBinder(tool_registry=registry)
+    response =  parse_json_output(response.result.response)
+    print(response)
+    if response:
+        return response
 
-    runtime = AgentRuntime(
-        llm=llm,
-        tool_binder=tool_binder,
-        max_iter=25,
-    )
-
-    from app.contexts.models import ToolReference
-    from app.lib.tool_schema import tools_schema_and_description
-
-    bound_tools = await tool_binder.bind([
-        ToolReference(tool_id=name, capability=name) for name in registry
-    ])
-    runtime._tools = bound_tools
-    runtime._tools_names = ", ".join(t.name for t in bound_tools)
-    runtime._tools_description = tools_schema_and_description(bound_tools)
-    runtime._iterations = 0
-    runtime._tool_call_history = set()
-
-    try:
-        runtime._llm = llm.bind_tools(bound_tools)
-    except Exception:
-        pass
-
-    runtime._messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": "Fetch all available information and give me a comprehensive overview."},
-    ]
-
-    raw = await runtime._invoke_loop()
-
-    result = _extract_final_answer(raw)
-    if result:
-        return result
-
-    return {"insight": raw, "suggested_questions": []}
+    return {"insight": '', "suggestions": []}

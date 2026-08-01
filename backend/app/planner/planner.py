@@ -24,8 +24,7 @@ def _planne(key: str) -> str:
     i18n = _get_i18n()
     return i18n.get(f"planning.{key}")
 
-config = GuardrailConfig(config_dir="app/guardrails/planner")
-guardrail_llm = GuardrailManager(config).guardrails
+
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +98,7 @@ class Planner:
             agent=agent_spec,
             expected_output='Return json output',
             output_pydantic=CoordinatorResponse,
-            guardrail_llm=guardrail_llm,
             allowed_input_guardrail=True,
-            allowed_dialog_guardrail=True,
             # use_system_prompt=True,
             system_prompt=tools
         )
@@ -182,7 +179,7 @@ class Planner:
 
     async def _select_agents(self, user_request: str, chat_history: list[Any] = []) -> list[dict[str, Any]]:
     
-        raw = await  self._runtime.execute(user_request,chat_history=chat_history,use_plan_mode=True)
+        raw = await  self._runtime.execute(user_request,chat_history=chat_history,use_plan_mode=True,task_msg_check=user_request)
     
        
         try:
@@ -194,6 +191,13 @@ class Planner:
                 "agents": [],
                 "shared_constraints": '',
                 "response": ''
+            }
+
+        if not isinstance(response, dict):
+            return {
+                "agents": [],
+                "shared_constraints": '',
+                "response": str(response) if response else ''
             }
 
         agent_selection = response.get("agent_selection", None)
@@ -208,6 +212,12 @@ class Planner:
                 "response": direct_response
             }           
         else:
+           if not isinstance(agent_selection, dict):
+               return {
+                   "agents": [],
+                   "shared_constraints": shared_constraints,
+                   "response": direct_response
+               }
            agents = agent_selection.get("agents", [])
            return {
             "agents": [a for a in agents if isinstance(a, dict) and "agent_id" in a],
