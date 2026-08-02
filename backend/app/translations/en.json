@@ -6,7 +6,7 @@
   },
   "slices": {
     "observation": "\n<Observation>",
-    "task":"TASK INPUT:\n{input}\n\nExecution begins immediately.\n\nThe first generated token MUST be:\n\n<Thought>\n\nFollow the required execution protocol.\n\nThe final output MUST terminate with the tag final answer:\n\n<Final_Answer>\n...\n</Final_Answer>\n\nNo content may appear before <Thought>.\n\nNo content may appear after </Final_Answer>.",
+    "task":"TASK INPUT:\n{input}\n\nExecution begins immediately.\n\nThe first generated token MUST be:\n\n<Thought>",
     "memory": "\n\n# Memories from past conversations:\n{memory}\n\nIMPORTANT: The memories above are an automatic selection and may be INCOMPLETE. If the task involves counting, listing, or summing items (e.g. 'how many', 'total', 'list all'), you MUST use the Search memory tool with several different queries before answering — do NOT rely solely on the memories shown above. Enumerate each distinct item you find before giving a final count.",
     "role_playing": "You are {role}. {backstory}\n\nYour personal goal is: {goal}",
     "tools": "\n\n===========\n# AVIALABLE TOOLS\n===========\n\n{tools}\n\n===========\n# AVIALABLE TOOLS\n===========\n\n",

@@ -456,26 +456,24 @@ class AgentRuntime:
                 
             self._iterations += 1
             if self._iterations > self._max_iter:
+                # Check if we already have a <Final_Answer> in message history
+                for msg in reversed(self._messages):
+                    msg_content = msg.get("content", "")
+                    if isinstance(msg_content, str):
+                        fa = FINAL_ANSWER_REGEX.search(msg_content)
+                        if fa and fa.group(1).strip():
+                            return fa.group(1).strip()
                 return await self._force_final_answer()
             response = await self._invoke_llm_safe()
-
-            # if response.output_data.get("allowed", False) is False:
-            #     return Execution(
-            #              result=Result(status="failure", response=""),
-            #              metrics=ExecutionMetrics(
-            #              iterations=self._iterations,
-            #              duration_ms=(time.perf_counter() - time.perf_counter()) * 1000,
-            #              tools_invoked=[],
-            #             ),
-            #             error=f"Failed: {response.response}",
-            #     )
 
             if response is None:
                 self._messages.append({"role": "user", "content": "Please provide a response."})
                 continue
             print(response)
             print('\n\n\n')
-            if response.tool_calls:
+
+            # Prioritize native tool_calls if available
+            if response.tool_calls and len(response.tool_calls) > 0:
                 result = await self._handle_native_tool_calls(response)
                 continue
 
@@ -484,6 +482,7 @@ class AgentRuntime:
                 content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
             raw = content.strip() if content else ""
 
+            # If no native tool_calls but content has <Action>/<Action_Input>, handle via text
             raw = await self._validate_and_retry(
                                 raw,
                                 output_pydantic=self._output_pydantic,

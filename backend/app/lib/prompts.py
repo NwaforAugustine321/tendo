@@ -171,6 +171,9 @@ async def prepare_system_prompt(tools: list[Any] = [], agent: Any = None):
 
     if len(tools) > 0:
         slices.append("tools")
+        slices.append("format")
+        slices.append("format_without_tools")
+        
     else:
         slices.append("no_tools")
     
