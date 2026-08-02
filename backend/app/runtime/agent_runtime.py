@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import time
+from app.runtime.tool_result import ToolResult
 from typing import Any, TYPE_CHECKING
 from app.llm.client import get_client
 from app.execution.models import (
@@ -28,6 +29,8 @@ guardrail = GuardrailManager()
 
 if TYPE_CHECKING:
     from app.agents.models import DomainAgentProtocol
+
+i18n = _get_i18n()
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +68,8 @@ class AgentRuntime:
         allowed_dialog_guardrail: bool = False,
         use_system_prompt: bool = False,
         system_prompt : str  = '',
-        max_token:int | None = None
+        max_token:int | None = None,
+        max_thinking_steps: int = 5
     ) -> None:
         self._llm = llm
         self._context = context
@@ -97,9 +101,11 @@ class AgentRuntime:
         self._use_system_prompt = use_system_prompt
         self._system_prompt  = system_prompt
         self._chat_history: list[Any] = []
+        self._last_final_answer: str | None = None
         self._guardrail = guardrail
         self._task_msg_check: str = ''
         self._max_token = max_token
+        self._max_thinking_steps = max_thinking_steps
         
         if self._use_system_prompt and not self._system_prompt:
           raise "System prompt is enable and it require system prompt param"
@@ -166,7 +172,8 @@ class AgentRuntime:
         if self._use_system_prompt is not True:
           prompt, _ = await prepare_system_prompt(
             agent=self._agent,
-            tools=self._tools
+            tools=self._tools,
+            max_thinking_steps=self._max_thinking_steps
           )
 
           self._system_prompt = prompt + self._system_prompt
@@ -198,48 +205,7 @@ class AgentRuntime:
         ])
 
         try:
-            # if self._guardrail_llm:
-            #     rails = []
-
-            #     if self._allowed_input_guardrail:
-            #         rails.append("input")
-
-            #     if self._allowed_output_guardrail:
-            #         rails.append("output")
-
-            #     if self._allowed_dialog_guardrail:
-            #         rails.append("dialog")
-
-            #     if self._allowed_retrieval_guardrail:
-            #         rails.append("retrieval")
-
-            #     if self._allowed_tool_guardrail:
-            #         rails.append("execution")                
-
-            #     self._rail_options = {
-            #            "rails": rails,
-            #            "output_vars": ["allowed"]
-            #     }
-
-                
-                # input_guardrail_response = await self._guardrail.generate_async([
-                #     {"role": "user", "content": task}
-                # ], 
-                # options={
-                #        "rails": rails,
-                #        "output_vars": ["allowed"]
-                # })
-
-                # if input_guardrail_response.output_data.get("allowed", False) is False:
-                #     return Execution(
-                #          result=Result(status="failure", response=input_guardrail_response.response),
-                #          metrics=ExecutionMetrics(
-                #          iterations=self._iterations,
-                #          duration_ms=(time.perf_counter() - start) * 1000,
-                #          tools_invoked=[],
-                #         ),
-                #         error=f"Failed: {input_guardrail_response.response}",
-                #     )
+           
              
             raw = await self._invoke_loop()   
             result = Result(
@@ -362,7 +328,7 @@ class AgentRuntime:
             tool_args = {k.strip(): v for k, v in tool_args.items()}
         call_signature = f"{tool_name}:{json.dumps(tool_args, sort_keys=True, default=str)}"
         if call_signature in self._tool_call_history:
-            i18n = _get_i18n()
+            
             repeated_msg = i18n.get("errors.task_repeated_usage")
             self._messages.append({"role": "user", "content": repeated_msg})
             return repeated_msg
@@ -370,14 +336,15 @@ class AgentRuntime:
         tool_map = {t.name: t for t in self._tools}
         tool_fn = tool_map.get(tool_name)
         if not tool_fn:
-            error_msg = f"Error: Tool '{tool_name}' not found. Available tools: {self._tools_names}"
-            self._messages.append({"role": "user", "content": f"Observation: {error_msg}"})
+            observation = i18n.get("slices.post_tool_reasoning")
+            observation += f"Error: Tool '{tool_name}' not found. Available tools: {self._tools_names}\n\n"
+            self._messages.append({"role": "user", "content":observation})
             return error_msg
         r = await self._run_tool_fn(tool_name, tool_args, tool_fn)
         return r
 
     async def _run_tool_fn(self, tool_name: str, tool_args: dict, tool_fn: Any) -> str:
-        from app.runtime.tool_result import ToolResult
+        
 
         try:
             result = await tool_fn.ainvoke(tool_args)
@@ -396,8 +363,9 @@ class AgentRuntime:
             if tool_result.metadata:
                 text_content += f"\n {json.dumps(tool_result.metadata, default=str)}"
 
-        
-            message_parts.append({"type": "text", "text": f"Observation: {text_content}"})
+            observation = i18n.get("slices.post_tool_reasoning")
+            observation += f"{text_content}\n\n"
+            message_parts.append({"type": "text", "text": observation})
 
             for img in tool_result.images:
                 if img.startswith("data:") or img.startswith("http"):
@@ -409,16 +377,18 @@ class AgentRuntime:
             if tool_result.images:
                 self._messages.append({"role": "user", "content": message_parts})
             else:
-                self._messages.append({"role": "user", "content": f"Observation: {text_content}"})
+                observation = i18n.get("slices.post_tool_reasoning")
+                observation += f"{text_content}\n\n"
+                self._messages.append({"role": "user", "content":observation})
 
-            post_reasoning = _get_i18n().get("slices.post_tool_reasoning")
-            if post_reasoning:
-                self._messages.append({"role": "user", "content": post_reasoning})
             return text_content
         except Exception as e:
             logger.warning(f"Tool '{tool_name}' failed: {e}")
             error_msg = "No results."
-            self._messages.append({"role": "user", "content": f"Observation: {error_msg}"})
+            observation = i18n.get("slices.post_tool_reasoning")
+            observation += f"{error_msg}\n\n"
+
+            self._messages.append({"role": "user", "content": observation})
             return error_msg
 
 
@@ -439,7 +409,7 @@ class AgentRuntime:
             except Exception as e:
                 error_str = str(e)
                 logger.debug(f"[Runtime] Validation failed: {error_str[:200]}")
-                validation_msg = _get_i18n().get("errors.validation_error")
+                validation_msg = i18n.get("errors.validation_error")
                 if validation_msg:
                     retry_msg = validation_msg.format(guardrail_result_error=error_str[:500], task_output=final_answer[:500])
                     self._messages.append({"role": "assistant", "content": final_answer})
@@ -456,14 +426,8 @@ class AgentRuntime:
                 
             self._iterations += 1
             if self._iterations > self._max_iter:
-                # Check if we already have a <Final_Answer> in message history
-                for msg in reversed(self._messages):
-                    msg_content = msg.get("content", "")
-                    if isinstance(msg_content, str):
-                        fa = FINAL_ANSWER_REGEX.search(msg_content)
-                        if fa and fa.group(1).strip():
-                            return fa.group(1).strip()
-                return await self._force_final_answer()
+                await self._force_final_answer()
+
             response = await self._invoke_llm_safe()
 
             if response is None:
@@ -544,6 +508,10 @@ class AgentRuntime:
         fa_match = FINAL_ANSWER_REGEX.search(raw)
         action_match = ACTION_REGEX.search(raw)
         input_match = ACTION_INPUT_REGEX.search(raw)
+
+        # Track last final answer seen (even if we don't return it now)
+        if fa_match and fa_match.group(1).strip():
+            self._last_final_answer = fa_match.group(1).strip()
 
         # <Thought> + <Final_Answer> → only append thought, continue loop (don't return final answer)
         if thought_match and fa_match:
@@ -668,21 +636,24 @@ class AgentRuntime:
             return fa_match.group(1).strip()
         return raw
 
-    async def _force_final_answer(self) -> str:
-        force_msg = _get_i18n().get("slices.force_final_answer")
+    async def _force_final_answer(self):
+    
+        force_msg = i18n.get("errors.force_final_answer")
+        force_msg += i18n.get("errors.force_final_answer_error")
+        force_msg.replace("{formatted_answer}", str(self._last_final_answer))
         self._messages.append({"role": "user", "content": force_msg})
-        chain = self._prompt_template |  self._llm
-        response = await chain.ainvoke({
-            "system_prompt": self._system_prompt,
-            "history": self._messages,
-            "user_message": self._task_prompt,
-            "chat_history": self._chat_history
-        })
-        content = response.content
-        if isinstance(content, list):
-            content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
-        raw = content.strip() if content else ""
-        fa_match = FINAL_ANSWER_REGEX.search(raw)
-        if fa_match:
-            return fa_match.group(1).strip()
-        return "Could you please rephrase your request."
+        # chain = self._prompt_template |  self._llm
+        # response = await chain.ainvoke({
+        #     "system_prompt": self._system_prompt,
+        #     "history": self._messages,
+        #     "user_message": self._task_prompt,
+        #     "chat_history": self._chat_history
+        # })
+        # content = response.content
+        # if isinstance(content, list):
+        #     content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
+        # raw = content.strip() if content else ""
+        # fa_match = FINAL_ANSWER_REGEX.search(raw)
+        # if fa_match:
+        #     return fa_match.group(1).strip()
+        # return "Could you please rephrase your request."

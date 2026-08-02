@@ -165,9 +165,9 @@ async def prepare_planner_task_prompt(
 async def prepare_planner_system_prompt(tools: list[Any] = [], agent: dict = {}):
     return _planning('system_prompt')
 
-async def prepare_system_prompt(tools: list[Any] = [], agent: Any = None):
+async def prepare_system_prompt(max_thinking_steps:int,tools: list[Any] = [], agent: Any = None):
     
-    slices = ["role_playing"]
+    slices = ["role_playing","max_thinking_steps"]
 
     if len(tools) > 0:
         slices.append("tools")
@@ -184,7 +184,8 @@ async def prepare_system_prompt(tools: list[Any] = [], agent: Any = None):
     prompt = prompt.replace("{goal}",agent.goal)\
              .replace("{role}", agent.role)\
              .replace("{backstory}",agent.backstory)\
-             .replace('{tools}',tools_schema_and_description(tools))
+             .replace('{tools}',tools_schema_and_description(tools))\
+             .replace('{max_steps}',str(max_thinking_steps))
 
 
     stop_words = [_slice("observation")]
