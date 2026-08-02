@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import time
+from app.lib.tool_schema import tools_schema_and_description
 from app.runtime.tool_result import ToolResult
 from typing import Any, TYPE_CHECKING
 from app.llm.client import get_client
@@ -323,21 +324,21 @@ class AgentRuntime:
     async def _execute_tool(self, tool_call: dict[str, Any]) -> str:
         tool_name = tool_call.get("name", "").strip()
         tool_args = tool_call.get("args", {})
-        # Strip whitespace from keys (LLMs sometimes add trailing spaces)
+
         if isinstance(tool_args, dict):
             tool_args = {k.strip(): v for k, v in tool_args.items()}
         call_signature = f"{tool_name}:{json.dumps(tool_args, sort_keys=True, default=str)}"
-        if call_signature in self._tool_call_history:
+        # if call_signature in self._tool_call_history:
             
-            repeated_msg = i18n.get("errors.task_repeated_usage")
-            self._messages.append({"role": "user", "content": repeated_msg})
-            return repeated_msg
+        #     repeated_msg = i18n.get("errors.task_repeated_usage")
+        #     self._messages.append({"role": "user", "content": repeated_msg})
+        #     return repeated_msg
         self._tool_call_history.add(call_signature)
         tool_map = {t.name: t for t in self._tools}
         tool_fn = tool_map.get(tool_name)
+
         if not tool_fn:
-            observation = i18n.get("slices.post_tool_reasoning")
-            observation += f"Error: Tool '{tool_name}' not found. Available tools: {self._tools_names}\n\n"
+            observation = i18n.get("errors.wrong_tool_name").replace("{tool}",tool_name).replace("{tools}",tools_schema_and_description(self._tools))
             self._messages.append({"role": "user", "content":observation})
             return error_msg
         r = await self._run_tool_fn(tool_name, tool_args, tool_fn)
@@ -349,7 +350,6 @@ class AgentRuntime:
         try:
             result = await tool_fn.ainvoke(tool_args)
 
-      
             if isinstance(result, dict) and "content" in result:
                 tool_result = ToolResult(**result)
             elif isinstance(result, ToolResult):
@@ -392,11 +392,8 @@ class AgentRuntime:
             return error_msg
 
 
-    async def _validate_and_retry(self, final_answer: str, output_pydantic: type | None = None, output_json: type | None = None) -> str:
-        """Validate the final answer against a response model.
+    async def _validate_and_retry(self, final_answer: str, output_pydantic: type | None = None, output_json: type | None = None) -> str | None:
         
-        Uses output_pydantic/output_json explicitly passed. No fallback.
-        """
         validation_model = output_pydantic or output_json
         if not validation_model:
             return final_answer
@@ -408,19 +405,15 @@ class AgentRuntime:
                 return final_answer
             except Exception as e:
                 error_str = str(e)
-                logger.debug(f"[Runtime] Validation failed: {error_str[:200]}")
                 validation_msg = i18n.get("errors.validation_error")
-                if validation_msg:
-                    retry_msg = validation_msg.format(guardrail_result_error=error_str[:500], task_output=final_answer[:500])
-                    self._messages.append({"role": "assistant", "content": final_answer})
-                    self._messages.append({"role": "user", "content": retry_msg})
-                    final_answer = await self._invoke_loop()
-                else:
-                    break
+                retry_msg = validation_msg.format(guardrail_result_error=error_str[:500], task_output=final_answer[:500])
+                self._messages.append({"role": "assistant", "content": final_answer})
+                self._messages.append({"role": "user", "content": retry_msg})
+                return None
+
         return final_answer
 
     async def _invoke_loop(self) -> str:
-        """Run the LLM invocation loop with dual-mode tool calling"""
         while True:
             print(self._agent.name)
                 
@@ -431,12 +424,12 @@ class AgentRuntime:
             response = await self._invoke_llm_safe()
 
             if response is None:
-                self._messages.append({"role": "user", "content": "Please provide a response."})
+                self._handle_empty_response()
                 continue
-            print(response)
-            print('\n\n\n')
 
-            # Prioritize native tool_calls if available
+            # print(response)
+            # print('\n\n\n')
+
             if response.tool_calls and len(response.tool_calls) > 0:
                 result = await self._handle_native_tool_calls(response)
                 continue
@@ -445,22 +438,25 @@ class AgentRuntime:
             if isinstance(content, list):
                 content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
             raw = content.strip() if content else ""
-
-            # If no native tool_calls but content has <Action>/<Action_Input>, handle via text
-            raw = await self._validate_and_retry(
-                                raw,
-                                output_pydantic=self._output_pydantic,
-                                output_json=self._output_json,
-                        )
-
-  
+             
             if not raw:
-                if self._handle_empty_response():
-                    return "I was unable to generate a response. Please try again."
+                self._handle_empty_response()
                 continue
-            result = await self._handle_text_response(raw)
-            if result is not None:
-                return result
+
+            valid_raw_response = await self._validate_and_retry(
+                        raw,
+                        output_pydantic=self._output_pydantic,
+                        output_json=self._output_json,
+                )
+
+            if valid_raw_response is None:
+                continue
+
+            result = await self._handle_text_response(valid_raw_response)
+            if result is None:
+                continue
+                
+            return result
 
     async def _invoke_llm_safe(self) -> Any:
         try:
@@ -486,14 +482,9 @@ class AgentRuntime:
             raise
 
     def _handle_empty_response(self) -> bool:
-        """Handle empty LLM response. Returns True if max retries exceeded."""
-        logger.warning("LLM returned empty content")
-        empty_retries = sum(1 for m in self._messages if m.get("content") == "Please provide a response.")
-        if empty_retries >= 3:
-            logger.error("LLM returned empty 3 times, aborting")
-            return True
-        self._messages.append({"role": "user", "content": "Please provide a response."})
-        return False
+        empty_msg = i18n.get("slices.empty_response")
+        self._messages.append({"role": "user", "content": empty_msg})
+        
 
     async def _handle_native_tool_calls(self, response: Any) -> str | None:
         self._messages.append({"role": "assistant", "content": response.content or "", "tool_calls": response.tool_calls})
@@ -509,7 +500,7 @@ class AgentRuntime:
         action_match = ACTION_REGEX.search(raw)
         input_match = ACTION_INPUT_REGEX.search(raw)
 
-        # Track last final answer seen (even if we don't return it now)
+        # Track last final answer seen so far
         if fa_match and fa_match.group(1).strip():
             self._last_final_answer = fa_match.group(1).strip()
 
@@ -520,10 +511,11 @@ class AgentRuntime:
 
         # <Thought> + <Action> → skip append, execute action directly
         if thought_match and action_match:
-            await self._emit_status("Checking information...")
+          
             if not input_match:
+                force_tool_input_msg = i18n.get("errors.tool_arguments_error")
                 self._messages.append({"role": "assistant", "content": raw})
-                self._messages.append({"role": "user", "content": "You provided an <Action> but missing <Action_Input>. Please provide the complete tool call with <Action_Input>{JSON}</Action_Input>."})
+                self._messages.append({"role": "user", "content": force_tool_input_msg})
                 return None
             return await self._handle_xml_action(raw, action_match, input_match)
 
@@ -531,22 +523,18 @@ class AgentRuntime:
         if fa_match:
             content = fa_match.group(1).strip()
             if not content:
+                force_msg = i18n.get("errors.force_final_answer")
+                force_msg += i18n.get("errors.force_final_answer_error")
                 self._messages.append({"role": "assistant", "content": raw})
-                self._messages.append({"role": "user", "content": "Your response was empty. Please provide a complete answer based on the information you retrieved."})
+                self._messages.append({"role": "user", "content": force_msg})
                 return None
-            try:
-                parsed = parse_json_output(content)
-                if isinstance(parsed, dict):
-                    return json.dumps(parsed)
-            except (json.JSONDecodeError, ValueError, TypeError):
-                pass
             return content
 
         # <Action> alone
-        await self._emit_status("Checking information...")
         if action_match and not input_match:
+            force_tool_input_msg = i18n.get("errors.tool_action_error")
             self._messages.append({"role": "assistant", "content": raw})
-            self._messages.append({"role": "user", "content": "You provided an <Action> but missing <Action_Input>. Please provide the complete tool call with <Action_Input>{JSON}</Action_Input>."})
+            self._messages.append({"role": "user", "content": force_tool_input_msg})
             return None
         if action_match and input_match:
             return await self._handle_xml_action(raw, action_match, input_match)
@@ -559,17 +547,19 @@ class AgentRuntime:
         return await self._handle_json_or_final(raw)
 
     async def _handle_xml_action(self, raw: str, action_match: re.Match, input_match: re.Match) -> str | None:
-        """Process XML <Action>/<Action_Input> tool call."""
         tool_name = action_match.group(1).strip()
         tool_args = self._parse_tool_input(input_match.group(1).strip())
         if tool_args is None:
+            force_tool_input_msg = i18n.get("errors.tool_arguments_error")
             self._messages.append({"role": "assistant", "content": raw})
-            self._messages.append({"role": "user", "content": "Error: Could not parse your <Action_Input> as valid JSON. Please retry with valid JSON enclosed in <Action_Input>...</Action_Input> tags."})
+            self._messages.append({"role": "user", "content": force_tool_input_msg})
             return None
         self._messages.append({"role": "assistant", "content": raw})
         tool_call = {"name": tool_name, "args": tool_args, "id": f"text_{tool_name}"}
         result_str = await self._execute_tool(tool_call)
-        self._messages.append({"role": "user", "content": f"Observation: {result_str}"})
+        observation = i18n.get("slices.post_tool_reasoning")
+        observation += f"{result_str}\n\n"
+        self._messages.append({"role": "user", "content": observation})
         return None
 
     async def _handle_json_or_final(self, raw: str) -> str | None:
