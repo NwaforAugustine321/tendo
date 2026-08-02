@@ -190,7 +190,7 @@ class AgentRuntime:
             output_pydantic=self._output_pydantic,
             output_json=self._output_json,
             context=self._context,
-            chat_history=chat_history
+            # chat_history=chat_history
 
           )
 
