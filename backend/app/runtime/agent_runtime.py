@@ -124,7 +124,9 @@ class AgentRuntime:
             self._bound_tools = self._tool_binder.bind(_tools)
             self._tools_names = ", ".join(getattr(t, "name", str(t)) for t in _tools)
             self._tools_description = tools_schema_and_description(_tools) if _tools else ""
-            
+
+        if  hasattr(self._llm, 'bind_tools'):
+            self._llm = self._llm.bind_tools(self._tools)  
           
         
     async def execute(self,task,  context:str = '', task_msg_check: str = '', chat_history:list[Any] = [], use_plan_mode:bool = False) -> Execution:
@@ -136,6 +138,7 @@ class AgentRuntime:
         self._messages = []
         self._tool_call_history = set()
         self._context += context
+
 
         if self._allowed_input_guardrail:
             safety_check = await self._guardrail.check_content_safety(
@@ -156,20 +159,18 @@ class AgentRuntime:
                        ),
                        error=f"Failed: {safety_check.response}",
                )
-           
 
-        if self._tools and hasattr(self._llm, 'bind_tools'):
-            self._llm = self._llm.bind_tools(self._tools)
+        if hasattr(self._llm, 'bind_tools'):
+            self._llm = self._llm.bind_tools(self._tools)  
 
-        
-        if self._use_system_prompt is False:
+        if self._use_system_prompt is not True:
           prompt, _ = await prepare_system_prompt(
             agent=self._agent,
             tools=self._tools
           )
-          
-          self._system_prompt = prompt + self._system_prompt
 
+          self._system_prompt = prompt + self._system_prompt
+      
         if use_plan_mode:
             task_prompt = await prepare_planner_task_prompt(
                 description=task,
@@ -181,14 +182,14 @@ class AgentRuntime:
             expected_output=self._expected_output,
             output_pydantic=self._output_pydantic,
             output_json=self._output_json,
-            context=self._context
-            # chat_history=chat_history
-,
+            context=self._context,
+            chat_history=chat_history
+
           )
 
 
         self._task_prompt = task_prompt
-        # print(self._system_prompt)
+       
         self._prompt_template = ChatPromptTemplate.from_messages([
             ("system", "{system_prompt}"),
             MessagesPlaceholder("chat_history",optional=True), 
@@ -685,4 +686,4 @@ class AgentRuntime:
         fa_match = FINAL_ANSWER_REGEX.search(raw)
         if fa_match:
             return fa_match.group(1).strip()
-        return raw
+        return "Could you please rephrase your request."

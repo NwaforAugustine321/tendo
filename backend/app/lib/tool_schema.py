@@ -160,7 +160,7 @@ def tools_schema_and_description(tools: list) -> str:
 
     for tool in tools:
 
-        lines.append(f"- {tool.name}")
+        lines.append(f"- {tool.name} tool")
 
         if tool.args_schema:
 

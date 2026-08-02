@@ -132,20 +132,23 @@ def _create_client(config:dict | None = {}, callbacks=None, provider=None):
         
         return ChatNVIDIA(
             # model=settings.nvidia_model,
+            # model="nvidia/nemotron-3-super-120b-a12b",
             model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
             api_key=settings.nvidia_api_key,
             callbacks=cb,
             timeout=None,
             temperature=0.6,
             top_p=0.95,
-            max_completion_tokens=max_token,
+            max_tokens=max_token,
+            reasoning_budget=150,
             chat_template_kwargs= {
-                "enable_thinking": True
+                "enable_thinking": True,
+                # "low_effort":True,
+                # "reasoning_budget":150
             }
-            # reasoning_effort="none"
-            # max_tokens=max_token
+           
             
-        ) #.with_thinking_mode(enabled=False)
+        ) 
         
 
     else:

@@ -48,7 +48,9 @@ def count_knowledge(business_id: str, scopes: list[str] | None = None, **_):
     @tool
     def _tool() -> dict:
         """
-Return the total number of business knowledge records. Use this before browsing the knowledge base to determine how many pages are available. This tool is generally not required for semantic searches.
+Return the total number of records available in the master repository. 
+
+Use this function before executing sequential or paginated browse actions 
         """
         try:
             from app.memory.lancedb import LanceDBStorage
@@ -84,17 +86,13 @@ Return the total number of business knowledge records. Use this before browsing 
     return _tool
 
 
-def browse_business_knowledge(business_id: str, scopes: list[str] | None = None, **_):
+def browse_information_in_pages(business_id: str, scopes: list[str] | None = None, **_):
     @tool
     def _tool(pages: list[Page]) -> dict:
         """
-Browse the business knowledge base sequentially.
+Browse the master information repository sequentially in pages when targeted semantic search is insufficient.
 
-Use this tool when the user requests a broad understanding of the business or the knowledge corpus as a whole.
-
-Do **not** use this tool when the request is about a specific entity or identifiable business concept. Use **search_business_knowledge** instead.
-
-Browse only the amount of information needed to answer the request, evaluating after each retrieval whether additional pages are necessary.
+Use this function when the request requires a broad sweep, overview, sequential audit, or complete contextual understanding of the available information corpus.
         """
         from concurrent.futures import ThreadPoolExecutor
 
@@ -157,21 +155,19 @@ Browse only the amount of information needed to answer the request, evaluating a
             logger.warning(f"browse_business_knowledge failed: {e}")
             return {"content": f"Error: {e}", "metadata": {}, "images": [], "videos": [], "audios": []}
 
-    _tool.name = "browse_business_knowledge"
+    _tool.name = "browse_information_in_pages"
     return _tool
 
 
-def search_business_knowledge(business_id: str, scopes: list[str] | None = None, **_):
+def search_information_with_semantic_search(business_id: str, scopes: list[str] | None = None, **_):
     @tool
     async def _tool(query:str,offset:int=0 ,limit:int=5) -> dict:
         """ 
-Search the business knowledge base using semantic and keyword retrieval.
+Search the master information repository for any entity, topic, data point, keyword, or asset.
 
-Use this tool when the request references a specific entity, topic, keyword, customer, supplier, product, project, document, identifier, policy, procedure, recipe, scenario, story, or other identifiable business concept.
+Use this function whenever the request references a specific concept, item, category, procedure, scenario, query, or any identifiable information point.
 
-Do **not** use this tool for broad overview requests. Use **browse_business_knowledge** instead.
-
-Construct precise search queries using the most specific identifiers available, and perform additional searches only when a clearly identified knowledge gap remains.
+CRITICAL: All records, items, domain details, and contextual data are structurally stored inside this master repository. You MUST execute this search to see if data exists. Do not assume or guess content availability.
 
         """
 
@@ -201,7 +197,7 @@ Construct precise search queries using the most specific identifiers available, 
             logger.warning(f"search_business_knowledge failed: {e}")
             return {"content": f"Error: {e}", "metadata": {}, "images": [], "videos": [], "audios": []}
 
-    _tool.name = "search_business_knowledge"
+    _tool.name = "search_information_with_semantic_search"
     return _tool
 
 
@@ -209,6 +205,6 @@ def get_knowledge_tools(business_id: str, scopes: list[str] | None = None) -> li
     return [
         save_knowledge(business_id=business_id, scopes=scopes),
         count_knowledge(business_id=business_id, scopes=scopes),
-        browse_business_knowledge(business_id=business_id, scopes=scopes),
-        search_business_knowledge(business_id=business_id, scopes=scopes)
+        browse_information_in_pages(business_id=business_id, scopes=scopes),
+        search_information_with_semantic_search(business_id=business_id, scopes=scopes)
     ]

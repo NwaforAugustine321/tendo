@@ -89,6 +89,7 @@ async def run_understanding_agent(business_id: str, record_id: str) -> Understan
     scopes = [f"/{business_id}/record/{record_id}"]
     _agent.bind_tools(business_id)
     response = await _agent.execute_agent(SYSTEM_PROMPT)
+    print(response)
 
     response =  parse_json_output(response.result.response)
     print(response)

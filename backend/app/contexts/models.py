@@ -13,7 +13,7 @@ class ExecutionContext(BaseModel):
     objective: Optional[str] = Field(default_factory=str)
     skills: list[str] = Field(default_factory=list)
     knowledge: list[str] = Field(default_factory=list)
-    available_tools: list[str] = Field(default_factory=list)
+    # available_tools: list[str] = Field(default_factory=list)
 
 class SharedContext(BaseModel):
     user_request: str

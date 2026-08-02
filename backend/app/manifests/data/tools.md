@@ -52,26 +52,21 @@ Use **browse_business_knowledge**
 ---
 
 ## count_knowledge
-Return the total number of business knowledge records. Use this before browsing the knowledge base to determine how many pages are available. This tool is generally not required for semantic searches.
+Return the total number of records available in the master repository. 
+
+Use this function before executing sequential or paginated browse actions 
+---
+
+## browse_information_in_pages
+Browse the master information repository sequentially in pages when targeted semantic search is insufficient.
+
+Use this function when the request requires a broad sweep, overview, sequential audit, or complete contextual understanding of the available information corpus.
 
 ---
 
-## browse_business_knowledge
-Browse the business knowledge base sequentially.
+## search_information_with_semantic_search
+Search the master information repository for any entity, topic, data point, keyword, or asset.
 
-Use this tool when the user requests a broad understanding of the business or the knowledge corpus as a whole.
+Use this function whenever the request references a specific concept, item, category, procedure, scenario, query, or any identifiable information point.
 
-Do **not** use this tool when the request is about a specific entity or identifiable business concept. Use **search_business_knowledge** instead.
-
-Browse only the amount of information needed to answer the request, evaluating after each retrieval whether additional pages are necessary.
-
----
-
-## search_business_knowledge
-Search the business knowledge base using semantic and keyword retrieval.
-
-Use this tool when the request references a specific entity, topic, keyword, customer, supplier, product, project, document, identifier, policy, procedure, recipe, scenario, story, or other identifiable business concept.
-
-Do **not** use this tool for broad overview requests. Use **browse_business_knowledge** instead.
-
-Construct precise search queries using the most specific identifiers available, and perform additional searches only when a clearly identified knowledge gap remains.
+CRITICAL: All records, items, domain details, and contextual data are structurally stored inside this master repository. You MUST execute this search to see if data exists. Do not assume or guess content availability.
