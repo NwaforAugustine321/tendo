@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 async def response_node(state: GraphState) -> dict:
-    """Format final response, emit it to the client via emit_callback, and persist conversation turn."""
     event = state.get("event", {})
     user_message = event.get("text", "")
     thread_id = state.get("thread_id") or event.get("thread_id", "default")

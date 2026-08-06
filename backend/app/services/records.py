@@ -1,3 +1,6 @@
+import logging
+
+from app.db.client import get_client
 from app.db.tools.records import (
     create_folder, get_folders, get_folder, update_folder, delete_folder,
     create_record, get_records, get_all_records, get_record, update_record, delete_record,
@@ -5,6 +8,8 @@ from app.db.tools.records import (
 )
 from app.record_knowledge.record_agent import get_record_understanding, process_record_content
 from app.record_knowledge.models import RecordContentInput, ProcessingStatus
+
+logger = logging.getLogger(__name__)
 
 
 async def process_content_background(business_id: str, record_id: str, content_id: str, content_type: str, content: str, metadata: dict):

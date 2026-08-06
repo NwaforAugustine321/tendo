@@ -167,7 +167,7 @@ async def prepare_planner_system_prompt(tools: list[Any] = [], agent: dict = {})
 
 async def prepare_system_prompt(max_thinking_steps:int,tools: list[Any] = [], agent: Any = None):
     
-    slices = ["role_playing","max_thinking_steps"]
+    slices = ["role_playing","reasoning_status","max_thinking_steps"]
 
     if len(tools) > 0:
         slices.append("tools")
@@ -189,6 +189,5 @@ async def prepare_system_prompt(max_thinking_steps:int,tools: list[Any] = [], ag
 
 
     stop_words = [_slice("observation")]
-
     return  prompt, stop_words
 

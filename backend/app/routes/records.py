@@ -8,6 +8,7 @@ from app.services.records import (
     add_record_content, get_record_contents, delete_record_content,
     get_record_understanding, process_content_background,
 )
+from app.db.tools.records import mark_record_read, get_unread_count
 
 router = APIRouter(tags=["records"])
 
@@ -53,6 +54,12 @@ async def list_all_records(business_id: str = Query(...), user=Depends(get_curre
 
 
 # --- Record endpoints ---
+
+@router.get("/records/unread-count")
+async def unread_count_endpoint(business_id: str = Query(...), user=Depends(get_current_user)):
+    count = await get_unread_count(business_id)
+    return {"unread_count": count}
+
 
 @router.post("/records")
 async def create_record_endpoint(body: CreateRecordRequest, user=Depends(get_current_user)):
@@ -106,3 +113,11 @@ async def delete_content_endpoint(record_id: str, content_id: str, business_id: 
 async def record_understanding(record_id: str, business_id: str = Query(...), user=Depends(get_current_user)):
     result = await get_record_understanding(business_id, record_id)
     return result
+
+
+# --- Mark-as-read ---
+
+@router.post("/records/{record_id}/read")
+async def mark_read_endpoint(record_id: str, business_id: str = Query(...), user=Depends(get_current_user)):
+    await mark_record_read(business_id, record_id)
+    return {"status": "read"}

@@ -9,12 +9,24 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   </head>
+  
   <body>
+    <script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js"></script>
     <script>
-      // Polyfill for packages that reference Node.js globals
       window.global = window;
     </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+<script>
+  window.fbAsyncInit = function() {
+    FB.init({
+      appId: "%VITE_WHATSAPP_APP_ID%",
+      xf: true,
+      version : 'v26.0'
+    });
+  };
+</script>
+
   </body>
 </html>

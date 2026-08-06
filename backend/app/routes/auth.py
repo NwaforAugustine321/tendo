@@ -24,8 +24,8 @@ async def register(body: RegisterRequest, response: Response):
             value=result["access_token"],
             max_age=COOKIE_MAX_AGE,
             httponly=True,
-            samesite="lax",
-            secure=False,
+            samesite="none",
+            secure=True,
         )
 
     return AuthResponse(user_id=result["user_id"], email=result["email"], name=result["name"])
@@ -41,8 +41,8 @@ async def login(body: LoginRequest, response: Response):
             value=result["access_token"],
             max_age=COOKIE_MAX_AGE,
             httponly=True,
-            samesite="lax",
-            secure=False,
+            samesite="none",
+            secure=True,
         )
 
     return AuthResponse(user_id=result["user_id"], email=result["email"], name=result["name"])

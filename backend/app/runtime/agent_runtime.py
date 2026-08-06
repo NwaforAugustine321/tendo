@@ -40,6 +40,7 @@ ACTION_REGEX = re.compile(r"<Action>(.*?)(?:</Action>|$)", re.DOTALL)
 ACTION_INPUT_REGEX = re.compile(r"<Action_Input>(.*?)(?:</Action_Input>|$)", re.DOTALL)
 WAITING_USER_INPUT_REGEX = re.compile(r"<Waiting_User_Input>(.*?)(?:</Waiting_User_Input>|$)", re.DOTALL)
 THOUGHT_REGEX = re.compile(r"<Thought>(.*?)(?:</Thought>|$)", re.DOTALL)
+Update_Status_REGEX = re.compile(r"<Stream_Update>(.*?)(?:</Stream_Update>|$)", re.DOTALL)
 
 
 
@@ -178,7 +179,7 @@ class AgentRuntime:
           )
 
           self._system_prompt = prompt + self._system_prompt
-      
+          
         if use_plan_mode:
             task_prompt = await prepare_planner_task_prompt(
                 description=task,
@@ -262,13 +263,23 @@ class AgentRuntime:
         )
 
         await self._tool_binder.release()
-
+       
         return Execution(
             result=result,
             reflection=reflection,
             metrics=metrics,
         )
 
+
+    async def emit_callback(event_name: str, payload: dict):
+        await sio.emit(event_name, payload, to=sid)
+        
+    async def thinking_callback(msg):
+            if isinstance(msg, dict):
+                thinking_text = msg.get("data", str(msg))
+            else:
+                thinking_text = str(msg)
+            await emit_callback("message", {"type": "thinking", "data": thinking_text})
 
     async def _emit_status(self, text: str) -> None:
         if not self._thinking_callback:
@@ -339,8 +350,7 @@ class AgentRuntime:
 
         if not tool_fn:
             observation = i18n.get("errors.wrong_tool_name").replace("{tool}",tool_name).replace("{tools}",tools_schema_and_description(self._tools))
-            self._messages.append({"role": "user", "content":observation})
-            return error_msg
+            return observation
         r = await self._run_tool_fn(tool_name, tool_args, tool_fn)
         return r
 
@@ -420,15 +430,23 @@ class AgentRuntime:
             self._iterations += 1
             if self._iterations > self._max_iter:
                 await self._force_final_answer()
-
+            
+         
             response = await self._invoke_llm_safe()
+            # Extract <Stream_Update> and emit thinking
+            print(response.content)
+            if response is not None and isinstance(response.content, str):
+                update_update_match = Update_Status_REGEX.search(response.content)
+                
+                if update_update_match :
+                    update_response = update_update_match .group(1).strip()
+                    print("status update->>>>",update_response)
+                    print('\n\n\n')
+                    # await self._emit_thinking(update_response)
 
-            if response is None:
+            if response is None or not response.content:
                 self._handle_empty_response()
                 continue
-
-            print(response)
-            print('\n\n\n')
 
             if response.tool_calls and len(response.tool_calls) > 0:
                 result = await self._handle_native_tool_calls(response)

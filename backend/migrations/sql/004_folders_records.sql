@@ -1,14 +1,5 @@
-CREATE TABLE IF NOT EXISTS folders (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    business_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    icon TEXT,
-    color TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
 
-CREATE INDEX IF NOT EXISTS idx_folders_business_id ON folders(business_id);
+
 
 CREATE TABLE IF NOT EXISTS records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -16,6 +7,7 @@ CREATE TABLE IF NOT EXISTS records (
     folder_id UUID REFERENCES folders(id) ON DELETE SET NULL,
     user_id UUID,
     title TEXT NOT NULL,
+    is_read BOOLEAN NOT NULL DEFAULT false;
     ai_insight JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -24,6 +16,7 @@ CREATE TABLE IF NOT EXISTS records (
 CREATE INDEX IF NOT EXISTS idx_records_business_id ON records(business_id);
 CREATE INDEX IF NOT EXISTS idx_records_folder_id ON records(folder_id);
 CREATE INDEX IF NOT EXISTS idx_records_user_id ON records(user_id);
+CREATE INDEX IF NOT EXISTS idx_records_is_read ON records(business_id, is_read);
 
 CREATE TABLE IF NOT EXISTS record_content (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

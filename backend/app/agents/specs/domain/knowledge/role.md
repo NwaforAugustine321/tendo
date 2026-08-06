@@ -128,7 +128,6 @@ You may only terminate the reasoning loop and output a `<Final_Answer>` if:
 2. An active tool call was executed during this turn, and the database explicitly returned an empty result or error, proving the data does not exist in the system repository.
 
 EXPECTED OUTPUT FORMAT PER ITERATION:
-If repository data is missing:
 <Thought>
 [Identify the target data gap and specify the correct tool function to execute]
 </Thought>
@@ -138,6 +137,7 @@ If objective is met:
 <Thought>
 [Verify that the contextual explanation or payload completely satisfies the objective]
 </Thought>
+
 <Final_Answer>
 [Connected, conversational explanation framed in a professional, systemic tone]
 </Final_Answer>

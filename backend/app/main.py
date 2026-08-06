@@ -3,9 +3,8 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
 
 from app.communication.voice import handle_session
 from app.models.event import UnifiedUserEvent
@@ -15,6 +14,7 @@ from app.routes.upload import router as upload_router
 from app.routes.records import router as records_router
 from app.routes.conversations import router as conversations_router
 from app.routes.snapshot import router as snapshot_router
+from app.routes.integrations import router as integrations_router
 from app.lib.errors import register_error_handlers
 
 # Socket.IO for real-time events (voice handler disabled)
@@ -52,51 +52,31 @@ app = FastAPI(title="Tendo", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["https://accountability-quotations-sheets-performed.trycloudflare.com","http://localhost:5173" ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(auth_router)
-app.include_router(business_router)
-app.include_router(upload_router)
-app.include_router(records_router)
-app.include_router(conversations_router)
-app.include_router(snapshot_router)
+app.include_router(auth_router,prefix="/api")
+app.include_router(business_router,prefix="/api")
+app.include_router(upload_router,prefix="/api")
+app.include_router(records_router,prefix="/api")
+app.include_router(conversations_router,prefix="/api")
+app.include_router(snapshot_router,prefix="/api")
+app.include_router(integrations_router,prefix="/api")
 register_error_handlers(app)
 
 # Socket.IO mounted for real-time events (voice handler not loaded)
 asgi_app = socketio.ASGIApp(sio, other_asgi_app=app, socketio_path='/ws/voice')
 
 
-@app.get("/health")
+@app.get("/")
 async def health():
     return {"status": "ok", "service": "tendo"}
 
 
-@app.post("/events")
+@app.post("/api/events")
 async def receive_event(event: UnifiedUserEvent):
     """Unified event ingress — accepts all user interactions."""
     return {"event_id": event.event_id, "status": "accepted"}
-
-
-@app.get("/webhook/whatsapp")
-async def whatsapp_verify(
-    hub_mode: str = Query(None, alias="hub.mode"),
-    hub_challenge: str = Query(None, alias="hub.challenge"),
-    hub_verify_token: str = Query(None, alias="hub.verify_token"),
-):
-    """Webhook verification — echo the challenge token."""
-    if hub_mode == "subscribe" and hub_challenge:
-        return PlainTextResponse(content=hub_challenge)
-    return PlainTextResponse(content="", status_code=403)
-
-
-@app.post("/webhook/whatsapp")
-async def whatsapp_receive(payload: dict):
-    """Receive messages — normalize and process."""
-    return {"status": "received"}
-
-
-# Voice websocket handler not loaded — Socket.IO handles the path

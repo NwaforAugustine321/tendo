@@ -66,7 +66,7 @@ async def delete_folder(business_id: str, folder_id: str) -> dict:
     return {"deleted": True}
 
 
-async def create_record(business_id: str, folder_id: str, title: str, user_id: str | None = None) -> dict:
+async def create_record(business_id: str, title: str, folder_id: str = "", user_id: str | None = None) -> dict:
     client = get_client()
     data = {"business_id": business_id, "title": title}
     if folder_id:
@@ -101,6 +101,18 @@ async def get_record(business_id: str, record_id: str) -> dict | None:
     client = get_client()
     result = client.table("records").select("*").eq("id", record_id).eq("business_id", business_id).single().execute()
     return result.data if result.data else None
+
+
+async def mark_record_read(business_id: str, record_id: str) -> dict:
+    client = get_client()
+    result = client.table("records").update({"is_read": True}).eq("id", record_id).eq("business_id", business_id).execute()
+    return result.data[0] if result.data else {}
+
+
+async def get_unread_count(business_id: str) -> int:
+    client = get_client()
+    result = client.table("records").select("id", count="exact").eq("business_id", business_id).eq("is_read", False).execute()
+    return result.count or 0
 
 
 async def update_record(business_id: str, record_id: str, **kwargs) -> dict:

@@ -22,6 +22,7 @@ export type Record = {
   business_id: string
   folder_id: string
   title: string
+  is_read: boolean
   ai_insight: { version: number; timestamp: string; insight: string; suggestions: string[] }[]
   created_at: string
   updated_at: string
@@ -34,6 +35,7 @@ export type RecordContent = {
   content_type: string
   content: string
   file_url: string
+  status: string
   created_at: string
   updated_at: string
 }
@@ -99,4 +101,13 @@ export async function deleteRecordContent(recordId: string, contentId: string): 
 
 export async function getRecordUnderstanding(recordId: string): Promise<{ insight: string; suggestions: string[] }> {
   return await request<{ insight: string; suggestions: string[] }>(`/records/${recordId}/understanding?business_id=${getBusinessId()}`, { silent: true })
+}
+
+
+export async function getUnreadCount(): Promise<{ unread_count: number }> {
+  return await request<{ unread_count: number }>(`/records/unread-count?business_id=${getBusinessId()}`, { silent: true })
+}
+
+export async function markRecordRead(recordId: string): Promise<void> {
+  await request(`/records/${recordId}/read?business_id=${getBusinessId()}`, { method: 'POST' })
 }

@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { io } from 'socket.io-client'
 import {
   RefreshCw,
   MoreVertical,
@@ -12,10 +11,9 @@ import {
   Clock,
   ArrowLeft,
   Search,
-  Inbox as InboxIcon,
+  Activity,
   AlertTriangle,
   Sparkles,
-  Activity,
   Type,
   Image,
   Mic,
@@ -24,107 +22,21 @@ import {
   ChevronDown as ChevronDownIcon,
 } from 'lucide-react'
 import clsx from 'clsx'
-import { ChatPanel } from '../../components/containers/ChatPanel'
-import { AiDisplay } from '../../components/atoms/AiDisplay'
-import { Dashboard } from './Dashboard'
-import { getInsights } from '../../lib/services/insights'
-import { getSnapshot } from '../../lib/services/snapshot'
-import type { BusinessInsight } from '../../lib/workspace/dashboard-types'
-import type { SnapshotRecommendation } from '../../lib/services/snapshot'
-import { useBusinessStore } from '../../store/business'
-import { useWorkspaceStore } from '../../store/workspace'
-import * as recordsApi from '../../lib/services/records'
+import { ChatPanel } from '../../../components/containers/ChatPanel'
+import { AiDisplay } from '../../../components/atoms/AiDisplay'
+import { Dashboard } from '../Dashboard'
+import { getInsights } from '../../../lib/services/insights'
+import { getSnapshot } from '../../../lib/services/snapshot'
+import type { BusinessInsight } from '../../../lib/workspace/dashboard-types'
+import { useBusinessStore } from '../../../store/business'
+import { useWorkspaceStore } from '../../../store/workspace'
+import * as recordsApi from '../../../lib/services/records'
+import { useSocketEvent, emitEvent } from '../../../lib/ws'
 import { toast } from 'sonner'
+import type { InboxTab, InboxMessage } from './types'
+import { TABS } from './types'
+import { areaToSender, areaToColor, formatDate, formatRelativeTime } from './helpers'
 
-// --- Types ---
-
-type InboxTab = 'primary' | 'insights' | 'attention' | 'recommendations'
-
-type InboxMessage = {
-  id: string
-  sender: string
-  senderEmail: string
-  recipient: string
-  subject: string
-  preview: string
-  body: string
-  date: string
-  fullDate: string
-  read: boolean
-  starred: boolean
-  tab: InboxTab
-  avatarColor: string
-}
-
-// --- Helpers ---
-
-function areaToSender(area: string): string {
-  const map: Record<string, string> = {
-    sales: 'Sales Insights',
-    finance: 'Finance Alert',
-    operations: 'Operations',
-    customers: 'Customer Insights',
-    inventory: 'Inventory Alert',
-    general: 'Tendo AI',
-    hr: 'Team Updates',
-    marketing: 'Marketing',
-  }
-  return map[area] || 'Tendo AI'
-}
-
-function areaToColor(area: string): string {
-  const map: Record<string, string> = {
-    sales: 'bg-green-600',
-    finance: 'bg-amber-600',
-    operations: 'bg-blue-600',
-    customers: 'bg-purple-600',
-    inventory: 'bg-cyan-600',
-    general: 'bg-emerald-600',
-    hr: 'bg-pink-600',
-    marketing: 'bg-orange-600',
-  }
-  return map[area] || 'bg-zinc-600'
-}
-
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  if (diffMins < 60) return `${diffMins}m ago`
-  const diffHours = Math.floor(diffMins / 60)
-  if (diffHours < 24) return `${diffHours}h ago`
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
-// --- Tabs Config ---
-
-const TABS: { id: InboxTab; label: string; badge?: number; badgeColor?: string }[] = [
-  { id: 'primary', label: 'Primary' },
-  { id: 'insights', label: 'Insights' },
-  { id: 'attention', label: 'Needs Attention', badge: 1, badgeColor: 'bg-red-500/20 text-red-400' },
-  { id: 'recommendations', label: 'Recommendations', badge: 1, badgeColor: 'bg-amber-500/20 text-amber-400' },
-]
-
-// --- Relative time formatter (Gmail style) ---
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMin = Math.floor(diffMs / 60000)
-  const diffHr = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
-  if (diffMin < 1) return 'Just now'
-  if (diffMin < 60) return `${diffMin} min ago`
-  if (diffHr < 24) return `${diffHr} hr ago`
-  if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 7) return `${diffDays} days ago`
-  if (date.getFullYear() === now.getFullYear()) {
-    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  }
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-}
 
 // --- Collapsible Section ---
 
@@ -253,9 +165,7 @@ function MessageDetail({
 
   // Fetch insight via WebSocket and listen for updates
   useEffect(() => {
-    console.log('[Inbox InsightPanel] recordId:', recordId, 'message.id:', message.id)
     if (!recordId) {
-      console.log('[Inbox InsightPanel] No recordId — skipping insight fetch')
       setLoadingInsight(false)
       return
     }
@@ -268,40 +178,32 @@ function MessageDetail({
     }
 
     setLoadingInsight(true)
+  }, [recordId])
 
-    const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:8000'
-    const baseUrl = wsUrl.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://').replace(/\/ws\/voice$/, '')
+  useSocketEvent('record_understanding', (data: any) => {
+    if (data?.record_id === recordId) {
+      setInsight(data?.insight || null)
+      setSuggestedQuestions(data?.suggestions || [])
+      setLoadingInsight(false)
+    }
+  }, [recordId])
 
-    const socket = io(baseUrl, {
-      path: '/ws/voice',
-      transports: ['websocket'],
-      query: { business_id: businessId },
-    })
+  useSocketEvent('record_processing_status', (data: any) => {
+    if (data?.record_id === recordId && data?.status === 'completed') {
+      if (data?.summary) setInsight(data.summary)
+      if (data?.suggestions?.length) setSuggestedQuestions(data.suggestions)
+      else if (data?.suggested_questions?.length) setSuggestedQuestions(data.suggested_questions)
+      setLoadingInsight(false)
+    }
+  }, [recordId])
 
-    // Listen for understanding response
-    socket.on('record_understanding', (data: any) => {
-      if (data?.record_id === recordId) {
-        console.log('[Inbox InsightPanel] understanding data (ws):', data)
-        setInsight(data?.insight || null)
-        setSuggestedQuestions(data?.suggestions || [])
-        setLoadingInsight(false)
-      }
-    })
-
-    // Listen for processing completion updates
-    socket.on('record_processing_status', (data: any) => {
-      if (data?.record_id === recordId && data?.status === 'completed') {
-        if (data?.summary) setInsight(data.summary)
-        if (data?.suggestions?.length) setSuggestedQuestions(data.suggestions)
-        else if (data?.suggested_questions?.length) setSuggestedQuestions(data.suggested_questions)
-        setLoadingInsight(false)
-      }
-    })
-
-    // Request understanding via WebSocket
-    socket.emit('get_record_understanding', { record_id: recordId, business_id: businessId })
-
-    return () => { socket.disconnect() }
+  // Request understanding via socket on mount
+  useEffect(() => {
+    if (!recordId) return
+    const { currentProfile } = useBusinessStore.getState()
+    const businessId = currentProfile?.id || ''
+    if (!businessId) return
+    emitEvent('get_record_understanding', { record_id: recordId, business_id: businessId })
   }, [recordId])
 
   // Fetch all record contents on mount
@@ -722,15 +624,25 @@ export function Inbox() {
   const [attentionItems, setAttentionItems] = useState<InboxMessage[]>([])
   const [recommendationItems, setRecommendationItems] = useState<InboxMessage[]>([])
   const [loading, setLoading] = useState(true)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [deleting, setDeleting] = useState(false)
   const { currentProfile } = useBusinessStore()
 
-  // Fetch real insights + snapshot recommendations + records
+  // Poll unread count
   useEffect(() => {
-    if (!currentProfile?.id) {
-      setLoading(false)
-      return
+    if (!currentProfile?.id) return
+    const fetchCount = () => {
+      recordsApi.getUnreadCount().then((r) => setUnreadCount(r.unread_count)).catch(() => {})
     }
+    fetchCount()
+    const interval = setInterval(fetchCount, 15000)
+    return () => clearInterval(interval)
+  }, [currentProfile?.id])
 
+  // Fetch records, insights, and recommendations
+  const refreshInbox = useCallback(() => {
+    if (!currentProfile?.id) return
+    setLoading(true)
     const businessId = currentProfile.id
 
     Promise.all([
@@ -738,7 +650,6 @@ export function Inbox() {
       getSnapshot(businessId).catch(() => null),
       recordsApi.getAllRecords().catch(() => []),
     ]).then(async ([insights, snapshot, records]) => {
-      // Map records to inbox messages for Primary tab
       const allRecords: InboxMessage[] = records.map((rec: any) => ({
         id: `record-${rec.id}`,
         sender: rec.title || 'Untitled',
@@ -749,13 +660,12 @@ export function Inbox() {
         body: rec.first_content || '',
         date: formatDate(rec.updated_at || rec.created_at),
         fullDate: new Date(rec.updated_at || rec.created_at).toLocaleString(),
-        read: true,
+        read: rec.is_read ?? true,
         starred: false,
         tab: 'primary' as InboxTab,
         avatarColor: 'bg-zinc-600',
       }))
 
-      // Map insights to inbox messages for Primary tab
       const insightMessages: InboxMessage[] = insights.map((ins, i) => ({
         id: `live-${ins.id || i}`,
         sender: areaToSender(ins.area),
@@ -772,7 +682,6 @@ export function Inbox() {
         avatarColor: areaToColor(ins.area),
       }))
 
-      // Combine records + insights for primary tab
       setLiveInsights([...allRecords, ...insightMessages])
 
       // Map snapshot recommendations to attention + recommendations tabs
@@ -810,6 +719,11 @@ export function Inbox() {
     }).finally(() => setLoading(false))
   }, [currentProfile?.id])
 
+  // Fetch on mount
+  useEffect(() => {
+    refreshInbox()
+  }, [refreshInbox])
+
   // Listen for new record creation to refresh
   useEffect(() => {
     const handleNewRecord = () => {
@@ -839,6 +753,46 @@ export function Inbox() {
     }
     window.addEventListener('tendo:open-new-record', handleNewRecord)
     return () => window.removeEventListener('tendo:open-new-record', handleNewRecord)
+  }, [currentProfile?.id])
+
+  // Listen for new_record socket event (real-time from backend)
+  useSocketEvent('new_record', (data: any) => {
+    if (data?.business_id !== currentProfile?.id) return
+    const preview = data.first_content || ''
+    const newMsg: InboxMessage = {
+      id: `record-${data.id}`,
+      sender: data.title || 'New Record',
+      senderEmail: '',
+      recipient: '',
+      subject: preview ? preview.slice(0, 80) : data.title || 'New Record',
+      preview: preview || 'Processing...',
+      body: preview,
+      date: formatDate(data.created_at || new Date().toISOString()),
+      fullDate: new Date(data.created_at || Date.now()).toLocaleString(),
+      read: false,
+      starred: false,
+      tab: 'primary' as InboxTab,
+      avatarColor: 'bg-zinc-600',
+    }
+    setLiveInsights((prev) => [newMsg, ...prev.filter((m) => m.id !== newMsg.id)])
+    setUnreadCount((c) => c + 1)
+  }, [currentProfile?.id])
+
+  // Listen for record_updated to show content after processing
+  useSocketEvent('record_updated', (data: any) => {
+    if (data?.business_id !== currentProfile?.id) return
+    const rid = `record-${data.id}`
+    setLiveInsights((prev) => prev.map((m) => {
+      if (m.id !== rid) return m
+      const preview = data.first_content || m.preview
+      return {
+        ...m,
+        sender: data.title || m.sender,
+        subject: preview ? preview.slice(0, 80) : m.subject,
+        preview: preview || m.preview,
+        body: preview || m.body,
+      }
+    }))
   }, [currentProfile?.id])
 
   // Determine which messages to show based on tab
@@ -874,6 +828,28 @@ export function Inbox() {
     }
   }
 
+  const deleteSelected = async () => {
+    const recordIds = [...selectedIds]
+      .filter((id) => id.startsWith('record-'))
+      .map((id) => id.replace('record-', ''))
+    if (!recordIds.length) return
+    setDeleting(true)
+    await Promise.all(recordIds.map((rid) => recordsApi.deleteRecord(rid).catch(() => {})))
+    setLiveInsights((prev) => prev.filter((m) => !selectedIds.has(m.id)))
+    setSelectedIds(new Set())
+    setDeleting(false)
+    refreshInbox()
+  }
+
+  const deleteSingle = async (msgId: string) => {
+    const rid = msgId.startsWith('record-') ? msgId.replace('record-', '') : ''
+    if (!rid) return
+    setDeleting(true)
+    await recordsApi.deleteRecord(rid).catch(() => {})
+    setLiveInsights((prev) => prev.filter((m) => m.id !== msgId))
+    setDeleting(false)
+  }
+
   const toggleStar = (id: string) => {
     setStarredIds((prev) => {
       const next = new Set(prev)
@@ -895,18 +871,26 @@ export function Inbox() {
         <button
           type="button"
           onClick={toggleSelectAll}
-          className="flex h-5 w-5 items-center justify-center rounded border border-zinc-600 text-zinc-400 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
+          className={clsx(
+            'flex h-4 w-4 items-center justify-center rounded border transition-colors',
+            selectedIds.size > 0 ? 'border-emerald-500 bg-emerald-500' : 'border-zinc-600 hover:border-zinc-500'
+          )}
           aria-label="Select all"
         >
           {selectedIds.size > 0 && selectedIds.size === filteredMessages.length && (
-            <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
           )}
           {selectedIds.size > 0 && selectedIds.size < filteredMessages.length && (
-            <span className="h-0.5 w-2.5 bg-emerald-500" />
+            <span className="h-0.5 w-2.5 bg-white" />
           )}
         </button>
-        <button type="button" className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200" aria-label="Refresh">
-          <RefreshCw size={16} />
+        {selectedIds.size > 0 && (
+          <button type="button" onClick={deleteSelected} disabled={deleting} className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200 disabled:opacity-50" aria-label="Delete selected">
+            {deleting ? <RefreshCw size={16} className="animate-spin" /> : <Trash2 size={16} />}
+          </button>
+        )}
+        <button type="button" onClick={refreshInbox} className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200" aria-label="Refresh">
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
 
         {/* Search bar */}
@@ -950,7 +934,12 @@ export function Inbox() {
             )}
           >
             {tab.label}
-            {tab.badge && (
+            {tab.id === 'primary' && unreadCount > 0 && (
+              <span className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold bg-blue-500/20 text-blue-400">
+                {unreadCount}
+              </span>
+            )}
+            {tab.id !== 'primary' && tab.badge && (
               <span className={clsx('rounded-full px-1.5 py-0.5 text-[10px] font-semibold', tab.badgeColor || 'bg-emerald-500/20 text-emerald-400')}>
                 {tab.badge} new
               </span>
@@ -967,6 +956,21 @@ export function Inbox() {
       {activeTab === 'insights' ? (
         <div className="flex-1 overflow-y-auto">
           <Dashboard />
+        </div>
+      ) : loading ? (
+        <div className="flex-1 overflow-y-auto">
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="flex items-center gap-3 border-b border-zinc-800/40 px-4 py-3 animate-pulse">
+              <div className="h-4 w-4 rounded bg-zinc-800" />
+              <div className="h-4 w-4 rounded bg-zinc-800" />
+              <div className="h-3 w-[120px] rounded bg-zinc-800" />
+              <div className="flex-1 flex gap-2">
+                <div className="h-3 w-[180px] rounded bg-zinc-800" />
+                <div className="h-3 w-[100px] rounded bg-zinc-800/60" />
+              </div>
+              <div className="h-3 w-[50px] rounded bg-zinc-800" />
+            </div>
+          ))}
         </div>
       ) : filteredMessages.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
@@ -993,7 +997,15 @@ export function Inbox() {
         {filteredMessages.map((msg) => (
           <div
             key={msg.id}
-            onClick={() => setOpenMessage(msg)}
+            onClick={() => {
+              setOpenMessage(msg)
+              const rid = msg.id.startsWith('record-') ? msg.id.replace('record-', '') : ''
+              if (rid) {
+                recordsApi.markRecordRead(rid).catch(() => {})
+                setUnreadCount((c) => Math.max(0, c - 1))
+                setLiveInsights((prev) => prev.map((m) => m.id === msg.id ? { ...m, read: true } : m))
+              }
+            }}
             className={clsx(
               'group flex items-center gap-0 border-b border-zinc-800/40 px-4 py-1.5 transition-colors cursor-pointer',
               !msg.read ? 'bg-zinc-900/50' : 'bg-transparent',
@@ -1005,11 +1017,14 @@ export function Inbox() {
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); toggleSelect(msg.id) }}
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-zinc-700 text-zinc-400 transition-colors hover:border-zinc-500 mr-2"
+              className={clsx(
+                'flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors mr-2',
+                selectedIds.has(msg.id) ? 'border-emerald-500 bg-emerald-500' : 'border-zinc-700 hover:border-zinc-500'
+              )}
               aria-label={`Select message from ${msg.sender}`}
             >
               {selectedIds.has(msg.id) && (
-                <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
               )}
             </button>
 
@@ -1027,13 +1042,13 @@ export function Inbox() {
             </button>
 
             {/* Sender */}
-            <span className={clsx('w-[160px] shrink-0 truncate text-[13px]', !msg.read ? 'font-semibold text-zinc-100' : 'text-zinc-400')}>
+            <span className={clsx('w-[160px] shrink-0 truncate text-[13px]', !msg.read ? 'font-medium text-zinc-100' : 'text-zinc-400')}>
               {msg.sender}
             </span>
 
             {/* Subject + preview */}
             <div className="min-w-0 flex-1 flex items-baseline gap-1 mr-3">
-              <span className={clsx('shrink-0 truncate text-[13px]', !msg.read ? 'font-semibold text-zinc-100' : 'text-zinc-300')}>
+              <span className={clsx('shrink-0 truncate text-[13px]', !msg.read ? 'text-zinc-100' : 'text-zinc-400')}>
                 {msg.subject}
               </span>
               <span className="text-zinc-600 text-[13px] shrink-0">-</span>
@@ -1042,14 +1057,8 @@ export function Inbox() {
 
             {/* Hover actions */}
             <div className="hidden shrink-0 items-center gap-0.5 group-hover:flex mr-2">
-              <button type="button" className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-zinc-300" aria-label="Archive" onClick={(e) => e.stopPropagation()}>
-                <Archive size={15} />
-              </button>
-              <button type="button" className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-zinc-300" aria-label="Delete" onClick={(e) => e.stopPropagation()}>
+              <button type="button" className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-zinc-300" aria-label="Delete" onClick={(e) => { e.stopPropagation(); deleteSingle(msg.id) }}>
                 <Trash2 size={15} />
-              </button>
-              <button type="button" className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-zinc-300" aria-label="Mark as read" onClick={(e) => e.stopPropagation()}>
-                <Mail size={15} />
               </button>
               <button type="button" className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-zinc-300" aria-label="Snooze" onClick={(e) => e.stopPropagation()}>
                 <Clock size={15} />
@@ -1057,7 +1066,7 @@ export function Inbox() {
             </div>
 
             {/* Date */}
-            <span className={clsx('shrink-0 text-[12px] tabular-nums', !msg.read ? 'font-semibold text-zinc-200' : 'text-zinc-500')}>
+            <span className={clsx('shrink-0 text-[12px] tabular-nums', !msg.read ? 'text-zinc-200' : 'text-zinc-500')}>
               {msg.date}
             </span>
           </div>

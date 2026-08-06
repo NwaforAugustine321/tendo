@@ -1,6 +1,6 @@
 import { useLocation } from 'react-router-dom'
 import { InsightsFeed } from './InsightsFeed'
-import { Inbox } from '../../pages/workspace/Inbox'
+import { Inbox } from '../../pages/workspace/inbox'
 import { Dashboard } from '../../pages/workspace/Dashboard'
 
 export function WorkspaceContent() {

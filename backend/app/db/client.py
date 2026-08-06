@@ -1,4 +1,4 @@
-"""Database client singleton."""
+
 
 from supabase import Client, create_client
 

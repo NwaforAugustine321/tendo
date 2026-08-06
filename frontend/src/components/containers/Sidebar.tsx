@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   Inbox,
@@ -10,10 +10,14 @@ import {
   Menu,
   ChevronDown,
   Folder,
+  MessageCircle,
 } from 'lucide-react'
 import clsx from 'clsx'
+import { toast } from 'sonner'
 import { useAuth } from '../../context/auth'
 import { useWorkspaceStore } from '../../store/workspace'
+import { useBusinessStore } from '../../store/business'
+import { listDataSources, disconnectDataSource, onboardWhatsApp } from '../../lib/services/integrations'
 
 type NavItem = {
   to?: string
@@ -30,6 +34,7 @@ const PRIMARY_NAV: NavItem[] = [
   { label: 'Favorites', icon: <Star size={18} />, disabled: true },
   { label: 'Archive', icon: <Archive size={18} />, disabled: true },
 ]
+
 
 function NavItemLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   if (item.disabled || !item.to) {
@@ -81,12 +86,16 @@ type SidebarProps = {
   onToggle: () => void
 }
 
+const CODE = "AQIZMgohzOX1Fg8BH7E26-3iuwLKboSSEpaR6vUoIIZXpL60lsyoLFE4yVXB5mlbHO6QbtTA445X5C3U0pTScMYEBikNeugXjSdT8JiqAJxkt6JqETYfssDVGyxiBZWZ3CMhixaNwNSRQ7afdL98eSGuTAg-8G50mD7IP_WdUEUENCjkeb_DRC3ti32hAWXNnS8cK0QT1lMk1J2WbiBCaBBfXHirG3-cWfeNTOQzvX3G5La1NG3ODwpKcmp95LsV99cJalQZnKOYAI65NkiwjNLRmPCnXHGRO_rFJl6NGaeWit_NqNrY1Lwus-t_BKhQKbdCXAhMaAsWb7LftkxZq8mvymeb9rNbo3tJ4HXcazO4tsHkMObO_DC2JWIWWlfis45SOtV8FHqkbivxeyzfGOpHCJ7AGJEzWr00JD0gBS2iNQ"
+
 export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
   const { user } = useAuth()
+  const { currentProfile } = useBusinessStore()
   const { folders, createFolder, createRecord, fetchFolders } = useWorkspaceStore()
   const [moreExpanded, setMoreExpanded] = useState(false)
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
+  const [whatsappConnected, setWhatsappConnected] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -97,6 +106,21 @@ export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
     if (creatingFolder) inputRef.current?.focus()
   }, [creatingFolder])
 
+  const fetchWhatsAppStatus = useCallback(async () => {
+    if (!currentProfile?.id) return
+    try {
+      const sources = await listDataSources(currentProfile.id)
+      const wa = sources.find((s) => s.source_type === 'whatsapp' && s.status === 'active')
+      setWhatsappConnected(!!wa)
+    } catch {
+      setWhatsappConnected(false)
+    }
+  }, [currentProfile?.id])
+
+  useEffect(() => {
+    fetchWhatsAppStatus()
+  }, [fetchWhatsAppStatus])
+
   const handleCreateFolder = () => {
     const name = newFolderName.trim()
     if (name) {
@@ -104,6 +128,54 @@ export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
     }
     setNewFolderName('')
     setCreatingFolder(false)
+  }
+
+  const handleConnectWhatsApp = async () => {
+
+    if (!currentProfile?.id) return
+    if (whatsappConnected) {
+      try {
+        await disconnectDataSource(currentProfile.id, 'whatsapp')
+        setWhatsappConnected(false)
+      } catch {
+        toast.error('Failed disconnecting WhatsApp Source. Please try again.')
+      }
+    } else {
+      try {
+        const WHATSAPP_CONFIG_ID = import.meta.env.VITE_WHATSAPP_CONFIG_ID
+        if (!WHATSAPP_CONFIG_ID) return
+
+        const FB = (window as any).FB
+    
+        if (!FB) return
+
+        onboardWhatsApp(currentProfile!.id, CODE).then(() => setWhatsappConnected(true))
+
+        // FB.login(
+        //   (response: any) => {
+        //     if (response.authResponse && response.status === 'connected') {
+        //       console.log(response.authResponse)
+        //       // const code = response.authResponse.code
+        //       onboardWhatsApp(currentProfile!.id, CODE).then(() => setWhatsappConnected(true))
+        //     }else{
+        //       toast.error('Failed to connect WhatsApp Source. Please try again.')
+        //     }
+        //   },
+        //   {
+        //     config_id: WHATSAPP_CONFIG_ID,
+        //     response_type: 'code',
+        //     override_default_response_type: true,
+        //     redirect_uri: import.meta.env.VITE_WHATSAPP_REDIRECT_URI, 
+        //     extras: {
+        //       setup: {},
+        //       featureType: 'whatsapp_business_app_onboarding'
+        //     },
+        //   }
+        // )
+      } catch {
+        toast.error('Failed to connect WhatsApp Source. Please try again.')
+      }
+    }
   }
 
   const handleAdd = () => {
@@ -206,6 +278,23 @@ export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
       {/* Divider */}
       <div className={clsx('my-2 border-t border-zinc-800/60', collapsed ? 'mx-2' : 'mx-4')} />
 
+      {/* Connect WhatsApp — collapsed state */}
+      {collapsed && (
+        <div className="flex justify-center px-1.5">
+          <button
+            type="button"
+            onClick={handleConnectWhatsApp}
+            title={whatsappConnected ? 'WhatsApp (Enabled)' : 'Connect WhatsApp'}
+            className={clsx(
+              'flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-white/5',
+              whatsappConnected ? 'text-[#3ecf8e]' : 'text-zinc-500'
+            )}
+          >
+            <MessageCircle size={18} />
+          </button>
+        </div>
+      )}
+
       {/* Labels section — click + to create folder */}
       {!collapsed && (
         <div>
@@ -239,6 +328,19 @@ export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
               />
             </div>
           )}
+
+          {/* Connect WhatsApp */}
+          <button
+            type="button"
+            onClick={handleConnectWhatsApp}
+            className="flex w-full items-center gap-2.5 rounded-r-full py-1 pl-4 pr-3 text-[12px] text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200"
+          >
+            <MessageCircle size={14} className={clsx('shrink-0', whatsappConnected ? 'text-[#3ecf8e]' : 'text-zinc-500')} />
+            <span className="flex-1 truncate text-left">{whatsappConnected ? 'WhatsApp' : 'Connect WhatsApp'}</span>
+            {whatsappConnected && (
+              <span className="rounded bg-[#3ecf8e]/15 px-1.5 py-0.5 text-[10px] font-medium text-[#3ecf8e]">Enabled</span>
+            )}
+          </button>
         </div>
       )}
 

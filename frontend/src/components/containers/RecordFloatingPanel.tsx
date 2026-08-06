@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Type, Image, Mic, FileText, X, Plus, Camera, AudioLines, Sparkles, Lightbulb, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
 import { toast } from 'sonner'
-import { io } from 'socket.io-client'
 import { FloatingPanel } from './FloatingPanel'
 import { useWorkspaceStore } from '../../store/workspace'
 import { useBusinessStore } from '../../store/business'
+import { useSocketEvent, emitEvent } from '../../lib/ws'
 import type { Record, RecordEntry, EntryType } from '../../lib/workspace/types'
 import * as recordsApi from '../../lib/services/records'
 
@@ -90,37 +90,24 @@ function RecordContentTab({ recordId }: { recordId: string }) {
     }
 
     setLoadingInsight(true)
+    emitEvent('get_record_understanding', { record_id: recordId, business_id: businessId })
+  }, [recordId])
 
-    const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:8000'
-    const baseUrl = wsUrl.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://').replace(/\/ws\/voice$/, '')
+  useSocketEvent('record_understanding', (data: any) => {
+    if (data?.record_id === recordId) {
+      setInsight(data?.insight || null)
+      setSuggestedQuestions(data?.suggestions || [])
+      setLoadingInsight(false)
+    }
+  }, [recordId])
 
-    const socket = io(baseUrl, {
-      path: '/ws/voice',
-      transports: ['websocket'],
-      query: { business_id: businessId },
-    })
-
-    socket.on('record_understanding', (data: any) => {
-      if (data?.record_id === recordId) {
-        console.log('[RecordFloatingPanel] understanding data (ws):', data)
-        setInsight(data?.insight || null)
-        setSuggestedQuestions(data?.suggestions || [])
-        setLoadingInsight(false)
-      }
-    })
-
-    socket.on('record_processing_status', (data: any) => {
-      if (data?.record_id === recordId && data?.status === 'completed') {
-        if (data?.summary) setInsight(data.summary)
-        if (data?.suggestions?.length) setSuggestedQuestions(data.suggestions)
-        else if (data?.suggested_questions?.length) setSuggestedQuestions(data.suggested_questions)
-        setLoadingInsight(false)
-      }
-    })
-
-    socket.emit('get_record_understanding', { record_id: recordId, business_id: businessId })
-
-    return () => { socket.disconnect() }
+  useSocketEvent('record_processing_status', (data: any) => {
+    if (data?.record_id === recordId && data?.status === 'completed') {
+      if (data?.summary) setInsight(data.summary)
+      if (data?.suggestions?.length) setSuggestedQuestions(data.suggestions)
+      else if (data?.suggested_questions?.length) setSuggestedQuestions(data.suggested_questions)
+      setLoadingInsight(false)
+    }
   }, [recordId])
 
   const handleEntryChange = useCallback((entryId: string, newContent: string) => {

@@ -61,16 +61,16 @@ def _create_client(config:dict | None = {}, callbacks=None, provider=None):
         return ChatOpenAI(
             model=settings.ollama_model,
             base_url=f"{settings.ollama_base_url}/v1",
-            # base_url=f"{settings.ollama_base_url}/api/v1",
             streaming=True,
             api_key='ollama',
-            # api_key='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',
             callbacks=cb,
             timeout=None,
+            max_tokens=max_token,
+            temperature=0.6,
             model_kwargs={
                "extra_body": {
                 "max_soft_tokens": 1120,
-                "temperature": 1.0,
+                # "temperature": 0.6,
                 "top_p":0.95,
              }
              }
@@ -106,7 +106,7 @@ def _create_client(config:dict | None = {}, callbacks=None, provider=None):
         )
 
     elif _provider == "msty":
-        from langchain_openai import ChatOpenAI
+        
         return ChatOpenAI(
             model=settings.msty_model,
             base_url=settings.msty_base_url,

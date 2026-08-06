@@ -110,6 +110,15 @@ class Settings(BaseSettings):
     event_polling_interval_seconds: int
     event_max_batch_size: int
 
+    # WhatsApp
+    whatsapp_verify_token: str = ""
+    whatsapp_app_secret: str = ""
+    whatsapp_api_version: str = ""
+    whatsapp_app_id: str = ""
+    whatsapp_config_id: str = ""
+    whatsapp_redirect_uri: str = ""
+    whatsapp_test_token:str = ""
+
     # Business Event Scheduler
     event_max_concurrent_workers: int
     event_dispatcher_interval: int

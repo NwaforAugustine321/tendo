@@ -11,6 +11,8 @@ ollama-STT-TTS/
 # Kiro specs (local only)
 .kiro/
 
+tunnel/
+
 # Sigmoid reference (not part of tendo)
 sigmoid.ai/
 

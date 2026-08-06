@@ -1,10 +1,8 @@
-/**
- * Base HTTP client.
- */
 
 import { toast } from 'sonner'
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+const BASE_URL =  "https://combine-exactly-sky-papers.trycloudflare.com/api"
 
 type RequestOptions = {
   method?: string
@@ -25,6 +23,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const { method = 'GET', body, headers = {}, silent = false } = options
 
   try {
+    
     const res = await fetch(`${BASE_URL}${path}`, {
       method,
       credentials: 'include',

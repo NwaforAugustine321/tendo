@@ -1,9 +1,11 @@
-"""MOA Orchestrator graph node — handles message fetching, scope/session, orchestration, and persistence."""
+
 
 import asyncio
 import logging
 from typing import Any
-
+from app.db.tools.messages import  save_messages
+from app.memory.memory import Memory
+from app.models.state import GraphState
 from app.agents.specs.domain import  TransactionsAgent, InventoryAgent, KnowledgeAgent
 from app.agents.specs.moa.agent import MoaAgent
 from app.execution.models import Execution, Result, ExecutionMetrics
@@ -14,6 +16,7 @@ from app.response.composer import ResponseComposer
 from app.runtime import AgentRuntime, ToolBinder
 from app.skills.manager import SkillManager
 from app.llm.client import get_client
+from typing import Callable
 
 llm = get_client()
 
@@ -43,10 +46,10 @@ def _get_agent(agent_id: str) -> Any:
 async def moa_orchestrator(
     user_request: str,
     business_id: str,
-    thinking_callback: Any | None = None,
     conversation_messages: list[dict] | None = None,
     record_id: str = "",
     scopes: list[str] | None = None,
+    emit_callback:Callable | None = None
 ) -> dict:
 
 
@@ -67,7 +70,7 @@ async def moa_orchestrator(
     if plan.unresolvable:
         return {"response": {"mode": "conversation", "text": plan.unresolvable_reason}}
 
-    executions = await _execute_plan(user_request,plan, thinking_callback, business_id, scopes)
+    executions = await _execute_plan(user_request,plan, business_id, scopes)
 
     merger = Merger()
     merged = await merger.merge(executions)
@@ -75,7 +78,7 @@ async def moa_orchestrator(
     skill_manager = SkillManager(business_id=business_id)
     composer = ResponseComposer(skill_manager=skill_manager)
 
-    response = await composer.compose(merged, streaming_callback=thinking_callback)
+    response = await composer.compose(merged)
     return response
     return {}
 
@@ -90,13 +93,13 @@ async def _direct_response(llm: Any, user_request: str, conversation_messages: l
     return str(result)
 
 
-async def _execute_plan(user_request: str, plan: ExecutionPlan, thinking_callback: Any | None, business_id: str = "", scopes: list[str] | None = None) -> list[Execution]:
+async def _execute_plan(user_request: str, plan: ExecutionPlan, business_id: str = "", scopes: list[str] | None = None) -> list[Execution]:
     if plan.execution_order == ExecutionOrder.PARALLEL:
-        return await _execute_parallel(user_request, plan, thinking_callback, business_id, scopes)
-    return await _execute_sequential(user_request, plan, thinking_callback, business_id, scopes)
+        return await _execute_parallel(user_request, plan,  business_id, scopes)
+    return await _execute_sequential(user_request, plan,  business_id, scopes)
 
 
-async def _execute_parallel(user_request:str, plan: ExecutionPlan, thinking_callback: Any | None, business_id: str = "", scopes: list[str] | None = None) -> list[Execution]:
+async def _execute_parallel(user_request:str, plan: ExecutionPlan,  business_id: str = "", scopes: list[str] | None = None) -> list[Execution]:
     from app.llm.client import get_client
 
     _business_id = business_id or plan.shared_context.business_id
@@ -127,7 +130,7 @@ async def _execute_parallel(user_request:str, plan: ExecutionPlan, thinking_call
     return await asyncio.gather(*tasks)
 
 
-async def _execute_sequential(user_request:str, plan: ExecutionPlan, thinking_callback: Any | None, business_id: str = "", scopes: list[str] | None = None) -> list[Execution]:
+async def _execute_sequential(user_request:str, plan: ExecutionPlan, business_id: str = "", scopes: list[str] | None = None) -> list[Execution]:
     from app.llm.client import get_client
 
     biz_id = business_id or plan.shared_context.business_id
@@ -160,32 +163,14 @@ async def _execute_sequential(user_request:str, plan: ExecutionPlan, thinking_ca
 
 async def moa_orchestrator_node(state: "GraphState") -> dict:
 
-
-    from app.db.tools.messages import  save_messages
-    from app.memory.memory import Memory
-    from app.models.state import GraphState
-
     event = state.get("event", {})
     user_message = event.get("text", "")
     business_id = state.get("business_id") or event.get("business_id", "")
     session_id = state.get("session_id") or event.get("session_id", "")
-    emit_callback = state.get("emit_callback")
     record_id = event.get("record_id", "")
     scopes = event.get("scopes")
+    emit_callback = state.get("emit_callback")
 
-
-    thinking_callback = None
-    if emit_callback:
-        async def thinking_callback(msg):
-            if isinstance(msg, dict):
-                thinking_text = msg.get("data", str(msg))
-            else:
-                thinking_text = str(msg)
-            await emit_callback("message", {"type": "thinking", "data": thinking_text})
-    elif state.get("thinking_callback"):
-        # Legacy path: voice.py passes thinking_callback directly in state
-        thinking_callback = state.get("thinking_callback")
-    
     async def save_msg_to_long_term_mem(messages):
         if not session_id:
             return
@@ -240,9 +225,9 @@ async def moa_orchestrator_node(state: "GraphState") -> dict:
     result = await moa_orchestrator(
         user_request=user_message,
         business_id=business_id,
-        thinking_callback=thinking_callback,
         conversation_messages=conversation_history[-12:],
         scopes=scopes,
+        emit_callback=emit_callback
     )
 
     response = result.get("response", "")

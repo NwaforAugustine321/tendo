@@ -23,6 +23,7 @@ uvicorn app.main:asgi_app --reload
 
 # kill running app 
 kill -9 $(lsof -t -i:8000)      
+cloudflared tunnel --protocol quic --url http://localhost:5173
 ```
 
 To update the environment after changes to `environment.yml`:
