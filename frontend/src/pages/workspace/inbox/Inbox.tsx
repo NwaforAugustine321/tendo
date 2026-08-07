@@ -182,17 +182,26 @@ function MessageDetail({
 
   useSocketEvent('record_understanding', (data: any) => {
     if (data?.record_id === recordId) {
-      setInsight(data?.insight || null)
-      setSuggestedQuestions(data?.suggestions || [])
-      setLoadingInsight(false)
+      const hasInsight = !!(data?.insight)
+      if (hasInsight) {
+        setInsight(data.insight)
+        setSuggestedQuestions(data?.suggestions || [])
+        setLoadingInsight(false)
+      }
+      // If no insight returned, keep loading — wait for record_processing_status
     }
   }, [recordId])
 
   useSocketEvent('record_processing_status', (data: any) => {
     if (data?.record_id === recordId && data?.status === 'completed') {
-      if (data?.summary) setInsight(data.summary)
-      if (data?.suggestions?.length) setSuggestedQuestions(data.suggestions)
-      else if (data?.suggested_questions?.length) setSuggestedQuestions(data.suggested_questions)
+      if (data?.summary) {
+        setInsight(data.summary)
+      }
+      if (data?.suggested_questions?.length) {
+        setSuggestedQuestions(data.suggested_questions)
+      } else if (data?.suggestions?.length) {
+        setSuggestedQuestions(data.suggestions)
+      }
       setLoadingInsight(false)
     }
   }, [recordId])
@@ -626,6 +635,7 @@ export function Inbox() {
   const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(0)
   const [deleting, setDeleting] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const { currentProfile } = useBusinessStore()
 
   // Poll unread count
@@ -638,6 +648,34 @@ export function Inbox() {
     const interval = setInterval(fetchCount, 15000)
     return () => clearInterval(interval)
   }, [currentProfile?.id])
+
+  // Listen for open-record-detail events (from sidebar add button or floating panel link)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (detail?.id) {
+        const msg: InboxMessage = {
+          id: `record-${detail.id}`,
+          sender: detail.title || 'Untitled',
+          senderEmail: '',
+          recipient: '',
+          subject: detail.title || 'Untitled',
+          preview: '',
+          body: '',
+          date: detail.created_at || new Date().toISOString(),
+          fullDate: detail.created_at || new Date().toISOString(),
+          read: true,
+          starred: false,
+          tab: 'primary',
+          avatarColor: 'bg-zinc-600',
+        }
+        setActiveTab('primary')
+        setOpenMessage(msg)
+      }
+    }
+    window.addEventListener('tendo:open-record-detail', handler)
+    return () => window.removeEventListener('tendo:open-record-detail', handler)
+  }, [])
 
   // Fetch records, insights, and recommendations
   const refreshInbox = useCallback(() => {
@@ -729,21 +767,34 @@ export function Inbox() {
     const handleNewRecord = () => {
       if (currentProfile?.id) {
         recordsApi.getAllRecords().then((records) => {
-          const allRecords: InboxMessage[] = records.map((rec: any) => ({
-            id: `record-${rec.id}`,
-            sender: rec.title || 'Untitled',
-            senderEmail: '',
-            recipient: '',
-            subject: rec.first_content ? rec.first_content.slice(0, 80) + (rec.first_content.length > 80 ? '...' : '') : rec.title || 'Untitled',
-            preview: rec.first_content || 'No content yet',
-            body: rec.first_content || '',
-            date: formatDate(rec.updated_at || rec.created_at),
-            fullDate: new Date(rec.updated_at || rec.created_at).toLocaleString(),
-            read: false,
-            starred: false,
-            tab: 'primary' as InboxTab,
-            avatarColor: 'bg-zinc-600',
-          }))
+          // Preserve read state from current list for existing records
+          const currentReadState = new Map<string, boolean>()
+          liveInsights.forEach((m) => {
+            if (m.id.startsWith('record-')) {
+              currentReadState.set(m.id, m.read)
+            }
+          })
+
+          const allRecords: InboxMessage[] = records.map((rec: any) => {
+            const msgId = `record-${rec.id}`
+            // Use current UI read state if available, otherwise use API value
+            const isRead = currentReadState.has(msgId) ? currentReadState.get(msgId)! : (rec.is_read ?? false)
+            return {
+              id: msgId,
+              sender: rec.title || 'Untitled',
+              senderEmail: '',
+              recipient: '',
+              subject: rec.first_content ? rec.first_content.slice(0, 80) + (rec.first_content.length > 80 ? '...' : '') : rec.title || 'Untitled',
+              preview: rec.first_content || 'No content yet',
+              body: rec.first_content || '',
+              date: formatDate(rec.updated_at || rec.created_at),
+              fullDate: new Date(rec.updated_at || rec.created_at).toLocaleString(),
+              read: isRead,
+              starred: false,
+              tab: 'primary' as InboxTab,
+              avatarColor: 'bg-zinc-600',
+            }
+          })
           setLiveInsights((prev) => {
             const nonRecords = prev.filter((m) => !m.id.startsWith('record-'))
             return [...allRecords, ...nonRecords]
@@ -753,7 +804,7 @@ export function Inbox() {
     }
     window.addEventListener('tendo:open-new-record', handleNewRecord)
     return () => window.removeEventListener('tendo:open-new-record', handleNewRecord)
-  }, [currentProfile?.id])
+  }, [currentProfile?.id, liveInsights])
 
   // Listen for new_record socket event (real-time from backend)
   useSocketEvent('new_record', (data: any) => {
@@ -821,10 +872,10 @@ export function Inbox() {
   }
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === filteredMessages.length) {
+    if (selectedIds.size > 0) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(filteredMessages.map((m) => m.id)))
+      setSelectedIds(new Set(filteredMessages.slice(0, 25).map((m) => m.id)))
     }
   }
 
@@ -834,7 +885,13 @@ export function Inbox() {
       .map((id) => id.replace('record-', ''))
     if (!recordIds.length) return
     setDeleting(true)
-    await Promise.all(recordIds.map((rid) => recordsApi.deleteRecord(rid).catch(() => {})))
+
+    // Delete in batches of 20
+    for (let i = 0; i < recordIds.length; i += 20) {
+      const batch = recordIds.slice(i, i + 20)
+      await Promise.all(batch.map((rid) => recordsApi.deleteRecord(rid).catch(() => {})))
+    }
+
     setLiveInsights((prev) => prev.filter((m) => !selectedIds.has(m.id)))
     setSelectedIds(new Set())
     setDeleting(false)
@@ -845,8 +902,12 @@ export function Inbox() {
     const rid = msgId.startsWith('record-') ? msgId.replace('record-', '') : ''
     if (!rid) return
     setDeleting(true)
-    await recordsApi.deleteRecord(rid).catch(() => {})
-    setLiveInsights((prev) => prev.filter((m) => m.id !== msgId))
+    try {
+      await recordsApi.deleteRecord(rid)
+      setLiveInsights((prev) => prev.filter((m) => m.id !== msgId))
+    } catch (e) {
+      console.error('Delete failed:', e)
+    }
     setDeleting(false)
   }
 

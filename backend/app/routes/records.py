@@ -63,7 +63,7 @@ async def unread_count_endpoint(business_id: str = Query(...), user=Depends(get_
 
 @router.post("/records")
 async def create_record_endpoint(body: CreateRecordRequest, user=Depends(get_current_user)):
-    return await create_record(body.business_id, body.folder_id, body.title)
+    return await create_record(body.business_id, body.title)
 
 
 @router.get("/records/{record_id}")
@@ -76,8 +76,6 @@ async def update_record_endpoint(record_id: str, body: UpdateRecordRequest, user
     kwargs = {}
     if body.title:
         kwargs["title"] = body.title
-    if body.folder_id:
-        kwargs["folder_id"] = body.folder_id
     return await update_record(body.business_id, record_id, **kwargs)
 
 

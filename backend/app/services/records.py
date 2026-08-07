@@ -45,17 +45,6 @@ async def process_content_background(business_id: str, record_id: str, content_i
             payload={"record_id": record_id, "content_type": content_type, "content": content},
         )
 
-        try:
-            from app.ws.socketio_server import sio
-            await sio.emit("record_processing_status", ProcessingStatus(
-                status="completed",
-                record_id=record_id,
-                summary=summary,
-                suggested_questions=suggestions,
-            ).model_dump())
-        except Exception:
-            pass
-
     except Exception as e:
         # Set status to failed — don't save error to content column
         try:

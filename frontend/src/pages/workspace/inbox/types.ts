@@ -17,8 +17,8 @@ export type InboxMessage = {
 }
 
 export const TABS: { id: InboxTab; label: string; badge?: number; badgeColor?: string }[] = [
-  { id: 'primary', label: 'Primary' },
-  { id: 'insights', label: 'Insights' },
+  { id: 'primary', label: 'Engagements' },
+  { id: 'insights', label: 'Quick Insight' },
   { id: 'attention', label: 'Needs Attention', badge: 1, badgeColor: 'bg-red-500/20 text-red-400' },
   { id: 'recommendations', label: 'Recommendations', badge: 1, badgeColor: 'bg-amber-500/20 text-amber-400' },
 ]

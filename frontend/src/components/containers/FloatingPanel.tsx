@@ -4,7 +4,7 @@ import clsx from 'clsx'
 
 type Props = {
   children: React.ReactNode
-  title?: string
+  title?: React.ReactNode
   visible: boolean
   onClose: () => void
   defaultWidth?: number
@@ -93,11 +93,12 @@ export function FloatingPanel({
     >
       {/* Drag handle / title bar */}
       <div
-        onMouseDown={onMouseDown}
-        className="flex items-center justify-between px-3 py-2 bg-[#0a0a0a] border-b border-zinc-800/50 cursor-grab active:cursor-grabbing shrink-0"
+        className="flex items-center justify-between px-3 py-2 bg-[#0a0a0a] border-b border-zinc-800/50 shrink-0"
       >
         <div className="flex items-center gap-2">
-          <GripHorizontal size={12} className="text-zinc-600" />
+          <div onMouseDown={onMouseDown} className="cursor-grab active:cursor-grabbing p-0.5">
+            <GripHorizontal size={12} className="text-zinc-600" />
+          </div>
           <span className="text-[11px] font-medium text-zinc-300">{title}</span>
         </div>
         <div className="flex items-center gap-1">

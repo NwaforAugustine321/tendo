@@ -17,11 +17,9 @@ async def get_folders(business_id: str) -> list[dict]:
     client = get_client()
     try:
         result = client.table("folders") \
-            .select("*, records(id, title, folder_id, created_at, updated_at)") \
+            .select("*") \
             .eq("business_id", business_id) \
-            .eq("records.business_id", business_id) \
             .order("created_at", desc=False) \
-            .order("created_at", foreign_table="records", desc=False) \
             .execute()
             
         folders = result.data or []
@@ -31,8 +29,8 @@ async def get_folders(business_id: str) -> list[dict]:
             return []
 
         for f in folders:
-            folder_records = f.get("records") or []
-            f["record_count"] = len(folder_records)
+            f["record_count"] = 0
+            f["records"] = []
 
         return folders
     except Exception as e:
@@ -69,17 +67,15 @@ async def delete_folder(business_id: str, folder_id: str) -> dict:
 async def create_record(business_id: str, title: str, folder_id: str = "", user_id: str | None = None) -> dict:
     client = get_client()
     data = {"business_id": business_id, "title": title}
-    if folder_id:
-        data["folder_id"] = folder_id
     if user_id:
         data["user_id"] = user_id
     result = client.table("records").insert(data).execute()
     return result.data[0] if result.data else data
 
 
-async def get_records(business_id: str, folder_id: str) -> list[dict]:
+async def get_records(business_id: str, folder_id: str = "") -> list[dict]:
     client = get_client()
-    result = client.table("records").select("*").eq("business_id", business_id).eq("folder_id", folder_id).order("created_at", desc=False).execute()
+    result = client.table("records").select("*").eq("business_id", business_id).order("created_at", desc=False).execute()
     return result.data or []
 
 
@@ -117,7 +113,7 @@ async def get_unread_count(business_id: str) -> int:
 
 async def update_record(business_id: str, record_id: str, **kwargs) -> dict:
     client = get_client()
-    valid_fields = ("title", "folder_id")
+    valid_fields = ("title",)
     updates = {k: v for k, v in kwargs.items() if k in valid_fields and v is not None}
     if not updates:
         return {"error": "No valid fields to update"}

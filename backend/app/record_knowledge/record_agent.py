@@ -57,8 +57,7 @@ async def get_record_understanding(business_id: str, record_id: str) -> dict:
     from app.record_knowledge.understanding_agent import run_understanding_agent
 
     try:
-        # return await run_understanding_agent(business_id, record_id)
-        return {"insight": "", "suggestions": []}
+        return await run_understanding_agent(business_id, record_id)
     except Exception as e:
         logger.error(f"Understanding generation failed: {e}", exc_info=True)
         return {"insight": "", "suggestions": []}

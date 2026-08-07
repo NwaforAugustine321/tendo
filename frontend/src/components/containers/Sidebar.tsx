@@ -5,12 +5,12 @@ import {
   Lightbulb,
   History,
   Archive,
-  Star,
   Plus,
   Menu,
   ChevronDown,
   Folder,
   MessageCircle,
+  Loader2,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { toast } from 'sonner'
@@ -18,6 +18,7 @@ import { useAuth } from '../../context/auth'
 import { useWorkspaceStore } from '../../store/workspace'
 import { useBusinessStore } from '../../store/business'
 import { listDataSources, disconnectDataSource, onboardWhatsApp } from '../../lib/services/integrations'
+import * as recordsApi from '../../lib/services/records'
 
 type NavItem = {
   to?: string
@@ -29,9 +30,8 @@ type NavItem = {
 
 const PRIMARY_NAV: NavItem[] = [
   { to: '/app', label: 'Activities', icon: <Inbox size={18} />, end: true },
-  { label: 'Insights', icon: <Lightbulb size={18} />, disabled: true },
+  { to: '/app/insights', label: 'Quick Insight', icon: <Lightbulb size={18} /> },
   { label: 'Recent', icon: <History size={18} />, disabled: true },
-  { label: 'Favorites', icon: <Star size={18} />, disabled: true },
   { label: 'Archive', icon: <Archive size={18} />, disabled: true },
 ]
 
@@ -91,11 +91,12 @@ const CODE = "AQIZMgohzOX1Fg8BH7E26-3iuwLKboSSEpaR6vUoIIZXpL60lsyoLFE4yVXB5mlbHO
 export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
   const { user } = useAuth()
   const { currentProfile } = useBusinessStore()
-  const { folders, createFolder, createRecord, fetchFolders } = useWorkspaceStore()
+  const { folders, createFolder, fetchFolders } = useWorkspaceStore()
   const [moreExpanded, setMoreExpanded] = useState(false)
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const [whatsappConnected, setWhatsappConnected] = useState(false)
+  const [addingRecord, setAddingRecord] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -178,25 +179,40 @@ export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
     }
   }
 
-  const handleAdd = () => {
-    // Create a record with a hash ID title and open it in the floating record panel
-    const hashId = crypto.randomUUID().replace(/-/g, '').slice(0, 6)
-    const title = `#${hashId}`
-    const folderId = folders.length > 0 ? folders[0].id : ''
-    createRecord(folderId, 'note', title)
-
-    // Wait briefly for the record to be created, then open it
-    setTimeout(() => {
-      const { records, openRecord } = useWorkspaceStore.getState()
-      // Find the most recently created record
-      for (const [, folderRecords] of records) {
-        if (folderRecords.length > 0) {
-          const latest = folderRecords[folderRecords.length - 1]
-          openRecord(latest.id)
-          return
-        }
-      }
-    }, 600)
+  const handleAdd = async () => {
+    if (addingRecord) return
+    setAddingRecord(true)
+    try {
+      const hashId = crypto.randomUUID().replace(/-/g, '').slice(0, 6)
+      const title = `#${hashId}`
+      const folderId = folders.length > 0 ? folders[0].id : ''
+      const apiRecord = await recordsApi.createRecord(folderId, title)
+      // Add record to workspace store so popup can find it
+      const store = useWorkspaceStore.getState()
+      const records = new Map(store.records)
+      const folderRecords = records.get(folderId) || []
+      records.set(folderId, [...folderRecords, {
+        id: apiRecord.id,
+        folderId,
+        title: apiRecord.title || title,
+        content: '',
+        entries: [],
+        type: 'note' as const,
+        createdAt: apiRecord.created_at || new Date().toISOString(),
+        updatedAt: apiRecord.updated_at || new Date().toISOString(),
+      }])
+      useWorkspaceStore.setState({ records })
+      // Open the record in the floating popup modal
+      store.openRecord(apiRecord.id)
+      // Mark the new record as read (user just created it)
+      recordsApi.markRecordRead(apiRecord.id).catch(() => {})
+      // Notify Inbox to refresh its record list
+      window.dispatchEvent(new CustomEvent('tendo:open-new-record'))
+    } catch {
+      toast.error('Failed to create record')
+    } finally {
+      setAddingRecord(false)
+    }
   }
 
   return (
@@ -218,21 +234,23 @@ export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
         >
           <Menu size={20} />
         </button>
+        <div className="flex-1" />
         <button
           type="button"
           onClick={handleAdd}
+          disabled={addingRecord}
           className={clsx(
-            'flex items-center gap-2 rounded-2xl shadow-sm',
+            'flex items-center justify-center rounded-lg shadow-sm',
             'bg-zinc-800 border border-zinc-700/80',
-            'text-[13px] font-medium text-zinc-200',
+            'text-[12px] font-medium text-zinc-200',
             'transition-all hover:shadow-md hover:border-zinc-600 hover:bg-zinc-750',
             'active:scale-[0.97]',
-            collapsed ? 'h-10 w-10 justify-center px-0' : 'px-5 py-2.5'
+            'h-7 w-7',
+            addingRecord && 'opacity-60 cursor-not-allowed'
           )}
-          title={collapsed ? 'Add' : undefined}
+          title="Add record"
         >
-          <Plus size={18} className="text-zinc-300" />
-          {!collapsed && <span>Add</span>}
+          {addingRecord ? <Loader2 size={14} className="animate-spin text-zinc-300" /> : <Plus size={14} className="text-zinc-300" />}
         </button>
       </div>
 

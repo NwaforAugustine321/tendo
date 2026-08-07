@@ -1,283 +1,373 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Type, Image, Mic, FileText, X, Plus, Camera, AudioLines, Sparkles, Lightbulb, Loader2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { Type, Image, Mic, FileText, X, Sparkles, Lightbulb, ChevronDown, Plus, ExternalLink } from 'lucide-react'
 import clsx from 'clsx'
 import { toast } from 'sonner'
 import { FloatingPanel } from './FloatingPanel'
 import { useWorkspaceStore } from '../../store/workspace'
 import { useBusinessStore } from '../../store/business'
 import { useSocketEvent, emitEvent } from '../../lib/ws'
-import type { Record, RecordEntry, EntryType } from '../../lib/workspace/types'
+import type { Record } from '../../lib/workspace/types'
 import * as recordsApi from '../../lib/services/records'
 
-const ENTRY_TYPE_ICONS: { type: EntryType; label: string; icon: typeof Type }[] = [
-  { type: 'text', label: 'Text', icon: Type },
-  { type: 'image', label: 'Image', icon: Image },
-  { type: 'audio', label: 'Audio', icon: Mic },
-  { type: 'pdf', label: 'PDF', icon: FileText },
-]
-
-const MORE_ENTRY_TYPES: { type: EntryType; label: string; icon: typeof Type }[] = [
-  { type: 'camera', label: 'Camera', icon: Camera },
-  { type: 'voice', label: 'Voice', icon: AudioLines },
-]
-
-const WORD_LIMIT = 25
-
-function truncateWords(text: string, limit: number): string {
-  const words = text.split(/\s+/)
-  if (words.length <= limit) return text
-  return words.slice(0, limit).join(' ') + '...'
+function formatRelativeTime(dateStr: string): string {
+  const now = Date.now()
+  const then = new Date(dateStr).getTime()
+  const diff = now - then
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ago`
 }
 
-function isLongText(text: string): boolean {
-  return text.split(/\s+/).length > WORD_LIMIT || text.length > 400
+// --- Collapsible Section (same as detail page) ---
+
+function CollapsibleSection({ title, subtitle, defaultOpen = false, icon, processing, children }: {
+  title: string
+  subtitle: string
+  defaultOpen?: boolean
+  icon?: string
+  processing?: boolean
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+
+  const renderIcon = () => {
+    if (processing) return <div className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-600 border-t-emerald-500" />
+    switch (icon) {
+      case 'text': return <Type size={12} className="text-zinc-400" />
+      case 'image': return <Image size={12} className="text-zinc-400" />
+      case 'audio': return <Mic size={12} className="text-zinc-400" />
+      case 'pdf': return <FileText size={12} className="text-zinc-400" />
+      default: return <Type size={12} className="text-zinc-400" />
+    }
+  }
+
+  return (
+    <div className="mb-2 bg-zinc-900/20 rounded-lg border border-zinc-800/20">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+      >
+        <span className="shrink-0">{renderIcon()}</span>
+        <div className="min-w-0 flex-1">
+          <span className="text-[11px] font-medium text-zinc-200 line-clamp-1">{title}</span>
+          {processing && <span className="text-[10px] text-zinc-500 ml-2">Processing...</span>}
+        </div>
+        {!processing && <span className="text-[10px] text-zinc-500 shrink-0 mr-1">{subtitle}</span>}
+        <ChevronDown size={14} className={clsx('text-zinc-500 transition-transform shrink-0', !open && '-rotate-90')} />
+      </button>
+      {open && (
+        <div className="px-3 pb-3 pt-0">
+          {children}
+        </div>
+      )}
+    </div>
+  )
 }
 
-type InsightEntry = {
-  id: string
-  insight: string
-  suggestions: string[]
-  timestamp: string
-}
+// --- Content Tab (same logic as detail page) ---
 
-function RecordContentTab({ recordId }: { recordId: string }) {
-  const [localEntries, setLocalEntries] = useState<RecordEntry[]>([])
-  const [capturedIds, setCapturedIds] = useState<Set<string>>(new Set())
-  const [, setCapturingIds] = useState<Set<string>>(new Set())
-  const [showMoreTypes, setShowMoreTypes] = useState(false)
+function RecordContentTab({ recordId, onOpenDetail }: { recordId: string; onOpenDetail: (msg: string) => void }) {
+  const [contents, setContents] = useState<{ id: string; content_type: string; content: string; file_url?: string; created_at: string; _processing?: boolean; _fileName?: string }[]>([])
+  const [addingType, setAddingType] = useState<string | null>(null)
+  const [newContent, setNewContent] = useState('')
+  const [saving, setSaving] = useState(false)
   const [loadingContent, setLoadingContent] = useState(false)
   const [insight, setInsight] = useState<string | null>(null)
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([])
-  const [loadingInsight, setLoadingInsight] = useState(false)
+  const [loadingInsight, setLoadingInsight] = useState(true)
   const [insightExpanded, setInsightExpanded] = useState(false)
-  const textareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map())
-  const prevRecordIdRef = useRef<string | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (recordId !== prevRecordIdRef.current) {
-      prevRecordIdRef.current = recordId
-      if (!recordId) {
-        setLocalEntries([])
-        return
-      }
-      setLoadingContent(true)
-      setLocalEntries([])
-      recordsApi.getRecordContents(recordId).then((contents) => {
-        const entries: RecordEntry[] = contents.map((c) => ({
-          id: c.id,
-          type: (c.content_type || 'text') as EntryType,
-          content: c.content,
-          createdAt: c.created_at,
-        }))
-        setLocalEntries(entries)
-        setCapturedIds(new Set(entries.map((e) => e.id)))
-      }).catch(() => {}).finally(() => setLoadingContent(false))
-    }
-  }, [recordId])
-
+  // Fetch insight via WebSocket
   useEffect(() => {
     if (!recordId) {
       setLoadingInsight(false)
       return
     }
-
     const { currentProfile } = useBusinessStore.getState()
     const businessId = currentProfile?.id || ''
     if (!businessId) {
       setLoadingInsight(false)
       return
     }
-
     setLoadingInsight(true)
     emitEvent('get_record_understanding', { record_id: recordId, business_id: businessId })
   }, [recordId])
 
   useSocketEvent('record_understanding', (data: any) => {
     if (data?.record_id === recordId) {
-      setInsight(data?.insight || null)
-      setSuggestedQuestions(data?.suggestions || [])
-      setLoadingInsight(false)
+      const hasInsight = !!(data?.insight)
+      if (hasInsight) {
+        setInsight(data.insight)
+        setSuggestedQuestions(data?.suggestions || [])
+        setLoadingInsight(false)
+      }
+      // If no insight returned, keep loading — wait for record_processing_status
     }
   }, [recordId])
 
   useSocketEvent('record_processing_status', (data: any) => {
     if (data?.record_id === recordId && data?.status === 'completed') {
-      if (data?.summary) setInsight(data.summary)
-      if (data?.suggestions?.length) setSuggestedQuestions(data.suggestions)
-      else if (data?.suggested_questions?.length) setSuggestedQuestions(data.suggested_questions)
+      if (data?.summary) {
+        setInsight(data.summary)
+      }
+      if (data?.suggested_questions?.length) {
+        setSuggestedQuestions(data.suggested_questions)
+      } else if (data?.suggestions?.length) {
+        setSuggestedQuestions(data.suggestions)
+      }
       setLoadingInsight(false)
     }
   }, [recordId])
 
-  const handleEntryChange = useCallback((entryId: string, newContent: string) => {
-    setLocalEntries((prev) =>
-      prev.map((e) => (e.id === entryId ? { ...e, content: newContent } : e))
-    )
-  }, [])
+  // Fetch all record contents on mount
+  useEffect(() => {
+    if (!recordId) {
+      setLoadingContent(false)
+      return
+    }
+    setLoadingContent(true)
+    recordsApi.getRecordContents(recordId).then((data) => {
+      setContents(data)
+      // Resume polling for any content still processing
+      data.forEach((c: any) => {
+        if (c.status === 'processing' && c.id) {
+          const pollInterval = setInterval(async () => {
+            try {
+              const updated = await recordsApi.getRecordContents(recordId)
+              const found = updated.find((u: any) => u.id === c.id)
+              if (found && found.status !== 'processing') {
+                clearInterval(pollInterval)
+                setContents((prev) => prev.map((p) => p.id === c.id ? { ...found, _processing: false } : p))
+              }
+            } catch { /* retry */ }
+          }, 4000)
+          setContents((prev) => prev.map((p) => p.id === c.id ? { ...p, _processing: true, _fileName: c.content_type } : p))
+        }
+      })
+    }).catch(() => {}).finally(() => setLoadingContent(false))
+  }, [recordId])
 
-  const handleAddEntry = useCallback((type: EntryType) => {
-    const newEntry: RecordEntry = {
-      id: crypto.randomUUID(),
-      type,
+  useEffect(() => {
+    if (addingType === 'text') setTimeout(() => textareaRef.current?.focus(), 50)
+  }, [addingType])
+
+  const handleAddContent = (type: string) => {
+    if (type === 'text') {
+      setAddingType(type)
+      setNewContent('')
+    }
+  }
+
+  const handleFileSelected = useCallback(async (type: string, file: File) => {
+    const fileName = file.name || `${type} file`
+    const tempId = crypto.randomUUID()
+
+    setContents((prev) => [...prev, {
+      id: tempId,
+      content_type: type,
       content: '',
-      createdAt: new Date().toISOString(),
-    }
-    setLocalEntries((prev) => [...prev, newEntry])
-    setTimeout(() => {
-      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
-      if (type === 'text') {
-        textareaRefs.current.get(newEntry.id)?.focus()
+      file_url: '',
+      created_at: new Date().toISOString(),
+      _processing: true,
+      _fileName: fileName,
+    }])
+
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const base64 = reader.result as string
+      setSaving(true)
+      try {
+        const result = await recordsApi.addRecordContent(recordId, type, base64)
+        const contentId = result.content.id
+
+        setContents((prev) => prev.map((c) => c.id === tempId ? {
+          id: contentId,
+          content_type: type,
+          content: '',
+          file_url: result.content.file_url || '',
+          created_at: new Date().toISOString(),
+          _processing: true,
+          _fileName: fileName,
+        } : c))
+
+        // Poll for completion
+        const pollInterval = setInterval(async () => {
+          try {
+            const updated = await recordsApi.getRecordContents(recordId)
+            const found = updated.find((c: any) => c.id === contentId)
+            if (found && found.status !== 'processing') {
+              clearInterval(pollInterval)
+              setContents((prev) => prev.map((c) => c.id === contentId ? { ...found, _processing: false } : c))
+            }
+          } catch { /* retry */ }
+        }, 4000)
+      } catch {
+        setContents((prev) => prev.filter((c) => c.id !== tempId))
+        toast.error('Failed to upload file')
+      } finally {
+        setSaving(false)
       }
-    }, 50)
-  }, [])
-
-  const handleCapture = useCallback(async (entryId: string) => {
-    if (!recordId) return
-    const entry = localEntries.find((e) => e.id === entryId)
-    if (!entry || !entry.content.trim()) return
-    setCapturingIds((prev) => new Set(prev).add(entryId))
-    try {
-      await recordsApi.addRecordContent(recordId, entry.type, entry.content)
-      setCapturedIds((prev) => new Set(prev).add(entryId))
-      toast.success('Content captured')
-    } catch {
-      toast.error('Failed to capture content')
-    } finally {
-      setCapturingIds((prev) => { const n = new Set(prev); n.delete(entryId); return n })
     }
-  }, [recordId, localEntries])
+    reader.readAsDataURL(file)
+  }, [recordId])
 
-  const handleRemoveEntry = useCallback((entryId: string) => {
-    setLocalEntries((prev) => prev.filter((e) => e.id !== entryId))
-  }, [])
+  const handleSaveContent = async () => {
+    if (!recordId || !newContent.trim() || !addingType) return
+    setSaving(true)
+    try {
+      const result = await recordsApi.addRecordContent(recordId, addingType, newContent.trim())
+      const contentId = result.content.id
+      setContents((prev) => [...prev, {
+        id: contentId,
+        content_type: addingType,
+        content: newContent.trim(),
+        created_at: new Date().toISOString(),
+        _processing: true,
+        _fileName: 'Text note',
+      }])
+      setAddingType(null)
+      setNewContent('')
+
+      // Poll for processing completion
+      const pollInterval = setInterval(async () => {
+        try {
+          const updated = await recordsApi.getRecordContents(recordId)
+          const found = updated.find((c: any) => c.id === contentId)
+          if (found && found.status !== 'processing') {
+            clearInterval(pollInterval)
+            setContents((prev) => prev.map((c) => c.id === contentId ? { ...found, _processing: false } : c))
+          }
+        } catch { /* retry */ }
+      }, 4000)
+    } catch {
+      toast.error('Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Entries — scrollable area */}
+      {/* Scrollable content area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3">
         <div className="flex gap-3">
           {/* Main content column */}
-          <div className="flex-1 space-y-3">
+          <div className="flex-1">
+            {/* Loading skeleton */}
             {loadingContent && (
-          <div className="space-y-3 animate-pulse">
-            <div className="rounded-lg border border-white/5 bg-[#141414] p-3">
-              <div className="flex items-center gap-1.5 mb-2">
-                <div className="h-3 w-3 rounded bg-zinc-700" />
-                <div className="h-2 w-10 rounded bg-zinc-700" />
+              <div className="space-y-2 animate-pulse">
+                <div className="rounded-lg border border-zinc-800/20 bg-zinc-900/30 p-3">
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <div className="h-3 w-3 rounded bg-zinc-700" />
+                    <div className="h-2 w-10 rounded bg-zinc-700" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="h-2.5 w-full rounded bg-zinc-800" />
+                    <div className="h-2.5 w-3/4 rounded bg-zinc-800" />
+                  </div>
+                </div>
+                <div className="rounded-lg border border-zinc-800/20 bg-zinc-900/30 p-3">
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <div className="h-3 w-3 rounded bg-zinc-700" />
+                    <div className="h-2 w-10 rounded bg-zinc-700" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="h-2.5 w-full rounded bg-zinc-800" />
+                    <div className="h-2.5 w-1/2 rounded bg-zinc-800" />
+                  </div>
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <div className="h-2.5 w-full rounded bg-zinc-800" />
-                <div className="h-2.5 w-3/4 rounded bg-zinc-800" />
-              </div>
-            </div>
-            <div className="rounded-lg border border-white/5 bg-[#141414] p-3">
-              <div className="flex items-center gap-1.5 mb-2">
-                <div className="h-3 w-3 rounded bg-zinc-700" />
-                <div className="h-2 w-10 rounded bg-zinc-700" />
-              </div>
-              <div className="space-y-1.5">
-                <div className="h-2.5 w-full rounded bg-zinc-800" />
-                <div className="h-2.5 w-1/2 rounded bg-zinc-800" />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {!loadingContent && localEntries.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-10 text-center">
-            <p className="text-xs text-zinc-500 mb-1">Add content to this record</p>
-            <p className="text-[10px] text-zinc-600">Choose an input type below</p>
-          </div>
-        )}
-
-        {localEntries.map((entry) => (
-          <div key={entry.id} className="group relative rounded-lg border border-white/5 bg-[#141414] p-3">
-            {!capturedIds.has(entry.id) && (
-              <button
-                type="button"
-                onClick={() => handleRemoveEntry(entry.id)}
-                className="absolute right-2 top-2 rounded p-1 text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-white/10 hover:text-zinc-300"
-              >
-                <X size={11} />
-              </button>
             )}
 
-            <div className="mb-2 flex items-center gap-1.5">
-              {entry.type === 'text' && <Type size={11} className="text-zinc-500" />}
-              {entry.type === 'image' && <Image size={11} className="text-zinc-500" />}
-              {entry.type === 'audio' && <Mic size={11} className="text-zinc-500" />}
-              {entry.type === 'pdf' && <FileText size={11} className="text-zinc-500" />}
-              <span className="text-[9px] uppercase tracking-wide text-zinc-600">{entry.type}</span>
-            </div>
+            {/* Empty state */}
+            {!loadingContent && contents.length === 0 && !addingType && (
+              <div className="py-8 text-center text-[11px] text-zinc-500">No content yet. Add some below.</div>
+            )}
 
-            {entry.type === 'text' && (
-              capturedIds.has(entry.id) ? (
-                <p className="text-xs text-zinc-300 leading-relaxed">{entry.content.length > 200 ? entry.content.slice(0, 200) + '...' : entry.content}</p>
-              ) : (
+            {/* Content list as collapsible sections */}
+            {contents.map((content, idx) => (
+              <CollapsibleSection
+                key={content.id}
+                title={content._processing ? (content._fileName || 'Processing...')
+                  : content.content_type === 'text' ? (content.content.slice(0, 50) + (content.content.length > 50 ? '...' : ''))
+                  : content.content && !content.content.startsWith('data:') && !content.content.startsWith('[Processing') ? (content.content.slice(0, 50) + (content.content.length > 50 ? '...' : ''))
+                  : content._fileName || (content.content_type.charAt(0).toUpperCase() + content.content_type.slice(1))
+                }
+                subtitle={content._processing ? '' : formatRelativeTime(content.created_at)}
+                defaultOpen={idx === 0}
+                icon={content.content_type}
+                processing={content._processing}
+              >
+                {content.content_type === 'image' && (content.file_url || content.content.startsWith('data:image')) ? (
+                  <div className="flex items-start gap-2">
+                    <a href={content.file_url || content.content} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                      <img src={content.file_url || content.content} alt="Uploaded image" className="max-w-[120px] max-h-[80px] rounded-md cursor-pointer hover:opacity-80 transition-opacity" />
+                    </a>
+                    {content.content && !content.content.startsWith('data:') && (
+                      <div className="text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap">{content.content}</div>
+                    )}
+                  </div>
+                ) : content.content_type === 'audio' && (content.file_url || content.content.startsWith('data:audio')) ? (
+                  <div className="flex flex-col gap-2">
+                    <audio controls src={content.file_url || content.content} className="w-full max-w-[250px]" />
+                    {content.content && !content.content.startsWith('data:') && (
+                      <div className="text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap">{content.content}</div>
+                    )}
+                  </div>
+                ) : content.content_type === 'pdf' ? (
+                  <div className="flex items-start gap-2">
+                    {content.file_url && (
+                      <a href={content.file_url} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                        <div className="w-[80px] h-[60px] rounded-md bg-zinc-800 border border-zinc-700 flex items-center justify-center">
+                          <FileText size={24} className="text-zinc-400" />
+                        </div>
+                      </a>
+                    )}
+                    {content.content && !content.content.startsWith('data:') && (
+                      <div className="text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap">{content.content}</div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-[12px] leading-relaxed text-zinc-300 whitespace-pre-wrap">{content.content}</div>
+                )}
+              </CollapsibleSection>
+            ))}
+
+            {/* New text content input area */}
+            {addingType === 'text' && (
+              <div className="mt-2 rounded-lg border border-zinc-800/40 bg-zinc-900/30 p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] uppercase tracking-wide text-zinc-500">text</span>
+                </div>
                 <textarea
-                  ref={(el) => { if (el) { textareaRefs.current.set(entry.id, el); el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px' } else textareaRefs.current.delete(entry.id) }}
-                  value={entry.content}
-                  onChange={(e) => { handleEntryChange(entry.id, e.target.value); e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px' }}
-                  placeholder="Type something..."
-                  className="w-full min-h-[50px] resize-none overflow-hidden bg-transparent text-xs leading-relaxed text-zinc-200 placeholder-zinc-600 focus:outline-none"
+                  ref={textareaRef}
+                  value={newContent}
+                  onChange={(e) => setNewContent(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && e.metaKey) handleSaveContent() }}
+                  placeholder="Type your content here... (⌘+Enter to save)"
+                  className="w-full min-h-[80px] resize-none bg-transparent text-[12px] leading-relaxed text-zinc-200 placeholder-zinc-600 focus:outline-none"
                 />
-              )
-            )}
-
-            {entry.type === 'image' && (
-              <div className="flex items-center justify-center rounded-md border border-dashed border-zinc-700 py-4">
-                {entry.content ? <img src={entry.content} alt="" className="max-h-32 rounded" /> : (
-                  <label className="cursor-pointer text-[10px] text-zinc-500 hover:text-zinc-300">
-                    Click to upload image
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = () => handleEntryChange(entry.id, reader.result as string); reader.readAsDataURL(file) } }} />
-                  </label>
-                )}
+                <div className="flex items-center gap-2 mt-2">
+                  <button type="button" onClick={handleSaveContent} disabled={!newContent.trim() || saving} className="rounded-md bg-emerald-600 px-2.5 py-1 text-[10px] font-medium text-white hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed">
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button type="button" onClick={() => { setAddingType(null); setNewContent('') }} className="rounded-md px-2.5 py-1 text-[10px] font-medium text-zinc-400 hover:text-zinc-200">
+                    Cancel
+                  </button>
+                </div>
               </div>
-            )}
-
-            {entry.type === 'audio' && (
-              <div className="flex items-center justify-center rounded-md border border-dashed border-zinc-700 py-4">
-                {entry.content ? <audio controls src={entry.content} className="w-full max-w-xs" /> : (
-                  <label className="cursor-pointer text-[10px] text-zinc-500 hover:text-zinc-300">
-                    Click to upload audio
-                    <input type="file" accept="audio/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = () => handleEntryChange(entry.id, reader.result as string); reader.readAsDataURL(file) } }} />
-                  </label>
-                )}
-              </div>
-            )}
-
-            {entry.type === 'pdf' && (
-              <div className="flex items-center justify-center rounded-md border border-dashed border-zinc-700 py-4">
-                {entry.content ? <a href={entry.content} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#3ecf8e] hover:underline">View PDF</a> : (
-                  <label className="cursor-pointer text-[10px] text-zinc-500 hover:text-zinc-300">
-                    Click to upload PDF
-                    <input type="file" accept=".pdf" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = () => handleEntryChange(entry.id, reader.result as string); reader.readAsDataURL(file) } }} />
-                  </label>
-                )}
-              </div>
-            )}
-
-            {!capturedIds.has(entry.id) && (
-              <button
-                type="button"
-                onClick={() => handleCapture(entry.id)}
-                disabled={!entry.content.trim()}
-                className={clsx(
-                  'mt-2 flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[10px] font-medium border transition-colors',
-                  entry.content.trim()
-                    ? 'border-[#3ecf8e]/40 text-[#3ecf8e] hover:border-[#3ecf8e] hover:bg-[#3ecf8e]/10 cursor-pointer'
-                    : 'border-zinc-700 text-zinc-600 cursor-not-allowed opacity-50'
-                )}
-              >
-                Capture
-              </button>
             )}
           </div>
-        ))}
-          </div>
-          {/* Insight panel — right column, always visible */}
-          <div className="w-[200px] shrink-0 sticky top-0 self-start">
+
+          {/* Insight panel — right column */}
+          <div className="w-[180px] shrink-0 sticky top-0 self-start">
             <div className="rounded-lg border border-zinc-800/40 bg-[#141414] p-2.5">
               {loadingInsight ? (
                 <div className="space-y-2">
@@ -290,10 +380,14 @@ function RecordContentTab({ recordId }: { recordId: string }) {
                     <div className="h-2 w-4/5 rounded bg-zinc-800" />
                     <div className="h-2 w-3/5 rounded bg-zinc-800" />
                   </div>
-                  <div className="flex gap-1.5 mt-2 animate-pulse">
-                    <div className="h-5 w-16 rounded-full bg-zinc-800" />
-                    <div className="h-5 w-14 rounded-full bg-zinc-800" />
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onOpenDetail('Give me a comprehensive insight of the record?')}
+                    className="flex items-center gap-1 rounded-full px-1.5 py-0.5 mt-2 border border-emerald-500/30 bg-emerald-500/5 text-[8px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
+                  >
+                    <Sparkles size={7} />
+                    <span>Ask Tendo</span>
+                  </button>
                 </div>
               ) : insight ? (
                 <>
@@ -303,11 +397,11 @@ function RecordContentTab({ recordId }: { recordId: string }) {
                   </div>
                   <div className={clsx(
                     "overflow-hidden transition-all duration-200",
-                    insightExpanded ? "max-h-[250px] overflow-y-auto" : "max-h-[80px]"
+                    insightExpanded ? "max-h-[250px] overflow-y-auto" : "max-h-[70px]"
                   )}>
                     <p className="text-[10px] leading-relaxed text-zinc-300">{insight}</p>
                   </div>
-                  {insight.length > 120 && (
+                  {insight.length > 100 && (
                     <button
                       type="button"
                       onClick={() => setInsightExpanded(!insightExpanded)}
@@ -316,41 +410,42 @@ function RecordContentTab({ recordId }: { recordId: string }) {
                       {insightExpanded ? 'See less' : 'See more'}
                     </button>
                   )}
-                </> 
-              ) : null}
-              {suggestedQuestions.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-2">
+                  <div className="flex flex-wrap gap-1 mt-2">
                     {suggestedQuestions.map((q, i) => (
                       <button
                         key={i}
                         type="button"
-                        onClick={() => {
-                          useWorkspaceStore.getState().setPendingChatMessage(q)
-                          useWorkspaceStore.getState().setDashboardChatVisible(true)
-                        }}
-                        className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-zinc-700/50 bg-[#1a1a1a] text-[9px] text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
+                        onClick={() => onOpenDetail(q)}
+                        className="flex items-center gap-1 rounded-full px-1.5 py-0.5 border border-zinc-700/50 bg-[#1a1a1a] text-[8px] text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
                       >
-                        <Lightbulb size={8} className="text-[#3ecf8e] shrink-0" />
-                        <span>{q}</span>
+                        <Lightbulb size={7} className="text-[#3ecf8e] shrink-0" />
+                        <span className="line-clamp-1">{q}</span>
                       </button>
                     ))}
                     <button
                       type="button"
-                      onClick={() => {
-                        useWorkspaceStore.getState().setPendingChatMessage('Give me a comprehensive insight of the record?')
-                        useWorkspaceStore.getState().setDashboardChatVisible(true)
-                      }}
-                      className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
+                      onClick={() => onOpenDetail('Give me a comprehensive insight of the record?')}
+                      className="flex items-center gap-1 rounded-full px-1.5 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[8px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                     >
-                      <Sparkles size={8} />
+                      <Sparkles size={7} />
                       <span>Ask Tendo</span>
                     </button>
                   </div>
-              )}
-              {!insight && suggestedQuestions.length === 0 && (
-                <div className="flex items-center gap-1.5">
-                  <Sparkles size={10} className="text-emerald-500" />
-                  <span className="text-[9px] text-zinc-500">No insights yet</span>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles size={10} className="text-emerald-500" />
+                    <span className="text-[9px] text-zinc-500">No insights yet</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onOpenDetail('Give me a comprehensive insight of the record?')}
+                    className="flex items-center gap-1 rounded-full px-1.5 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[8px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
+                  >
+                    <Sparkles size={7} />
+                    <span>Ask Tendo</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -358,31 +453,36 @@ function RecordContentTab({ recordId }: { recordId: string }) {
         </div>
       </div>
 
-      {/* Fixed bottom — input source buttons */}
-      <div className="shrink-0 flex items-center gap-1.5 px-3 py-2.5 border-t border-zinc-800/40 flex-wrap">
+      {/* Fixed bottom — source input buttons */}
+      <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-t border-zinc-800/40 flex-wrap">
         <button
           type="button"
-          onClick={() => handleAddEntry('text')}
-          className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-200 hover:bg-white/5 text-[10px] font-medium transition-colors"
+          onClick={() => handleAddContent('text')}
+          className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-600 text-[10px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200"
         >
           <Type size={11} /> Text
         </button>
-        <label className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-200 hover:bg-white/5 text-[10px] font-medium transition-colors cursor-pointer">
+        <label className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-600 text-[10px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200 cursor-pointer">
           <Image size={11} /> Image
-          <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { const reader = new FileReader(); reader.onload = () => { handleAddEntry('image'); setTimeout(() => { const entries = document.querySelectorAll('[data-entry-type]'); }, 0) }; reader.readAsDataURL(f) } }} />
+          <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected('image', f); e.target.value = '' }} />
         </label>
-        <label className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-200 hover:bg-white/5 text-[10px] font-medium transition-colors cursor-pointer">
+        <label className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-600 text-[10px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200 cursor-pointer">
           <Mic size={11} /> Audio
-          <input type="file" accept="audio/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { const reader = new FileReader(); reader.onload = () => handleEntryChange(crypto.randomUUID(), reader.result as string); reader.readAsDataURL(f) } }} />
+          <input type="file" accept="audio/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected('audio', f); e.target.value = '' }} />
         </label>
-        <label className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-200 hover:bg-white/5 text-[10px] font-medium transition-colors cursor-pointer">
+        <label className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-600 text-[10px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200 cursor-pointer">
           <FileText size={11} /> PDF
-          <input type="file" accept=".pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { const reader = new FileReader(); reader.onload = () => handleEntryChange(crypto.randomUUID(), reader.result as string); reader.readAsDataURL(f) } }} />
+          <input type="file" accept=".pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected('pdf', f); e.target.value = '' }} />
         </label>
+        <span className="flex items-center gap-1 rounded-md px-2 py-1 border border-dashed border-zinc-600 text-[10px] text-zinc-500 opacity-50 cursor-not-allowed">
+          <Plus size={11} /> More
+        </span>
       </div>
     </div>
   )
 }
+
+// --- Main Export ---
 
 export function RecordFloatingPanel() {
   const { openRecordIds } = useWorkspaceStore()
@@ -409,19 +509,51 @@ function SingleRecordPanel({ recordId, index }: { recordId: string; index: numbe
     return null
   }, [recordId, records])
 
-  const title = activeRecord?.title || 'Record'
+  const title = activeRecord?.title || 'Untitled'
+
+  const handleOpenDetail = (chatMessage?: string) => {
+    // Close the floating panel and navigate to the record detail page
+    useWorkspaceStore.getState().closeRecord(recordId)
+    if (chatMessage) {
+      useWorkspaceStore.getState().setPendingChatMessage(chatMessage)
+    }
+    window.dispatchEvent(new CustomEvent('tendo:open-record-detail', {
+      detail: { id: recordId, title, created_at: activeRecord?.createdAt || '' }
+    }))
+  }
+
+  const titleElement = (
+    <span className="flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); handleOpenDetail() }}
+        className="truncate max-w-[180px] hover:text-emerald-400 transition-colors"
+        title="Open in full view"
+      >
+        {title}
+      </button>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); handleOpenDetail() }}
+        className="flex items-center text-emerald-400 hover:text-emerald-300 transition-colors"
+        title="Open in full view"
+      >
+        <ExternalLink size={10} />
+      </button>
+    </span>
+  )
 
   return (
     <FloatingPanel
       visible={true}
-      title={title}
+      title={titleElement}
       onClose={() => useWorkspaceStore.getState().closeRecord(recordId)}
       defaultWidth={700}
       defaultHeight={480}
       offsetIndex={index}
     >
       <div className="min-h-0 flex-1 flex flex-col overflow-hidden">
-        <RecordContentTab recordId={recordId} />
+        <RecordContentTab recordId={recordId} onOpenDetail={(msg) => handleOpenDetail(msg)} />
       </div>
     </FloatingPanel>
   )

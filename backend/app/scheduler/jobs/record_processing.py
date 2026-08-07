@@ -1,9 +1,3 @@
-"""Scheduler job — process record content extraction via APScheduler.
-
-Schedules each extraction immediately using the scheduler for recovery features.
-Extracts text, chunks it, uses Memory.remember_many to embed and store.
-"""
-
 import asyncio
 import logging
 import random
@@ -146,6 +140,18 @@ async def _run_extraction(
         if content_id:
             update_record_content_status(content_id, business_id, "completed")
 
+        # Emit record_processing_status with actual summary
+        try:
+            from app.ws.socketio_server import sio
+            await sio.emit("record_processing_status", {
+                "status": "completed",
+                "record_id": record_id,
+                "summary": summary_text[:500] if summary_text else "",
+                "suggested_questions": [],
+            })
+        except Exception:
+            pass
+
         # Emit updated record with summary content to frontend
         try:
             from app.ws.socketio_server import sio
@@ -157,6 +163,22 @@ async def _run_extraction(
             })
         except Exception:
             pass
+
+        # Generate and emit record understanding (insight) after processing
+        try:
+            from app.record_knowledge.understanding_agent import run_understanding_agent
+            understanding = await run_understanding_agent(business_id, record_id)
+            insight = understanding.get("insight", "") if understanding else ""
+            suggestions = understanding.get("suggestions", []) if understanding else []
+            if insight:
+                from app.ws.socketio_server import sio
+                await sio.emit("record_understanding", {
+                    "record_id": record_id,
+                    "insight": insight,
+                    "suggestions": suggestions,
+                })
+        except Exception as e:
+            logger.warning(f"Understanding generation failed for record {record_id}: {e}")
 
         logger.info(f"Processed {content_type} content for record {record_id} ({len(chunks)} chunks)")
 
