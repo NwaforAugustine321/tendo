@@ -10,12 +10,10 @@ from app.runtime.tool_result import ToolResult
 from typing import Any, TYPE_CHECKING
 from app.llm.client import get_client
 from app.execution.models import (
-    Execution,
-    Result,
-    ExecutionMetrics,
     ReflectionOutput,
 )
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage as LCAIMessage
 from app.lib.context_handler import handle_context_length, is_context_length_exceeded
 from app.lib.i18n import _get_i18n
 from app.lib.json_parser import parse_json_output
@@ -87,7 +85,6 @@ class AgentRuntime:
         self._messages: list[dict[str, Any]] = []
         self._iterations: int = 0
         self._tool_call_history: set[str] = set()
-        self._tools: list[Any] = []
         self._tools_names: str = ""
         self._tools_description: str = ""
         self._output_pydantic: type | None = output_pydantic
@@ -128,16 +125,8 @@ class AgentRuntime:
 
         self._tools = _tools
 
-        if self._tool_binder and len(_tools) > 0:
-            self._bound_tools = self._tool_binder.bind(_tools)
-            self._tools_names = ", ".join(getattr(t, "name", str(t)) for t in _tools)
-            self._tools_description = tools_schema_and_description(_tools) if _tools else ""
-
-        if  hasattr(self._llm, 'bind_tools'):
-            self._llm = self._llm.bind_tools(self._tools)  
-          
         
-    async def execute(self,task,  context:str = '', task_msg_check: str = '', chat_history:list[Any] = [], use_plan_mode:bool = False) -> Execution:
+    async def execute(self,task,  context:str = '', task_msg_check: str = '', chat_history:list[Any] = [], use_plan_mode:bool = False, messages: list[Any] | None = None) -> Execution:
         agent = self._agent
         start = time.perf_counter()
         self._chat_history = chat_history
@@ -147,6 +136,12 @@ class AgentRuntime:
         self._tool_call_history = set()
         self._context += context
 
+        if messages:
+            for msg in messages:
+                if isinstance(msg, HumanMessage):
+                    self._messages.append({"role": "user", "content": msg.content})
+                elif isinstance(msg, LCAIMessage):
+                    self._messages.append({"role": "assistant", "content": msg.content})
 
         if self._allowed_input_guardrail:
             safety_check = await self._guardrail.check_content_safety(
@@ -154,30 +149,19 @@ class AgentRuntime:
             )
 
             if not safety_check.allowed:
-               elapsed_ms = (time.perf_counter() - start) * 1000
-               return Execution(
-                       result=Result(
-                       status="failed",
-                       response=safety_check.response,
-                       ),
-                       metrics=ExecutionMetrics(
-                       iterations=self._iterations,
-                       duration_ms=elapsed_ms,
-                       tools_invoked=[],
-                       ),
-                       error=f"Failed: {safety_check.response}",
-               )
+               return safety_check.response or "Request blocked by safety check."
 
-        if hasattr(self._llm, 'bind_tools'):
-            self._llm = self._llm.bind_tools(self._tools)  
+        if hasattr(self._llm, 'bind_tools') and self._tools:
+            self._llm = self._llm.bind_tools(self._tools)
 
         if self._use_system_prompt is not True:
+          prompt_tools = [] if (hasattr(self._llm, 'bind_tools') and self._tools) else self._tools
           prompt, _ = await prepare_system_prompt(
             agent=self._agent,
-            tools=self._tools,
+            tools=prompt_tools,
             max_thinking_steps=self._max_thinking_steps
           )
-
+          
           self._system_prompt = prompt + self._system_prompt
           
         if use_plan_mode:
@@ -196,7 +180,7 @@ class AgentRuntime:
 
           )
 
-
+        
         self._task_prompt = task_prompt
        
         self._prompt_template = ChatPromptTemplate.from_messages([
@@ -210,65 +194,15 @@ class AgentRuntime:
            
              
             raw = await self._invoke_loop()   
-            result = Result(
-                  status="success",
-                  response=raw,
-            )
 
         except Exception as e:
             logger.error("Execution failed: %s", e)
-            elapsed_ms = (time.perf_counter() - start) * 1000
             await self._tool_binder.release()
-            # Return a structured JSON error response so callers parsing JSON don't crash
-            error_response = json.dumps({
-                "error": True,
-                "message": str(e),
-                "conversation_response": "I'm temporarily unable to process this request. Please try again shortly.",
-                "is_task_trigger": False,
-                "agent_selection": None,
-                "shared_constraints": "",
-            })
-            return Execution(
-                result=Result(status="failure", response=error_response),
-                metrics=ExecutionMetrics(
-                    iterations=self._iterations,
-                    duration_ms=elapsed_ms,
-                    tools_invoked=[],
-                ),
-                error=f"Failed: {e}",
-            )
-
-        reflection = ReflectionOutput()
-        if self._reflection_stage is not None:
-            try:
-                reflection = await self._reflection_stage.reflect(
-                    messages=self._messages,
-                    tools_used=[getattr(t, "name", str(t)) for t in self._bound_tools],
-                    iterations=self._iterations,
-                    duration_ms=(time.perf_counter() - start) * 1000,
-                    domain_output=result.response,
-                )
-            except Exception as e:
-                logger.warning("Reflection failed: %s", e)
-                reflection = ReflectionOutput()
-
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        tools_invoked = [
-            {"name": getattr(t, "name", str(t)), "count": 1} for t in self._bound_tools
-        ]
-        metrics = ExecutionMetrics(
-            iterations=self._iterations,
-            duration_ms=elapsed_ms,
-            tools_invoked=tools_invoked,
-        )
+            return "I'm temporarily unable to process this request. Please try again shortly."
 
         await self._tool_binder.release()
-       
-        return Execution(
-            result=result,
-            reflection=reflection,
-            metrics=metrics,
-        )
+        from app.lib.text_utils import strip_internal_reasoning
+        return strip_internal_reasoning(raw) if raw else ""
 
 
     async def emit_callback(event_name: str, payload: dict):
@@ -358,48 +292,19 @@ class AgentRuntime:
         
 
         try:
-            result = await tool_fn.ainvoke(tool_args)
-
-            if isinstance(result, dict) and "content" in result:
-                tool_result = ToolResult(**result)
-            elif isinstance(result, ToolResult):
-                tool_result = result
-            else:
-                tool_result = ToolResult(content=str(result))
-
-            message_parts: list[dict] = []
-
-            text_content = tool_result.content
-            if tool_result.metadata:
-                text_content += f"\n {json.dumps(tool_result.metadata, default=str)}"
+            print("trying executing tool")
+            tool_result = await tool_fn.ainvoke(tool_args)
 
             observation = i18n.get("slices.post_tool_reasoning")
-            observation += f"{text_content}\n\n"
-            message_parts.append({"type": "text", "text": observation})
+            observation += f"{tool_result}\n\n"
 
-            for img in tool_result.images:
-                if img.startswith("data:") or img.startswith("http"):
-                    message_parts.append({"type": "image_url", "image_url": {"url": img}})
-                else:
-                    message_parts.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}"}})
-
-            # Append as multimodal message if images present, otherwise plain text
-            if tool_result.images:
-                self._messages.append({"role": "user", "content": message_parts})
-            else:
-                observation = i18n.get("slices.post_tool_reasoning")
-                observation += f"{text_content}\n\n"
-                self._messages.append({"role": "user", "content":observation})
-
-            return text_content
+            return observation 
         except Exception as e:
             logger.warning(f"Tool '{tool_name}' failed: {e}")
-            error_msg = "No results."
+            error_msg = "{tool_name} tool failed"
             observation = i18n.get("slices.post_tool_reasoning")
-            observation += f"{error_msg}\n\n"
-
-            self._messages.append({"role": "user", "content": observation})
-            return error_msg
+            observation += f"\n\n{error_msg}\n\n"
+            return observation
 
 
     async def _validate_and_retry(self, final_answer: str, output_pydantic: type | None = None, output_json: type | None = None) -> str | None:
@@ -424,6 +329,7 @@ class AgentRuntime:
         return final_answer
 
     async def _invoke_loop(self) -> str:
+        first_call = True
         while True:
             print(self._agent.name)
                 
@@ -431,27 +337,24 @@ class AgentRuntime:
             if self._iterations > self._max_iter:
                 await self._force_final_answer()
             
-         
-            response = await self._invoke_llm_safe()
-            # Extract <Stream_Update> and emit thinking
-            print(response.content)
-            if response is not None and isinstance(response.content, str):
-                update_update_match = Update_Status_REGEX.search(response.content)
-                
-                if update_update_match :
-                    update_response = update_update_match .group(1).strip()
-                    print("status update->>>>",update_response)
-                    print('\n\n\n')
-                    # await self._emit_thinking(update_response)
+            if first_call:
+                user_msg = self._task_prompt
+                first_call = False
+            else:
+                user_msg = ""
 
-            if response is None or not response.content:
-                self._handle_empty_response()
-                continue
+            response = await self._invoke_llm_safe(user_msg)
+
+            print(response)
 
             if response.tool_calls and len(response.tool_calls) > 0:
                 result = await self._handle_native_tool_calls(response)
                 continue
-
+            
+            if response is None or not response.content:
+                self._handle_empty_response()
+                continue
+                
             content = response.content
             if isinstance(content, list):
                 content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
@@ -476,14 +379,14 @@ class AgentRuntime:
                 
             return result
 
-    async def _invoke_llm_safe(self) -> Any:
+    async def _invoke_llm_safe(self, user_message: str = "") -> Any:
         try:
             chain = self._prompt_template | self._llm
         
             response = await chain.ainvoke({
                 "system_prompt": self._system_prompt,
                 "history": self._messages,
-                "user_message": self._task_prompt,
+                "user_message": user_message,
                 "chat_history": self._chat_history
             })
             return response
@@ -518,12 +421,18 @@ class AgentRuntime:
         action_match = ACTION_REGEX.search(raw)
         input_match = ACTION_INPUT_REGEX.search(raw)
 
+        if not thought_match and not fa_match and not action_match:
+            return raw
+
         # Track last final answer seen so far
         if fa_match and fa_match.group(1).strip():
             self._last_final_answer = fa_match.group(1).strip()
 
-        # <Thought> + <Final_Answer> → only append thought, continue loop (don't return final answer)
+        # <Thought> + <Final_Answer> → extract final answer and return immediately
         if thought_match and fa_match:
+            content = fa_match.group(1).strip()
+            if content:
+                return content
             self._messages.append({"role": "assistant", "content": raw})
             return None
 
@@ -562,87 +471,30 @@ class AgentRuntime:
             self._messages.append({"role": "assistant", "content": raw})
             return None
 
-        return await self._handle_json_or_final(raw)
+        return None
+      
 
     async def _handle_xml_action(self, raw: str, action_match: re.Match, input_match: re.Match) -> str | None:
         tool_name = action_match.group(1).strip()
         tool_args = self._parse_tool_input(input_match.group(1).strip())
+
         if tool_args is None:
             force_tool_input_msg = i18n.get("errors.tool_arguments_error")
             self._messages.append({"role": "assistant", "content": raw})
             self._messages.append({"role": "user", "content": force_tool_input_msg})
             return None
-        self._messages.append({"role": "assistant", "content": raw})
-        tool_call = {"name": tool_name, "args": tool_args, "id": f"text_{tool_name}"}
-        result_str = await self._execute_tool(tool_call)
-        observation = i18n.get("slices.post_tool_reasoning")
-        observation += f"{result_str}\n\n"
-        self._messages.append({"role": "user", "content": observation})
+
+        tool_id = f"text_{tool_name}"
+        formatted_tool_calls = [
+            {"id": tool_id, "type": "function", "function": {"name": tool_name, "arguments": json.dumps(tool_args)}}
+        ]
+        self._messages.append({"role": "assistant", "content": "", "tool_calls": formatted_tool_calls})
+        tool_call = {"name": tool_name, "args": tool_args, "id": tool_id}
+        tool_result = await self._execute_tool(tool_call)
+
+        self._messages.append({"role": "tool", "tool_call_id": tool_id, "content": str(tool_result)})
         return None
 
-    async def _handle_json_or_final(self, raw: str) -> str | None:
-        parsed_data = None
-        try:
-            parsed_data = parse_json_output(raw)
-        except (json.JSONDecodeError, ValueError, TypeError):
-            if self._output_pydantic or self._output_json:
-                self._messages.append({"role": "assistant", "content": raw})
-                self._messages.append({"role": "user", "content": "Error: Your response is not valid JSON. Please respond with a valid JSON object."})
-                return None
-            self._messages.append({"role": "assistant", "content": raw})
-            return None
-        await self._emit_status("Checking information...")
-        if parsed_data and isinstance(parsed_data, dict):
-            if self._is_waiting_for_user(raw):
-                response_text = parsed_data.get("response", "")
-                if response_text:
-                    await self._emit_thinking(response_text)
-                return raw
-            tool_requests = parsed_data.get("tool_requests")
-            if tool_requests and isinstance(tool_requests, list) and len(tool_requests) > 0:
-                return await self._handle_json_tool_requests(raw, parsed_data, tool_requests)
-            # Detect raw tool call attempts — only when no output model expects JSON
-            if not (self._output_pydantic or self._output_json):
-                if parsed_data.get("tool") and parsed_data.get("arguments") is not None:
-                    self._messages.append({"role": "assistant", "content": raw})
-                    self._messages.append({"role": "user", "content": "You do not have access to that tool. Answer the user's question using only the information you already have. If you don't have the information, say so clearly."})
-                    return None
-                # Detect raw data dumps (not a proper response to the user)
-                if not parsed_data.get("response") and not self._is_waiting_for_user(raw) and len(parsed_data) > 1:
-                    self._messages.append({"role": "assistant", "content": raw})
-                    self._messages.append({"role": "user", "content": "Do not return raw JSON data to the user. Summarize this information in a clear, natural response that directly answers the user's question."})
-                    return None
-            self._messages.append({"role": "assistant", "content": raw})
-            self._messages.append({"role": "user", "content": "Please wrap your final response in <Final_Answer></Final_Answer> tags."})
-            return None
-        self._messages.append({"role": "assistant", "content": raw})
-        self._messages.append({"role": "user", "content": "Please wrap your final response in <Final_Answer></Final_Answer> tags."})
-        return None
-
-    async def _handle_json_tool_requests(self, raw: str, parsed_data: dict, tool_requests: list) -> str | None:
-        """Execute tool_requests from JSON response."""
-        await self._emit_status("Checking information...")
-        response_text = parsed_data.get("response", "")
-        if response_text:
-            await self._emit_thinking(response_text)
-        self._messages.append({"role": "assistant", "content": raw})
-        all_results = []
-        for tr in tool_requests:
-            tool_name = tr.get("tool", "")
-            tool_args = tr.get("arguments", tr.get("params", {}))
-            tool_call = {"name": tool_name, "args": tool_args, "id": f"text_{tool_name}"}
-            result_str = await self._execute_tool(tool_call)
-            logger.info(f"[Runtime] Tool '{tool_name}' result: {result_str[:200]}")
-            all_results.append(f"Tool '{tool_name}': {result_str[:500]}")
-        self._messages.append({"role": "user", "content": f"Observation: {chr(10).join(all_results)}"})
-        return None
-
-    def _extract_final_answer(self, raw: str) -> str:
-        """Extract final answer from text, handling <Final_Answer> tags."""
-        fa_match = FINAL_ANSWER_REGEX.search(raw)
-        if fa_match:
-            return fa_match.group(1).strip()
-        return raw
 
     async def _force_final_answer(self):
     
@@ -650,18 +502,4 @@ class AgentRuntime:
         force_msg += i18n.get("errors.force_final_answer_error")
         force_msg.replace("{formatted_answer}", str(self._last_final_answer))
         self._messages.append({"role": "user", "content": force_msg})
-        # chain = self._prompt_template |  self._llm
-        # response = await chain.ainvoke({
-        #     "system_prompt": self._system_prompt,
-        #     "history": self._messages,
-        #     "user_message": self._task_prompt,
-        #     "chat_history": self._chat_history
-        # })
-        # content = response.content
-        # if isinstance(content, list):
-        #     content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
-        # raw = content.strip() if content else ""
-        # fa_match = FINAL_ANSWER_REGEX.search(raw)
-        # if fa_match:
-        #     return fa_match.group(1).strip()
-        # return "Could you please rephrase your request."
+        

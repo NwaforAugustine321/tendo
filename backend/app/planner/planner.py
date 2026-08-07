@@ -1,30 +1,13 @@
-
-
 from __future__ import annotations
+
+import asyncio
 import logging
 from typing import Any
 from pydantic import BaseModel, Field
-from app.agents.specs.planner.agent import PlannerAgent
-from app.contexts.models import (
-    Constraint,
-    ExecutionContext,
-    SharedContext,
-)
-from app.lib.json_parser import parse_json_output
-from app.lib.prompts import prepare_task_prompt
+from langchain_core.tools import tool
+from langchain_core.messages import AIMessage
 from app.manifests import load_manifest
-from app.planner.models import AgentAssignment, ExecutionOrder, ExecutionPlan
 from app.runtime import AgentRuntime, ToolBinder
-from app.llm.client import get_client
-from app.guardrails import GuardrailManager, GuardrailConfig
-from app.lib.i18n import _get_i18n
-from typing import Union
-
-def _planne(key: str) -> str:
-    i18n = _get_i18n()
-    return i18n.get(f"planning.{key}")
-
-
 
 logger = logging.getLogger(__name__)
 
@@ -36,36 +19,16 @@ except Exception:
 
 
 
-class ExecutionContextOutput(BaseModel):
-    objective: str = Field(..., min_length=1, description="Clear instruction for what the agent must accomplish")
-    tools: list = Field(default_factory=list, description="Tools needed for this request")
-    knowledge: list = Field(default_factory=list, description="Relevant knowledge collections")
-    skills: list = Field(default_factory=list, description="Any needed skills")
 
 
 class SelectedAgent(BaseModel):
     agent_id: str =  Field(default_factory=str, description="Agent id.")
     depends_on: list =  Field(default_factory=list[str], description="List of agent_id the agent depend on")
-    execution_context: ExecutionContextOutput = Field(description="The execution context for the agent")
-    constraints: str = Field(default_factory=str, description="Constraints for execution")
+    message_input: str = Field(..., min_length=1, description="Clear instruction for what the agent must accomplish")
 
 class AgentSelectionOutput(BaseModel):
     agents: list[SelectedAgent] = Field(default_factory=list, description="List of agents to handle the request. Each has agent_id, execution_context, and depends_on.")
     shared_constraints: str = Field(default_factory=str, description="Shared constraints for all agents execution")
-   
-class CoordinatorResponse(BaseModel):
-    is_task_trigger: bool = Field(
-        description="Set to True if this requires sub-agents/planning. Set to False if this is just normal conversation."
-    )
-    conversation_response: Union[str, None] = Field(
-        default=None, 
-        description="The natural language response to the user. ONLY populate this if is_task_trigger is False."
-    )
-    agent_selection: Union[AgentSelectionOutput, None]  = Field(
-        default=None, 
-        description="The structured plan for sub-agents. ONLY populate this if is_task_trigger is True."
-    )
-
 
 class PlanningError(Exception):
     def __init__(self, message: str, manifest: str | None = None):
@@ -73,97 +36,179 @@ class PlanningError(Exception):
         self.manifest = manifest
 
 
+_AGENT_REGISTRY = None
+_active_session = None
+_active_business_id = ""
+
+
+def set_active_session(session, business_id: str = ""):
+    global _active_session, _active_business_id
+    _active_session = session
+    _active_business_id = business_id
+
+
+def _get_registry():
+    global _AGENT_REGISTRY
+    if _AGENT_REGISTRY is None:
+        from app.agents.specs.domain import TransactionsAgent, InventoryAgent, KnowledgeAgent
+        _AGENT_REGISTRY = {
+            "transaction_agent": TransactionsAgent(),
+            "inventory_agent": InventoryAgent(),
+            "general_information_agent": KnowledgeAgent(),
+        }
+    return _AGENT_REGISTRY
+
+
+@tool
+async def delegate_to_agents(
+    agents: list[SelectedAgent],
+    shared_constraints: str = "",
+) -> str:
+    """Delegate tasks to specialized sub-agents for execution.
+
+    Args:
+        agents: List of agent assignments. Each must have:
+            - agent_id: One of "transaction_agent", "inventory_agent", "general_information_agent"
+            - message_input: Clear instruction for what the agent must accomplish
+            - depends_on: List of agent_ids this agent depends on
+        shared_constraints: Constraints that apply to all agents.
+
+    Return:
+        str.
+    """
+    registry = _get_registry()
+
+    has_dependencies = any(
+        len(a.depends_on) > 0 for a in agents if hasattr(a, 'depends_on')
+    )
+
+    agent_dicts = [a.model_dump() if hasattr(a, 'model_dump') else a for a in agents]
+
+    if has_dependencies:
+        asyncio.create_task(_run_sequential_and_speak(agent_dicts, registry, shared_constraints))
+    else:
+        asyncio.create_task(_run_parallel_and_speak(agent_dicts, registry, shared_constraints))
+
+    agent_names = [a.get("agent_id", "") for a in agent_dicts]
+    
+    return "Sucessfully delegated to specialize agent. No further action required while wiating "
+
+
+async def _run_parallel(agents: list[dict], registry: dict, shared_constraints: str) -> str:
+    async def run_one(agent_info: dict) -> str:
+        agent_id = agent_info.get("agent_id", "")
+        message_input = agent_info.get("message_input", "")
+
+        agent = registry.get(agent_id)
+        if agent is None:
+            return f"Unknown agent: {agent_id}"
+
+        try:
+            task = f"{message_input}\n{shared_constraints}".strip()
+            agent.bind_tools(_active_business_id, scopes=[])
+            result = await agent.execute_agent(task)
+            if isinstance(result, str):
+                return result
+            if hasattr(result, 'result') and hasattr(result.result, 'response'):
+                return result.result.response
+            return str(result)
+        except Exception as e:
+            logger.error(f"Agent {agent_id} failed: {e}")
+            return f"Error from {agent_id}: {str(e)}"
+
+    tasks = [run_one(a) for a in agents]
+    results = await asyncio.gather(*tasks)
+    return "\n\n".join(r for r in results if r)
+
+
+async def _run_sequential(agents: list[dict], registry: dict, shared_constraints: str) -> str:
+    results = []
+    for agent_info in agents:
+        agent_id = agent_info.get("agent_id", "")
+        message_input = agent_info.get("message_input", "")
+
+        agent = registry.get(agent_id)
+        if agent is None:
+            results.append(f"Unknown agent: {agent_id}")
+            continue
+
+        try:
+            task = f"{message_input}\n{shared_constraints}".strip()
+            agent.bind_tools(_active_business_id, scopes=[])
+            result = await agent.execute_agent(task)
+            if isinstance(result, str):
+                results.append(result)
+            elif hasattr(result, 'result') and hasattr(result.result, 'response'):
+                results.append(result.result.response)
+            else:
+                results.append(str(result))
+        except Exception as e:
+            logger.error(f"Agent {agent_id} failed: {e}")
+            results.append(f"Error from {agent_id}: {str(e)}")
+
+    return "\n\n".join(r for r in results if r)
+
+
+async def _run_parallel_and_speak(agents: list[dict], registry: dict, shared_constraints: str):
+    result = await _run_parallel(agents, registry, shared_constraints)
+    if result and _active_session:
+        _active_session.say(result)
+
+
+async def _run_sequential_and_speak(agents: list[dict], registry: dict, shared_constraints: str):
+    result = await _run_sequential(agents, registry, shared_constraints)
+    if result and _active_session:
+        _active_session.say(result)
+
+
 class Planner:
 
     def __init__(self) -> None:
-        
-        # self._system_prompt = _planne("system_prompt")
-        
         manifests = self._load_manifests()
 
-        agents_manifest = manifests["agents"]
-        skills_manifest = manifests["skills"]
-        knowledge_manifest = manifests["knowledge"]
-        tools_manifest = manifests['tools'] 
-
-        tools = (
-            f"{agents_manifest}\n\n"
-            f"{skills_manifest}\n\n"
-            f"{knowledge_manifest}\n\n"
-            f"{tools_manifest}\n\n"
+        system_context = (
+            f"{manifests['agents']}\n\n"
+            # f"{manifests['skills']}\n\n"
+            # f"{manifests['knowledge']}\n\n"
+            # f"{manifests['tools']}\n\n"
         )
 
         self._runtime = AgentRuntime(
             tool_binder=ToolBinder(),
             agent=agent_spec,
-            expected_output='Return json output',
-            output_pydantic=CoordinatorResponse,
-            allowed_input_guardrail=True,
-            # use_system_prompt=True,
-            system_prompt=tools
+            tools=[delegate_to_agents],
+            # allowed_input_guardrail=True,
+            system_prompt=system_context,
         )
 
-
-
-
-    async def plan(
-        self,
-        user_request: str,
-        conversation_messages: list[dict] | None = None,
-    ) -> ExecutionPlan:
-        
-    
-        result = await self._select_agents(user_request,conversation_messages)
-        selected = result.get('agents', [])
-        shared_constraints = result.get('shared_constraints', '')
-        response = result.get('response', '')
-        
-
-        if not selected:
-            shared_ctx = SharedContext(
-                user_request=user_request,
-                conversation_messages=conversation_messages or [],
-                shared_constraints=shared_constraints,
-            )
-            return ExecutionPlan(
-                participating_agents=[],
-                execution_order=ExecutionOrder.PARALLEL,
-                shared_context=shared_ctx,
-                unresolvable=True,
-                unresolvable_reason=response,
-            )
-
-        assignments: list[Any] = []
-        
+    async def run(self, user_request: str, conversation_messages: list[dict] | None = None, messages: list | None = None):
        
-        for agent_info in selected:
-            agent_id = agent_info["agent_id"]
-            depends_on = agent_info.get("depends_on", [])
-            execution_context = agent_info.get("execution_context", [])
-            constraints = agent_info.get("constraints", '')
+        raw = await self._runtime.execute(
+            user_request,
+            chat_history=conversation_messages or [],
+            use_plan_mode=True,
+            messages=messages,
+        )
+        return AIMessage(content=raw or "")
 
-            assignments.append(
-                AgentAssignment(
-                    agent_id=agent_id,
-                    execution_context=execution_context,
-                    depends_on=depends_on,
-                    constraints=constraints
-                )
-            )
+    async def plan(self, user_request: str, conversation_messages: list[dict] | None = None):
+        from app.planner.models import ExecutionOrder, ExecutionPlan
+        from app.contexts.models import SharedContext
 
-        execution_order = self._determine_order(assignments)
+        result_msg = await self.run(user_request, conversation_messages)
+        response = result_msg.content
 
         shared_ctx = SharedContext(
             user_request=user_request,
             conversation_messages=conversation_messages or [],
-            shared_constraints= shared_constraints,
+            shared_constraints="",
         )
-
         return ExecutionPlan(
-            participating_agents=assignments,
-            execution_order=execution_order,
+            participating_agents=[],
+            execution_order=ExecutionOrder.PARALLEL,
             shared_context=shared_ctx,
-           
+            unresolvable=True,
+            unresolvable_reason=response,
         )
 
     def _load_manifests(self) -> dict[str, str]:
@@ -175,60 +220,3 @@ class Planner:
             except FileNotFoundError:
                 raise PlanningError(f"Manifest '{name}' is unreachable.", manifest=name)
         return manifests
-
-
-    async def _select_agents(self, user_request: str, chat_history: list[Any] = []) -> list[dict[str, Any]]:
-    
-        raw = await  self._runtime.execute(user_request,chat_history=chat_history,use_plan_mode=True,task_msg_check=user_request)
-    
-       
-        try:
-            raw_text = raw.result.response if hasattr(raw, 'result') else str(raw)
-            response = parse_json_output(raw_text)
-        except (ValueError, TypeError):
-            logger.warning("Failed to parse agent selection response")
-            return  {
-                "agents": [],
-                "shared_constraints": '',
-                "response": ''
-            }
-
-        if not isinstance(response, dict):
-            return {
-                "agents": [],
-                "shared_constraints": '',
-                "response": str(response) if response else ''
-            }
-
-        agent_selection = response.get("agent_selection", None)
-        shared_constraints = response.get("shared_constraints", "")
-        direct_response = response.get("conversation_response", "")
-        is_task_trigger = response.get("is_task_trigger", "")
-
-        if not is_task_trigger:
-            return {
-                "agents": [],
-                "shared_constraints": "",
-                "response": direct_response
-            }           
-        else:
-           if not isinstance(agent_selection, dict):
-               return {
-                   "agents": [],
-                   "shared_constraints": shared_constraints,
-                   "response": direct_response
-               }
-           agents = agent_selection.get("agents", [])
-           return {
-            "agents": [a for a in agents if isinstance(a, dict) and "agent_id" in a],
-            "shared_constraints": shared_constraints,
-            "response": direct_response
-           }
-
-
-    @staticmethod
-    def _determine_order(assignments: list[AgentAssignment]) -> ExecutionOrder:
-        if len(assignments) <= 1:
-            return ExecutionOrder.SEQUENTIAL
-        has_dependency = any(len(a.depends_on) > 0 for a in assignments)
-        return ExecutionOrder.SEQUENTIAL if has_dependency else ExecutionOrder.PARALLEL

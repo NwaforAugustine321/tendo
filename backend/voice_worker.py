@@ -1,18 +1,9 @@
-"""LiveKit Voice Agent Worker — runs as a separate process.
-
-Uses LangGraph LLMAdapter to route speech directly through the backend graph.
-STT → LangGraph (your planner/agents) → TTS. No extra LLM hops.
-
-Run with:
-    python voice_worker.py dev
-    python voice_worker.py start
-"""
+"""LiveKit Voice Worker — streams LLM tokens directly to TTS via LangGraph."""
 
 import json
 import logging
 import os
 import sys
-from typing import Annotated, TypedDict
 
 from dotenv import load_dotenv
 
@@ -26,11 +17,6 @@ logger = logging.getLogger("voice-worker")
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-from langgraph.config import get_stream_writer
-from langgraph.graph import START, StateGraph
-from langgraph.graph.message import add_messages
-
 from livekit.agents import (
     Agent,
     AgentSession,
@@ -41,75 +27,6 @@ from livekit.agents import (
     inference,
 )
 from livekit.plugins import langchain, nvidia
-
-
-class VoiceGraphState(TypedDict):
-    messages: Annotated[list[BaseMessage], add_messages]
-    business_id: str
-    session_id: str
-    user_id: str
-
-
-_graph_initialized = False
-
-
-async def _ensure_graph():
-    global _graph_initialized
-    if not _graph_initialized:
-        from app.graph.workflow import init_graph, get_graph
-        try:
-            get_graph()
-        except RuntimeError:
-            await init_graph()
-        _graph_initialized = True
-
-
-async def process_node(state: VoiceGraphState):
-    writer = get_stream_writer()
-
-    messages = state["messages"]
-    business_id = state.get("business_id", "")
-    session_id = state.get("session_id", "")
-    user_id = state.get("user_id", "anonymous")
-
-    last_human = ""
-    for msg in reversed(messages):
-        if isinstance(msg, HumanMessage):
-            last_human = msg.content
-            break
-
-    if not last_human:
-        response = "I didn't catch that. Could you repeat?"
-        writer(response)
-        return {"messages": [AIMessage(content=response)]}
-
-    await _ensure_graph()
-
-    from app.communication.voice import _run_graph
-
-    try:
-        result = await _run_graph(
-            last_human,
-            session_id,
-            business_id,
-            None,
-            user_id,
-        )
-        response_text = result.get("text", "") or "Done."
-    except Exception as e:
-        logger.error(f"[process_node] failed: {e}", exc_info=True)
-        response_text = "Something went wrong. Please try again."
-
-    logger.info(f"[process_node] response: {response_text[:80]}")
-    writer(response_text)
-    return {"messages": [AIMessage(content=response_text)]}
-
-
-def create_voice_graph():
-    builder = StateGraph(VoiceGraphState)
-    builder.add_node("process", process_node)
-    builder.add_edge(START, "process")
-    return builder.compile()
 
 
 server = AgentServer()
@@ -142,21 +59,16 @@ async def tendo_session(ctx: JobContext):
         user_id = "anonymous"
 
     logger.info(f"[tendo_session] business_id={business_id} session_id={session_id}")
-
     ctx.log_context_fields = {"room": ctx.room.name}
 
-    graph = create_voice_graph()
+    from app.graph.voice_graph import get_voice_graph
+    graph = get_voice_graph()
 
     agent = Agent(
         instructions="",
         llm=langchain.LLMAdapter(
             graph=graph,
             stream_mode="custom",
-            context={
-                "business_id": business_id,
-                "session_id": session_id,
-                "user_id": user_id,
-            },
         ),
     )
 
@@ -172,6 +84,10 @@ async def tendo_session(ctx: JobContext):
     )
 
     await session.start(agent=agent, room=ctx.room)
+
+    from app.planner.planner import set_active_session
+    set_active_session(session, business_id)
+
     await ctx.connect()
     logger.info(f"[tendo_session] Agent connected and listening")
 
