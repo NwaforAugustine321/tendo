@@ -9,6 +9,7 @@ class GraphState(TypedDict, total=False):
     event: dict
     user_id: str | None
     thread_id: str | None
+    session_id: str | None
     business_id: str | None
     output_mode: Literal["conversation"] | None
     response: dict | None

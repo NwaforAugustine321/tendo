@@ -170,11 +170,29 @@ async def moa_orchestrator_node(state: "GraphState") -> dict:
     record_id = event.get("record_id", "")
     scopes = event.get("scopes")
     emit_callback = state.get("emit_callback")
+    user_id = state.get("user_id") or "anonymous"
+
+    # Auto-create session if missing (e.g. voice path without a pre-created session)
+    if not session_id and business_id:
+        from app.db.tools.sessions import insert_session
+        try:
+            title = user_message[:50] if user_message else "Voice Session"
+            new_session = await insert_session(business_id, user_id, title=title)
+            session_id = new_session.get("id", "")
+            print(f"[MOA_NODE] Auto-created session: {session_id}")
+        except Exception as e:
+            print(f"[MOA_NODE] Failed to auto-create session: {e}")
+
+    print(f"[MOA_NODE] === START === user_message={user_message[:80] if user_message else ''}")
+    print(f"[MOA_NODE] business_id={business_id}, session_id={session_id}")
 
     async def save_msg_to_long_term_mem(messages):
         if not session_id:
+            print(f"[MOA_NODE] save_msg_to_long_term_mem SKIPPED — no session_id")
             return
-        await save_messages(business_id, session_id, messages)
+        print(f"[MOA_NODE] save_msg_to_long_term_mem saving {len(messages)} messages to session={session_id}")
+        await save_messages(business_id, session_id, messages, record_id=record_id or None)
+        print(f"[MOA_NODE] save_msg_to_long_term_mem DONE")
 
     conversation_scope_id = session_id
 
@@ -214,6 +232,7 @@ async def moa_orchestrator_node(state: "GraphState") -> dict:
         scopes = [f"/{business_id}/record/{record_id}", f"/business/{business_id}"]
 
 
+    print(f"[MOA_NODE] Fetching conversation history and saving user message...")
     conversation_history, _ = await asyncio.gather(
        asyncio.create_task(fetch_short_msg_mem(limit=10)),  
        asyncio.create_task(
@@ -221,11 +240,12 @@ async def moa_orchestrator_node(state: "GraphState") -> dict:
          if user_message.strip() else asyncio.sleep(0)), 
        return_exceptions=True
     )
+    print(f"[MOA_NODE] conversation_history loaded: {len(conversation_history) if conversation_history else 0} messages")
 
     result = await moa_orchestrator(
         user_request=user_message,
         business_id=business_id,
-        conversation_messages=conversation_history[-12:],
+        conversation_messages=(conversation_history or [])[-12:],
         scopes=scopes,
         emit_callback=emit_callback
     )
@@ -251,9 +271,11 @@ async def moa_orchestrator_node(state: "GraphState") -> dict:
         pass
 
     await save_msg_to_short_mem()
+    print(f"[MOA_NODE] Saving assistant response to long-term mem: {text[:80] if text else ''}")
     await save_msg_to_long_term_mem([
             {"role": "assistant", "content": text},
     ])
+    print(f"[MOA_NODE] === END === response saved")
 
     response_payload = {"mode": "conversation", "text": text}
     if is_waiting and questions:

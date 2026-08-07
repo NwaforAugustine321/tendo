@@ -34,3 +34,5 @@ dependencies:
     - psycopg2-binary
     - tiktoken
     - nemoguardrails
+    - livekit-agents>=1.6.1
+    - livekit-api>=1.2.0

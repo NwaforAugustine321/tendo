@@ -15,6 +15,7 @@ from app.routes.records import router as records_router
 from app.routes.conversations import router as conversations_router
 from app.routes.snapshot import router as snapshot_router
 from app.routes.integrations import router as integrations_router
+from app.routes.voice import router as voice_router
 from app.lib.errors import register_error_handlers
 
 # Socket.IO for real-time events (voice handler disabled)
@@ -52,7 +53,7 @@ app = FastAPI(title="Tendo", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://accountability-quotations-sheets-performed.trycloudflare.com","http://localhost:5173" ],
+    allow_origins=["https://tribute-detected-cheese-combining.trycloudflare.com","http://localhost:5173" ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -65,10 +66,11 @@ app.include_router(records_router,prefix="/api")
 app.include_router(conversations_router,prefix="/api")
 app.include_router(snapshot_router,prefix="/api")
 app.include_router(integrations_router,prefix="/api")
+app.include_router(voice_router,prefix="/api")
 register_error_handlers(app)
 
 # Socket.IO mounted for real-time events (voice handler not loaded)
-asgi_app = socketio.ASGIApp(sio, other_asgi_app=app, socketio_path='/ws/voice')
+asgi_app = socketio.ASGIApp(sio, other_asgi_app=app, socketio_path='/ws/session')
 
 
 @app.get("/")

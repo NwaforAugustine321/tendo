@@ -59,6 +59,7 @@ type Props = {
   onVoiceRecorded: (blob: Blob) => void
   onVoiceToggle?: () => void
   isListening?: boolean
+  voiceLoading?: boolean
   onOptionSelect: (optionId: string) => void
   onConfirm?: () => void
   onModify?: () => void
@@ -83,6 +84,7 @@ export function ConversationPage({
   onVoiceRecorded,
   onVoiceToggle,
   isListening = false,
+  voiceLoading = false,
   onOptionSelect,
   onConfirm,
   onModify,
@@ -198,6 +200,7 @@ export function ConversationPage({
               onRecorded={onVoiceRecorded}
               onToggle={onVoiceToggle}
               isListening={isListening}
+              loading={voiceLoading}
             />
             <TextInput onSend={onSendText} />
           </div>

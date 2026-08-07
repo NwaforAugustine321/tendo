@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { ConversationPage, type MessageItem } from '../components/containers'
 import type { InputSpec } from '../components/containers/ConversationPage'
 import { useVoiceSession } from '../hooks/useVoiceSession'
+import { SpeakingIndicator } from '../components/SpeakingIndicator'
 import { useBusinessStore } from '../store/business'
 import { useWorkspaceStore } from '../store/workspace'
 import { resumeSession } from '../lib/services/business'
@@ -67,19 +68,16 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
   useEffect(() => {
     const handleVoiceToggleEvent = async () => {
       if (voice.isListening) {
-        const audioUrl = await voice.stopListening()
-        setMessages((prev) => [...prev, {
-          id: `user-${Date.now()}`,
-          role: 'user',
-          content: '🎤 Voice message',
-          type: 'text',
-          audioUrl: audioUrl ?? undefined,
-        }])
+        voice.disconnect()
+        setWakeActive(false)
       } else {
+        const bizId = currentProfile?.id
+        if (!bizId) return
         if (!voice.isConnected) {
-          await voice.connect()
+          await voice.connect({ sessionId, businessId: bizId })
         }
         await voice.startListening()
+        setWakeActive(true)
       }
       window.dispatchEvent(new CustomEvent('tendo:recording-state', {
         detail: { recording: !voice.isListening }
@@ -104,6 +102,22 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
       setThinking(true)
     }
   }, [voice.thinkingText])
+
+  // When a voice transcript arrives, show it as a user message and trigger thinking
+  const lastTranscriptRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!voice.lastTranscript) return
+    if (voice.lastTranscript === lastTranscriptRef.current) return
+    lastTranscriptRef.current = voice.lastTranscript
+
+    setMessages((prev) => [...prev, {
+      id: `user-voice-${Date.now()}`,
+      role: 'user',
+      content: voice.lastTranscript!,
+      type: 'text',
+    }])
+    setThinking(true)
+  }, [voice.lastTranscript])
 
   // Display agent messages when they arrive
   useEffect(() => {
@@ -204,20 +218,18 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
 
   const handleVoiceToggle = async () => {
     if (voice.isListening) {
-      const audioUrl = await voice.stopListening()
-      setMessages((prev) => [...prev, {
-        id: `user-${Date.now()}`,
-        role: 'user',
-        content: '🎤 Voice message',
-        type: 'text',
-        audioUrl: audioUrl ?? undefined,
-      }])
+      voice.disconnect()
+      setWakeActive(false)
     } else {
-      // Connect Gemini if not already connected
+      const bizId = currentProfile?.id
+      if (!bizId) {
+        return
+      }
       if (!voice.isConnected) {
-        await voice.connect()
+        await voice.connect({ sessionId, businessId: bizId })
       }
       await voice.startListening()
+      setWakeActive(true)
     }
   }
 
@@ -241,7 +253,12 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
   }
 
   return (
-    <ConversationPage
+    <>
+      <SpeakingIndicator
+        active={voice.isListening || voice.isSpeaking || voice.userSpeaking || voice.agentSpeaking}
+        speaking={voice.userSpeaking || voice.agentSpeaking}
+      />
+      <ConversationPage
       messages={messages}
       isTyping={thinking || voice.isSpeaking}
       thinkingText={thinking ? (voice.thinkingText || '') : undefined}
@@ -250,6 +267,7 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
       onVoiceRecorded={() => {}}
       onVoiceToggle={handleVoiceToggle}
       isListening={voice.isListening}
+      voiceLoading={voice.state === 'connecting'}
       onOptionSelect={handleOptionSelect}
       onConfirm={() => handleOptionSelect('confirm')}
       onModify={() => {}}
@@ -265,17 +283,17 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
       wakeActive={wakeActive}
       onWakeToggle={async () => {
         if (wakeActive) {
-          // Turn off: stop mic + disconnect Gemini
-          await voice.stopListening()
           voice.disconnect()
           setWakeActive(false)
         } else {
-          // Turn on: connect Gemini + start mic (continuous listening)
-          await voice.connect()
+          const bizId = currentProfile?.id
+          if (!bizId) return
+          await voice.connect({ sessionId, businessId: bizId })
           await voice.startListening()
           setWakeActive(true)
         }
       }}
     />
+    </>
   )
 }

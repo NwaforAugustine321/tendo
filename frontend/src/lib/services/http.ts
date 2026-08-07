@@ -1,8 +1,8 @@
 
 import { toast } from 'sonner'
 
-// const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
-const BASE_URL =  "https://combine-exactly-sky-papers.trycloudflare.com/api"
+const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+
 
 type RequestOptions = {
   method?: string

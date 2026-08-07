@@ -83,6 +83,7 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
     input_state = {
         "event": {"text": user_text, "thread_id": thread_id, "business_id": business_id},
         "thread_id": thread_id,
+        "session_id": thread_id,
         "business_id": business_id,
         "user_id": user_id,
         "messages": thread_messages[-12:],
@@ -144,6 +145,8 @@ async def handle_session(websocket: WebSocket):
         if settings.voice_provider == "cartesia":
             # Cartesia mode: continuous audio streaming with server-side turn detection
             await _handle_cartesia_session(websocket, provider, thread_id, business_id, user_id)
+        elif settings.voice_provider == "livekit":
+            await _handle_livekit_session(websocket, thread_id, business_id, user_id)
         else:
             # Google mode: preserve existing end_turn collection flow
             await _handle_google_session(websocket, provider, thread_id, business_id, user_id)
@@ -157,6 +160,57 @@ async def handle_session(websocket: WebSocket):
         await provider.disconnect()
         await close(websocket)
         logger.info("WebSocket closed")
+
+
+async def _handle_livekit_session(websocket: WebSocket, thread_id: str, business_id: str, user_id: str | None):
+    """Handle LiveKit voice session — STT/TTS bridge with acknowledgment generation."""
+    from app.communication.providers.livekit_provider import handle_session as livekit_handle
+    from app.ws.receiver import receive_json
+    from app.memory.memory import Memory
+
+    conversation_messages = []
+    try:
+        memory = Memory(
+            scopes=[f"/conversations/{thread_id}"],
+            business_id=business_id,
+            table_name="conversations",
+        )
+        recent = await memory.fetch(limit=12)
+        if recent:
+            for r in recent:
+                meta = r.metadata or {}
+                conversation_messages.append({"role": meta.get("role", "user"), "content": r.content})
+    except Exception as e:
+        logger.warning(f"Failed to load conversation history: {e}")
+
+    async def receive():
+        return await receive_json(websocket)
+
+    async def send(msg):
+        from app.ws.sender import send_audio, send_message, send_turn_complete, send_thinking
+        from app.ws.encoding import encode_audio
+        msg_type = msg.get("type")
+        if msg_type == "audio":
+            await send_audio(websocket, msg.get("data", b""))
+        elif msg_type == "message":
+            data = msg.get("data", {})
+            await send_message(websocket, data.get("response", ""), data.get("questions"), data.get("extracted"))
+        elif msg_type == "turn_complete":
+            await send_turn_complete(websocket)
+        elif msg_type == "thinking":
+            await send_thinking(websocket, msg.get("data", ""))
+        elif msg_type == "error":
+            from app.ws.sender import send_error
+            await send_error(websocket, msg.get("data", ""))
+
+    await livekit_handle(
+        session_id=thread_id,
+        business_id=business_id,
+        user_id=user_id or "anonymous",
+        receive=receive,
+        send=send,
+        conversation_messages=conversation_messages,
+    )
 
 
 async def _handle_cartesia_session(websocket: WebSocket, provider, thread_id: str, business_id: str, user_id: str | None):
@@ -334,6 +388,33 @@ async def run_voice_session(
 
         if settings.voice_provider == "cartesia":
             await _run_socketio_cartesia(provider, thread_id, business_id, user_id, receive, send, _send_msg, decode_audio, encode_audio)
+        elif settings.voice_provider == "livekit":
+            from app.communication.providers.livekit_provider import handle_session as livekit_handle
+            from app.memory.memory import Memory
+
+            conversation_messages = []
+            try:
+                memory = Memory(
+                    scopes=[f"/conversations/{thread_id}"],
+                    business_id=business_id,
+                    table_name="conversations",
+                )
+                recent = await memory.fetch(limit=12)
+                if recent:
+                    for r in recent:
+                        meta = r.metadata or {}
+                        conversation_messages.append({"role": meta.get("role", "user"), "content": r.content})
+            except Exception as e:
+                logger.warning(f"Failed to load conversation history: {e}")
+
+            await livekit_handle(
+                session_id=thread_id,
+                business_id=business_id,
+                user_id=user_id,
+                receive=receive,
+                send=send,
+                conversation_messages=conversation_messages,
+            )
         else:
             await _run_socketio_google(provider, thread_id, business_id, user_id, receive, send, _send_msg, decode_audio, encode_audio)
 

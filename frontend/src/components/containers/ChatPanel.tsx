@@ -27,10 +27,10 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
     if (!recordId) return
 
     const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:8000'
-    const baseUrl = wsUrl.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://').replace(/\/ws\/voice$/, '')
+    const baseUrl = wsUrl.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://').replace(/\/ws\/session$/, '')
 
     const socket = io(baseUrl, {
-      path: '/ws/voice',
+      path: '/ws/session',
       transports: ['websocket'],
       reconnection: true,
       reconnectionAttempts: 5,
@@ -91,7 +91,15 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
 
           if (!cancelled) setInitialMessages(allMessages)
         } else {
-          setActiveSessionId('')
+          // No sessions — create a default one
+          try {
+            const session = await createSession(businessId, 'New Session', recordId)
+            if (cancelled) return
+            setSessions([session])
+            setActiveSessionId(session.id)
+          } catch {
+            setActiveSessionId('')
+          }
         }
       } catch {
         setSessions([])

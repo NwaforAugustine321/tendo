@@ -6,7 +6,7 @@ from app.communication.providers.base import VoiceProvider
 
 logger = logging.getLogger(__name__)
 
-_SUPPORTED_PROVIDERS = ("google", "cartesia")
+_SUPPORTED_PROVIDERS = ("google", "cartesia", "livekit")
 
 
 def create_voice_provider() -> VoiceProvider:
@@ -37,6 +37,12 @@ def create_voice_provider() -> VoiceProvider:
 
         logger.info("Initializing Cartesia voice provider")
         return CartesiaVoiceProvider()
+
+    if provider_name == "livekit":
+        from app.communication.providers.livekit_provider import LiveKitProvider
+
+        logger.info("Initializing LiveKit voice provider")
+        return LiveKitProvider()
 
     # Default: Google Gemini Live API
     from app.communication.providers.google_provider import GoogleVoiceProvider

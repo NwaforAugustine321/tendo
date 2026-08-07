@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS payments (
 
 
 
--- Conversation sessions
+-- Conversation sessions 
 CREATE TABLE IF NOT EXISTS conversation_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     business_id UUID NOT NULL REFERENCES business_profiles(id),
@@ -129,24 +129,11 @@ CREATE TABLE IF NOT EXISTS conversation_sessions (
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Conversation messages
-CREATE TABLE IF NOT EXISTS conversation_messages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    business_id UUID NOT NULL REFERENCES business_profiles(id),
-    session_id UUID NOT NULL REFERENCES conversation_sessions(id),
-    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-    content TEXT NOT NULL,
-    message_type TEXT NOT NULL DEFAULT 'text',
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT now()
-);
-
 -- Operation checkpoints
 CREATE TABLE IF NOT EXISTS operation_checkpoints (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     business_id UUID NOT NULL REFERENCES business_profiles(id),
     session_id UUID NOT NULL REFERENCES conversation_sessions(id),
-    message_id UUID REFERENCES conversation_messages(id),
     operation_type TEXT NOT NULL,
     user_input TEXT NOT NULL,
     ai_understanding_summary TEXT,
@@ -194,7 +181,6 @@ ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE conversation_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE conversation_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE operation_checkpoints ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE business_insights ENABLE ROW LEVEL SECURITY;
@@ -210,7 +196,6 @@ CREATE POLICY "business_scope" ON transactions FOR ALL USING (business_id IN (SE
 CREATE POLICY "business_scope" ON invoices FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
 CREATE POLICY "business_scope" ON payments FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
 CREATE POLICY "business_scope" ON conversation_sessions FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "business_scope" ON conversation_messages FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
 CREATE POLICY "business_scope" ON operation_checkpoints FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
 CREATE POLICY "business_scope" ON audit_logs FOR ALL USING (business_id IN (SELECT id FROM business_profiles WHERE user_id = auth.uid()));
 

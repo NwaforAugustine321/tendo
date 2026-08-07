@@ -11,15 +11,15 @@ let _socket: Socket | null = null
 let _refCount = 0
 
 function getBaseUrl(): string {
-  const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/voice'
-  return wsUrl.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://').replace(/\/ws\/voice$/, '')
+  const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/session'
+  return wsUrl.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://').replace(/\/ws\/session$/, '')
 }
 
 function getSocket(): Socket {
   if (!_socket) {
     const baseUrl = getBaseUrl()
     _socket = io(baseUrl, {
-      path: '/ws/voice',
+      path: '/ws/session',
       transports: ['websocket'],
       reconnection: true,
       reconnectionAttempts: Infinity,

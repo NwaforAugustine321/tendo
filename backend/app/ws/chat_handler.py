@@ -75,7 +75,7 @@ async def message(sid, data):
         return
 
     business_id = session.get("business_id", "")
-    
+
     if not business_id:
         return
 
@@ -97,6 +97,7 @@ async def message(sid, data):
             },
             "business_id": business_id,
             "thread_id": session_id,
+            "session_id": session_id,
             "emit_callback": emit_callback,
         }
 

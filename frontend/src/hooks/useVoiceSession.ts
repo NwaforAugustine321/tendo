@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { VoiceClient } from '../lib/voice-client'
+import { LiveKitVoiceClient } from '../lib/livekit-client'
 import type { InputSpec } from '../components/containers/ConversationPage'
+import { request } from '../lib/services/http'
+import { connectSocket, disconnectSocket } from '../lib/ws'
+import type { Socket } from 'socket.io-client'
 
-type VoiceSessionState = 'disconnected' | 'connecting' | 'reconnecting' | 'idle' | 'listening' | 'speaking' | 'error'
-
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/voice'
+type SessionState = 'disconnected' | 'connecting' | 'idle' | 'listening' | 'speaking' | 'error'
 
 export type AgentMessage = {
   id: string
@@ -15,123 +16,156 @@ export type AgentMessage = {
 }
 
 export function useVoiceSession() {
-  const [state, setState] = useState<VoiceSessionState>('disconnected')
+  const [state, setState] = useState<SessionState>('disconnected')
   const [lastMessage, setLastMessage] = useState<AgentMessage | null>(null)
+  const [lastTranscript, setLastTranscript] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   const [thinkingText, setThinkingText] = useState('')
   const [thoughtText, setThoughtText] = useState('')
-  const [reconnectAttempt, setReconnectAttempt] = useState(0)
-  const [turnComplete, setTurnComplete] = useState(false)
-  const clientRef = useRef<VoiceClient | null>(null)
-  const connectParamsRef = useRef<{ sessionId?: string; businessId?: string } | undefined>(undefined)
+  const [micActive, setMicActive] = useState(false)
+  const [userSpeaking, setUserSpeaking] = useState(false)
+  const [agentSpeaking, setAgentSpeaking] = useState(false)
+  const clientRef = useRef<LiveKitVoiceClient | null>(null)
+  const socketRef = useRef<Socket | null>(null)
+  const connectParamsRef = useRef<{ sessionId?: string; businessId?: string }>({})
   const msgCounter = useRef(0)
 
-  const connect = useCallback(async (params?: { sessionId?: string; businessId?: string }) => {
-    if (clientRef.current) return
+  // Socket.IO for text-only chat (fallback when LiveKit isn't used)
+  const ensureSocket = useCallback((): Socket => {
+    if (!socketRef.current) {
+      const socket = connectSocket()
+      socketRef.current = socket
 
-    connectParamsRef.current = params
+      socket.on('message', (data: any) => {
+        const msg = typeof data === 'string' ? JSON.parse(data) : data
+        if (msg.type === 'message' && msg.data) {
+          const { response, msg_type, questions, extracted } = msg.data
+          msgCounter.current++
+          setLastMessage({
+            id: `msg-${msgCounter.current}`,
+            response: response || '',
+            msgType: msg_type || 'answer',
+            questions: questions || undefined,
+            extracted: extracted || undefined,
+          })
+          setThinkingText('')
+          setThoughtText('')
+        } else if (msg.type === 'thinking') {
+          setThinkingText(msg.data || '')
+        } else if (msg.type === 'thought') {
+          setThoughtText(msg.data || '')
+        } else if (msg.type === 'error') {
+          setErrorMessage(msg.data || 'Something went wrong')
+        }
+      })
+    }
+    return socketRef.current
+  }, [])
+
+  // LiveKit connect — for voice mode
+  const connect = useCallback(async (params?: { sessionId?: string; businessId?: string }) => {
+    if (clientRef.current?.isConnected()) return
+    if (params) connectParamsRef.current = params
+
+    // Always read fresh businessId from store if not provided
+    const { useBusinessStore } = await import('../store/business')
+    const storeBusinessId = useBusinessStore.getState().currentProfile?.id || ''
+    const effectiveParams = {
+      sessionId: connectParamsRef.current.sessionId || '',
+      businessId: connectParamsRef.current.businessId || storeBusinessId,
+    }
+
+    if (!effectiveParams.businessId) {
+      setErrorMessage('No business profile selected.')
+      return
+    }
+
+    // Get user_id from auth store
+    const { useAuthStore } = await import('../store/auth')
+    const userId = useAuthStore.getState().user?.user_id || ''
+
+    if (!userId) {
+      setErrorMessage('Authentication required. Please log in.')
+      return
+    }
+
     setState('connecting')
     setErrorMessage('')
 
-    // Build WS URL with optional session params
-    let wsUrl = WS_URL
-    const queryParts: string[] = []
-    if (params?.sessionId) queryParts.push(`session_id=${params.sessionId}`)
-    if (params?.businessId) queryParts.push(`business_id=${params.businessId}`)
-    if (queryParts.length > 0) {
-      wsUrl += (wsUrl.includes('?') ? '&' : '?') + queryParts.join('&')
-    }
-
-    const client = new VoiceClient({
-      onTranscript: (text) => {
-        // This fires from the 'message' event with the full response text
-        msgCounter.current++
-        setLastMessage((prev) => ({
-          id: `msg-${msgCounter.current}`,
-          response: text,
-          msgType: prev?.msgType || 'answer',
-          questions: prev?.questions,
-        }))
-        setTurnComplete(false)
-      },
-      onTurnComplete: () => {
-        setTurnComplete(true)
-      },
-      onError: (err) => {
-        setErrorMessage(err)
-        setState('error')
-        setThoughtText('')
-        setThinkingText('')
-      },
-      onSpeakingStart: () => setState('speaking'),
-      onSpeakingEnd: () => setState('idle'),
-      onThinking: (text) => setThinkingText(text),
-      onThought: (text) => setThoughtText(text),
-      onReconnecting: (attempt) => {
-        setReconnectAttempt(attempt)
-        setState('reconnecting')
-      },
-      onReconnected: () => {
-        setReconnectAttempt(0)
-        setState('idle')
-        setErrorMessage('')
-        // Re-enable mic after reconnect
-        client.startMic().catch(() => {})
-      },
-      onInput: (inputSpec) => {
-        msgCounter.current++
-        setLastMessage({
-          id: `msg-${msgCounter.current}`,
-          response: '',
-          msgType: 'question',
-          questions: inputSpec,
-        })
-      },
-      onMessage: (data) => {
-        console.log('[VoiceSession] message received:', JSON.stringify(data))
-        const { response, msg_type, questions, extracted } = data
-        msgCounter.current++
-        setLastMessage({
-          id: `msg-${msgCounter.current}`,
-          response: response || '',
-          msgType: msg_type || 'answer',
-          questions: questions || undefined,
-          extracted: extracted || undefined,
-        })
-        setTurnComplete(false)
-        setThoughtText('')
-        setThinkingText('')
-      },
-    })
-
     try {
-      await client.connect(wsUrl)
+      const tokenResponse = await request<{ token: string; url: string; room: string }>('/voice/token', {
+        method: 'POST',
+        body: {
+          session_id: effectiveParams.sessionId,
+          business_id: effectiveParams.businessId,
+          user_id: userId,
+        },
+        silent: true,
+      })
+
+      const client = new LiveKitVoiceClient({
+        onConnected: () => setState('idle'),
+        onDisconnected: () => {
+          setState('idle')
+          setAgentSpeaking(false)
+          setUserSpeaking(false)
+        },
+        onUserSpeakingChange: (speaking) => setUserSpeaking(speaking),
+        onAgentSpeakingChange: (speaking) => {
+          setAgentSpeaking(speaking)
+          if (speaking) setState('speaking')
+          else setState('listening')
+        },
+        onMessage: (data) => {
+          const { response, msg_type, questions, extracted } = data
+          msgCounter.current++
+          setLastMessage({
+            id: `msg-${msgCounter.current}`,
+            response: response || '',
+            msgType: msg_type || 'answer',
+            questions: questions || undefined,
+            extracted: extracted || undefined,
+          })
+          setThinkingText('')
+          setThoughtText('')
+        },
+        onThinking: (text) => setThinkingText(text),
+        onTranscript: (text) => setLastTranscript(text),
+        onTurnComplete: () => {
+          setAgentSpeaking(false)
+          setState('listening')
+        },
+        onError: (err) => {
+          setErrorMessage(err)
+          setState('error')
+        },
+      })
+
+      await client.connect(tokenResponse.url, tokenResponse.token)
       clientRef.current = client
       setState('idle')
     } catch {
-      setErrorMessage('Reconnecting...')
-      setState('reconnecting')
-      // Auto-retry after 3 seconds
-      setTimeout(() => {
-        clientRef.current = null
-        connect(params)
-      }, 3000)
+      setState('idle')
+      setErrorMessage('Voice not available. Check LiveKit configuration.')
     }
   }, [])
 
   const startListening = useCallback(async () => {
-    if (!clientRef.current) await connect()
-    if (!clientRef.current) {
-      setErrorMessage('Voice server not available')
+    if (!clientRef.current?.isConnected()) {
+      await connect(connectParamsRef.current)
+    }
+    if (!clientRef.current?.isConnected()) {
+      setErrorMessage('Voice not available.')
       setState('error')
       return
     }
     try {
       await clientRef.current.startMic()
+      setMicActive(true)
       setState('listening')
       setErrorMessage('')
     } catch (err: any) {
-      if (err?.name === 'NotAllowedError' || err?.message?.includes('Permission')) {
+      if (err?.name === 'NotAllowedError') {
         setErrorMessage('Microphone permission denied.')
       } else {
         setErrorMessage('Could not access microphone.')
@@ -141,58 +175,56 @@ export function useVoiceSession() {
   }, [connect])
 
   const stopListening = useCallback(async (): Promise<string | null> => {
-    if (!clientRef.current) return null
-    const audioUrl = await clientRef.current.stopMic()
+    if (clientRef.current) {
+      clientRef.current.stopMic()
+    }
+    setMicActive(false)
     setState('idle')
-    return audioUrl
+    return null
   }, [])
 
   const sendText = useCallback((text: string, scope?: string, businessId?: string, recordId?: string, sessionId?: string) => {
     setLastMessage(null)
-    setTurnComplete(false)
+    setThinkingText('')
+    setThoughtText('')
 
-    const client = clientRef.current
-
-    if (!client || !client.isConnected?.()) {
-      if (client) {
-        client.disconnect()
-      }
-      clientRef.current = null
-      setState('connecting')
-      connect(connectParamsRef.current).then(() => {
-        clientRef.current?.sendText(text, scope, recordId, businessId, sessionId)
-      })
-      return
-    }
-
-    const sent = client.sendText(text, scope, recordId, businessId, sessionId)
-    if (!sent) {
-      client.disconnect()
-      clientRef.current = null
-      setState('connecting')
-      connect(connectParamsRef.current).then(() => {
-        clientRef.current?.sendText(text, scope, recordId, businessId, sessionId)
-      })
-    }
-  }, [connect])
+    // Always use Socket.IO for text chat
+    const socket = ensureSocket()
+    socket.emit('message', {
+      type: 'text',
+      data: text,
+      scope: scope || null,
+      record_id: recordId || '',
+      business_id: businessId || '',
+      session_id: sessionId || '',
+    })
+  }, [ensureSocket])
 
   const disconnect = useCallback(() => {
-    if (clientRef.current) {
-      clientRef.current.disconnect()
-      clientRef.current = null
+    clientRef.current?.disconnect()
+    clientRef.current = null
+    if (socketRef.current) {
+      disconnectSocket()
+      socketRef.current = null
     }
+    setMicActive(false)
     setState('disconnected')
     setLastMessage(null)
     setErrorMessage('')
-    setReconnectAttempt(0)
-    setTurnComplete(false)
+    setUserSpeaking(false)
+    setAgentSpeaking(false)
   }, [])
 
+  // Auto-connect socket for text messaging
   useEffect(() => {
+    ensureSocket()
+    setState('idle')
     return () => {
-      if (clientRef.current) {
-        clientRef.current.disconnect()
-        clientRef.current = null
+      clientRef.current?.disconnect()
+      clientRef.current = null
+      if (socketRef.current) {
+        disconnectSocket()
+        socketRef.current = null
       }
     }
   }, [])
@@ -200,20 +232,21 @@ export function useVoiceSession() {
   return {
     state,
     lastMessage,
-    turnComplete,
+    lastTranscript,
     errorMessage,
     thinkingText,
     thoughtText,
-    reconnectAttempt,
+    userSpeaking,
+    agentSpeaking,
     connect,
     startListening,
     stopListening,
     sendText,
     disconnect,
     isConnected: state === 'idle' || state === 'listening' || state === 'speaking',
-    isSpeaking: state === 'speaking',
-    isListening: state === 'listening',
-    isReconnecting: state === 'reconnecting',
+    isSpeaking: agentSpeaking,
+    isListening: micActive,
     isError: state === 'error',
+    turnComplete: !agentSpeaking,
   }
 }

@@ -115,7 +115,7 @@ class ResponseComposer:
                     elif isinstance(value, dict):
                         text = value.get("response", "")
                         if text:
-                            parts.append(text)
+                            parts.append(strip_internal_reasoning(text))
 
         if merged_result.errors:
             parts.append(

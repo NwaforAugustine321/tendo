@@ -62,15 +62,16 @@ async def update_session_route(
 async def get_messages_route(
     session_id: str,
     business_id: str = Query(...),
+    record_id: str | None = Query(None),
     limit: int = Query(default=20, le=100),
     offset: int = Query(default=0),
     user: dict = Depends(get_current_user),
 ):
-    """Fetch messages for a session with pagination."""
+    """Fetch messages for a session with pagination. Optionally filter by record_id."""
     import logging
     logger = logging.getLogger(__name__)
-    messages = await fetch_messages(business_id, session_id, limit=limit, offset=offset)
-    logger.info(f"[Conversations] fetch messages session={session_id}, business={business_id}, count={len(messages)}, offset={offset}")
+    messages = await fetch_messages(business_id, session_id, limit=limit, offset=offset, record_id=record_id)
+    logger.info(f"[Conversations] fetch messages session={session_id}, business={business_id}, record={record_id}, count={len(messages)}, offset={offset}")
     return [{"role": m["role"], "content": m["content"]} for m in messages]
 
 
@@ -80,9 +81,8 @@ async def delete_session_route(
     business_id: str = Query(...),
     user: dict = Depends(get_current_user),
 ):
-    """Delete a session and its messages."""
+    """Delete a session."""
     from app.db.client import get_client
     client = get_client()
-    client.table("conversation_messages").delete().eq("session_id", session_id).eq("business_id", business_id).execute()
     client.table("conversation_sessions").delete().eq("id", session_id).eq("business_id", business_id).execute()
     return {"status": "deleted"}

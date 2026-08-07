@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     nvidia_max_tokens: int = 65536
     nvidia_reasoning_budget: int = 16384
     nvidia_rerank_model: str = "nv-rerank-qa-mistral-4b:1"
+    stt_function_id: str = "71203149-d3b7-4460-8231-1be2543a1fca"
+    tts_function_id: str = "77a3a03e-43de-4988-9368-88792561aabc"
+    tts_voice: str = "English-US-RadTTS.Male-1"
    
 
     # Tool calling mode: whether LLM supports native function calling
@@ -71,7 +74,7 @@ class Settings(BaseSettings):
     vector_store_path: str = "./data/vector_store"
 
     # Voice
-    voice_provider: str = "google"
+    voice_provider: str = ""
     google_voice_api_key: str = ""
     google_voice_model: str = ""
     cartesia_api_key: str = ""
@@ -81,6 +84,11 @@ class Settings(BaseSettings):
     cartesia_language: str = "en"  # Cartesia multilingual: en, es, fr, de, pt, ja, zh, hi, etc.
     wake_phrase: str = ""
     silence_timeout_seconds: int = 120
+
+    # LiveKit
+    livekit_url: str = ""
+    livekit_api_key: str = ""
+    livekit_api_secret: str = ""
 
     # Feature flags
     use_planner_path: bool = False
