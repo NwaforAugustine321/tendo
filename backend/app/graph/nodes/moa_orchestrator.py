@@ -68,7 +68,10 @@ async def moa_orchestrator(
         return {"response": {"mode": "conversation", "text": response_text}}
 
     if plan.unresolvable:
-        return {"response": {"mode": "conversation", "text": plan.unresolvable_reason}}
+        if plan.unresolvable_reason and not _is_meta_response(plan.unresolvable_reason):
+            return {"response": {"mode": "conversation", "text": plan.unresolvable_reason}}
+        response_text = await _direct_response(llm, user_request, conversation_messages)
+        return {"response": {"mode": "conversation", "text": response_text}}
 
     executions = await _execute_plan(user_request,plan, business_id, scopes)
 
@@ -91,6 +94,19 @@ async def _direct_response(llm: Any, user_request: str, conversation_messages: l
     if hasattr(result, 'result'):
         return result.result.response
     return str(result)
+
+
+def _is_meta_response(text: str) -> bool:
+    meta_patterns = [
+        "appears to be a normal conversational",
+        "no specific knowledge",
+        "no sub-crew plan",
+        "no sub‑crew plan",
+        "no agents needed",
+        "does not require",
+    ]
+    lower = text.lower()
+    return any(p in lower for p in meta_patterns)
 
 
 async def _execute_plan(user_request: str, plan: ExecutionPlan, business_id: str = "", scopes: list[str] | None = None) -> list[Execution]:
