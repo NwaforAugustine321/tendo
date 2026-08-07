@@ -12,6 +12,7 @@ ollama-STT-TTS/
 .kiro/
 
 tunnel/
+voice-agent/
 
 # Sigmoid reference (not part of tendo)
 sigmoid.ai/
