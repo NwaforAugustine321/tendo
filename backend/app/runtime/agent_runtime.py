@@ -12,6 +12,7 @@ from app.llm.client import get_client
 from app.execution.models import (
     ReflectionOutput,
 )
+from app.lib.text_utils import strip_internal_reasoning
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage as LCAIMessage
 from app.lib.context_handler import handle_context_length, is_context_length_exceeded
@@ -201,7 +202,6 @@ class AgentRuntime:
             return "I'm temporarily unable to process this request. Please try again shortly."
 
         await self._tool_binder.release()
-        from app.lib.text_utils import strip_internal_reasoning
         return strip_internal_reasoning(raw) if raw else ""
 
 
@@ -292,7 +292,7 @@ class AgentRuntime:
         
 
         try:
-            print("trying executing tool")
+            
             tool_result = await tool_fn.ainvoke(tool_args)
 
             observation = i18n.get("slices.post_tool_reasoning")

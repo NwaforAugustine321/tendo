@@ -1,19 +1,16 @@
-"""Socket.IO chat event handlers — bridges Socket.IO to the LangGraph workflow."""
-
 import logging
-
-from app.ws.socketio_server import sio
+from app.ws.socketio_server import emit_event, sio
 from app.services.auth import handle_get_me, COOKIE_NAME
+from app.graph.nodes.moa_orchestrator import moa_node
 
 logger = logging.getLogger(__name__)
 
-_chat_sessions: dict[str, dict] = {}
+sessions: dict[str, dict] = {}
 
 
 @sio.event
 async def connect(sid, environ, auth):
-    logger.info(f"Socket.IO connected: {sid}")
-
+   
     query_string = environ.get("QUERY_STRING", "")
     params = dict(p.split("=", 1) for p in query_string.split("&") if "=" in p)
 
@@ -21,20 +18,22 @@ async def connect(sid, environ, auth):
     business_id = params.get("business_id", "")
 
     cookies = environ.get("HTTP_COOKIE", "")
+
     token = None
     for cookie in cookies.split(";"):
         cookie = cookie.strip()
+
         if cookie.startswith(f"{COOKIE_NAME}="):
             token = cookie[len(f"{COOKIE_NAME}="):]
             break
 
-    user_id = "anonymous"
+    user_id = ""
     if token:
         user = await handle_get_me(token)
         if user:
             user_id = user["user_id"]
 
-    _chat_sessions[sid] = {
+    sessions[sid] = {
         "session_id": session_id,
         "business_id": business_id,
         "user_id": user_id,
@@ -44,86 +43,112 @@ async def connect(sid, environ, auth):
 @sio.event
 async def message(sid, data):
 
-    session = _chat_sessions.get(sid)
-    if not session:
-        await sio.emit("message", {"type": "message", "data": {"response": "Session not found", "msg_type": "answer"}}, to=sid)
+    session = sessions.get(sid)
+    if not  session:
+        payload = {
+            "type": "message", 
+            "data": {
+                "response": "Unauthorized", 
+                }
+            }
+        await emit_event("message",payload=payload, sid=sid)
         return
 
     text = ""
     record_id = ""
-    scopes = None
+
     if isinstance(data, dict):
+
         if data.get("type") == "text":
             text = data.get("data", "")
         else:
             text = data.get("text", data.get("data", ""))
-        raw_scope = data.get("scope", None)
-        if isinstance(raw_scope, list):
-            scopes = raw_scope
-        elif raw_scope:
-            scopes = [raw_scope]
+
         record_id = data.get("record_id", "")
-        if data.get("business_id"):
-            session["business_id"] = data["business_id"]
-        if data.get("session_id"):
-            session["session_id"] = data["session_id"]
+
+        if not data.get("business_id"):
+
+            payload = {
+                "type": "message", 
+                "data": {
+                "response": "Unauthorized, no bussiness id", 
+                }
+            }
+
+            await emit_event("message",payload=payload, sid=sid)
+            return 
+
+        if not data.get("session_id"):
+
+            payload = {
+               "type": "message", 
+               "data": {
+                "response": "Unauthorized, no session id", 
+                }
+            }
+
+            await emit_event("message",payload=payload, sid=sid)
+            return
+
     else:
-        text = str(data)
+        payload = {
+            "type": "message", 
+            "data": {
+                "response": "Invalid message format", 
+                }
+        }
+        await emit_event("message",payload=payload, sid=sid)
+        return      
 
     if not text.strip():
         return
 
-    business_id = session.get("business_id", "")
+    session_id = data["session_id"]
+    business_id = data["business_id"]
 
-    if not business_id:
-        return
+    session["business_id"] = business_id
+    session["session_id"]  = session_id
+    user_id = session.get("user_id", ""),
+    
 
-    logger.info(f"Chat message from {sid}: {text[:100]} [scopes={scopes}]")
+    logger.info(f"Chat message from {sid}: {text[:100]}")
 
-    session_id = session.get("session_id", "")
-
-    async def emit_callback(event_name: str, payload: dict):
-        await sio.emit(event_name, payload, to=sid)
+    async def _emit_event(event_name: str, payload: dict):
+        await emit_event(event_name, payload=payload, sid=sid)
 
     try:
-        from app.graph.nodes.moa_orchestrator import moa_orchestrator_node
 
         graph_state = {
-            "event": {
-                "text": text,
-                "business_id": business_id,
-                "thread_id": session_id,
-                "record_id": record_id,
-                "scopes": scopes,
-            },
+            "text": text,
+            "record_id": record_id,
             "business_id": business_id,
             "thread_id": session_id,
             "session_id": session_id,
-            "emit_callback": emit_callback,
-            "user_id": session.get("user_id", "anonymous"),
+            "user_id": user_id,
+            "emit_event": _emit_event
         }
 
-        result = await moa_orchestrator_node(graph_state)
+        result = await moa_node(graph_state)
         response = result.get("response", {})
 
-        if emit_callback:
-            await emit_callback("message", {
+
+        await _emit_event("message", payload={
                 "type": "message",
                 "data": {"response": response.get("text", ""), "msg_type": response.get("msg_type", "answer")},
-            })
+        })
 
     except Exception as e:
         logger.error(f"Chat error for {sid}: {e}", exc_info=True)
-        await sio.emit("message", {
+        await _emit_event("message",payload= {
             "type": "message",
             "data": {"response": "Something went wrong. Please try again.", "msg_type": "answer"},
-        }, to=sid)
+        })
 
 
 @sio.event
 async def disconnect(sid):
     logger.info(f"Socket.IO disconnected: {sid}")
-    _chat_sessions.pop(sid, None)
+    sessions.pop(sid, None)
 
 
 @sio.event
@@ -131,7 +156,7 @@ async def get_record_understanding(sid, data):
     """Handle request for record understanding via WebSocket."""
     from app.record_knowledge.record_agent import get_record_understanding as fetch_understanding
 
-    session = _chat_sessions.get(sid)
+    session = sessions.get(sid)
     business_id = ""
     if session:
         business_id = session.get("business_id", "")
@@ -144,16 +169,21 @@ async def get_record_understanding(sid, data):
         record_id = ""
 
     if not record_id or not business_id:
-        await sio.emit("record_understanding", {"insight": "", "suggestions": [], "record_id": record_id}, to=sid)
+        await emit_event("record_understanding",payload= {"insight": "", "suggestions": [], "record_id": record_id}, sid=sid)
         return
 
     try:
         result = await fetch_understanding(business_id, record_id)
-        await sio.emit("record_understanding", {
+        await emit_event("record_understanding", payload= {
             "record_id": record_id,
             "insight": result.get("insight", ""),
             "suggestions": result.get("suggestions", []),
-        }, to=sid)
+        }, sid=sid)
     except Exception as e:
         logger.error(f"Error fetching understanding for {record_id}: {e}", exc_info=True)
-        await sio.emit("record_understanding", {"insight": "", "suggestions": [], "record_id": record_id}, to=sid)
+        await emit_event(
+          "record_understanding", 
+          payload={"insight": "", "suggestions": [], "record_id": record_id},
+          sid=sid
+          )
+

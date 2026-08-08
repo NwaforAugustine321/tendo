@@ -32,11 +32,9 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from app.graph.workflow import init_graph
     from app.scheduler import start_scheduler, stop_scheduler
 
     try:
-        await init_graph()
         start_scheduler()
         logger.info("Application ready")
     except Exception as e:
@@ -53,7 +51,7 @@ app = FastAPI(title="Tendo", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://tribute-detected-cheese-combining.trycloudflare.com","http://localhost:5173" ],
+    allow_origins=["https://gasoline-approx-likelihood-blocked.trycloudflare.com","http://localhost:5173" ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

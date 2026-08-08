@@ -1,11 +1,17 @@
 import logging
-from typing import Annotated, TypedDict
-
+from typing import Annotated, TypedDict, Callable
 from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
+from app.planner import Planner
+from langgraph.config import get_config
+from langgraph.config import get_stream_writer
+from langgraph.runtime import Runtime
+from langchain_core.runnables import RunnableConfig
+
 
 logger = logging.getLogger(__name__)
+
 
 
 class State(TypedDict):
@@ -13,37 +19,51 @@ class State(TypedDict):
     business_id: str
     session_id: str
     user_id: str
+    emit_event: Callable
+    thread_id: str
+    record_id: str
 
 
-_planner = None
-
-
-def _get_planner():
-    global _planner
-    if _planner is None:
-        from app.planner import Planner
-        _planner = Planner()
-    return _planner
-
-
-async def planner_node(state: State):
-    from langgraph.config import get_stream_writer
+async def planner_node(state: State,config: RunnableConfig, runtime: Runtime):
     writer = get_stream_writer()
+    # config = get_config()
+    context = runtime.context
 
-    planner = _get_planner()
+    session = {
+       "vc_session": context['vc_session'],
+       "business_id": context["business_id"],
+       "emit_event": context["emit_event"],
+       "session_id": context["session_id"],
+       "user_id": context['user_id'],
+       "record_id": context["record_id"]
+    }
+
+    emit_event = context.get("emit_event")
+    planner =  Planner(session=session)
     messages = state["messages"]
+    
 
-    last_human = ""
+    user_message = ""
     for msg in messages:
         if isinstance(msg, HumanMessage):
-            last_human = msg.content
+           user_message = msg.content
 
-    if not last_human:
+    if not user_message:
         writer("I didn't catch that. Could you repeat?")
         return {"messages": []}
-
-    response_msg = await planner.run(user_request=last_human, messages=messages)
-    writer(response_msg.content)
+        
+    if emit_event and user_message:
+        await emit_event("transcript", {
+            "type": "transcript",
+            "data": user_message,
+        })
+    response = await planner.run(user_message=user_message, messages=messages)
+    writer(response  or "")
+    if emit_event and response:
+        await emit_event("message", {
+            "type": "message",
+            "data": {"response": response, "msg_type": "answer"},
+        })
     return {"messages": []}
 
 
@@ -54,19 +74,4 @@ def build_graph() -> StateGraph:
     builder.add_edge("planner", END)
     return builder
 
-
-_compiled_graph = None
-
-
-async def init_graph():
-    global _compiled_graph
-    _compiled_graph = build_graph().compile()
-    logger.info("Graph compiled")
-    return _compiled_graph
-
-
-def get_graph():
-    global _compiled_graph
-    if _compiled_graph is None:
-        _compiled_graph = build_graph().compile()
-    return _compiled_graph
+graph = build_graph().compile()

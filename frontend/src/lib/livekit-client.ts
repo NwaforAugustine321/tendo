@@ -1,12 +1,3 @@
-/**
- * LiveKit voice client — connects to a LiveKit room where the Tendo agent lives.
- *
- * The agent handles STT, turn detection, TTS, and planner routing server-side.
- * This client just:
- * - Publishes the user's microphone audio
- * - Plays back the agent's audio
- * - Receives data messages (transcripts, responses, thinking status)
- */
 
 import {
   Room,

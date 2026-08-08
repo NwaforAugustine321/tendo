@@ -4,6 +4,8 @@ import type { InputSpec } from '../components/containers/ConversationPage'
 import { request } from '../lib/services/http'
 import { connectSocket, disconnectSocket } from '../lib/ws'
 import type { Socket } from 'socket.io-client'
+import { useBusinessStore } from '../store/business'
+import { useAuthStore } from '../store/auth'
 
 type SessionState = 'disconnected' | 'connecting' | 'idle' | 'listening' | 'speaking' | 'error'
 
@@ -29,6 +31,8 @@ export function useVoiceSession() {
   const socketRef = useRef<Socket | null>(null)
   const connectParamsRef = useRef<{ sessionId?: string; businessId?: string }>({})
   const msgCounter = useRef(0)
+
+
 
   // Socket.IO for text-only chat (fallback when LiveKit isn't used)
   const ensureSocket = useCallback((): Socket => {
@@ -70,7 +74,6 @@ export function useVoiceSession() {
     setState('connecting')
 
     // Always read fresh businessId from store if not provided
-    const { useBusinessStore } = await import('../store/business')
     const storeBusinessId = useBusinessStore.getState().currentProfile?.id || ''
     const effectiveParams = {
       sessionId: connectParamsRef.current.sessionId || '',
@@ -83,7 +86,6 @@ export function useVoiceSession() {
     }
 
     // Get user_id from auth store
-    const { useAuthStore } = await import('../store/auth')
     const userId = useAuthStore.getState().user?.user_id || ''
 
     if (!userId) {

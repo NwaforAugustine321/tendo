@@ -1,4 +1,4 @@
-"""Auth service."""
+
 
 import logging
 
@@ -16,7 +16,6 @@ async def handle_register(email: str, password: str, name: str) -> dict:
     try:
         result = await register_user(email, password, name)
 
-        # Create user profile record (required for FK constraints)
         await create_user_profile(result["user_id"], email, name)
 
         return result

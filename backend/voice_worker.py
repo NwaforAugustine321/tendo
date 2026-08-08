@@ -1,11 +1,20 @@
-"""LiveKit Voice Worker — streams LLM tokens directly to TTS via LangGraph."""
-
 import json
 import logging
 import os
 import sys
-
 from dotenv import load_dotenv
+from livekit.agents import (
+    Agent,
+    AgentSession,
+    AgentServer,
+    JobContext,
+    TurnHandlingOptions,
+    cli,
+    inference,
+)
+from livekit.plugins import langchain, nvidia
+from livekit.agents import ErrorEvent, llm, stt, tts
+import asyncio
 
 load_dotenv()
 
@@ -17,26 +26,15 @@ logger = logging.getLogger("voice-worker")
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from livekit.agents import (
-    Agent,
-    AgentSession,
-    AgentServer,
-    JobContext,
-    TurnHandlingOptions,
-    cli,
-    inference,
-)
-from livekit.plugins import langchain, nvidia
-
+from app.graph.workflow import graph
 
 server = AgentServer()
 
 
 @server.rtc_session(agent_name="tendo-voice")
 async def tendo_session(ctx: JobContext):
-    logger.info(f"[tendo_session] Room joined: {ctx.room.name}")
 
-    metadata_str = ctx.room.metadata or "{}"
+    metadata_str = ctx.job.metadata or ctx.room.metadata or "{}"
     try:
         meta = json.loads(metadata_str)
     except Exception:
@@ -44,33 +42,33 @@ async def tendo_session(ctx: JobContext):
 
     business_id = meta.get("business_id", "")
     session_id = meta.get("session_id", "")
-
-    if not business_id and ctx.room.name and ctx.room.name.startswith("tendo-"):
-        business_id = ctx.room.name[len("tendo-"):]
-
+    record_id = meta.get("record_id", "")
+    thread_id = meta.get("thread_id", "")
     user_id = meta.get("user_id", "")
 
     if not business_id:
-        logger.error("[tendo_session] No business_id in room metadata")
+        logger.error("[tendo_session] No business id ")
+        payload = {"type": "error", "data": "Unauthorized, no business id"}
+        data = json.dumps(payload).encode("utf-8")
+        await ctx.room.local_participant.publish_data(data, reliable=True)
+        return
+
+    if not session_id:
+        logger.error("[tendo_session] No session id")
+        payload = {"type": "error", "data": "Unauthorized, no session id"}
+        data = json.dumps(payload).encode("utf-8")
+        await ctx.room.local_participant.publish_data(data, reliable=True)
         return
 
     if not user_id:
-        logger.warning("[tendo_session] No user_id — using 'anonymous'")
-        user_id = "anonymous"
+        logger.error("[tendo_session] No user id")
+        payload = {"type": "error", "data": "Unauthorized, no user id"}
+        data = json.dumps(payload).encode("utf-8")
+        await ctx.room.local_participant.publish_data(data, reliable=True)
+        return
 
     logger.info(f"[tendo_session] business_id={business_id} session_id={session_id}")
     ctx.log_context_fields = {"room": ctx.room.name}
-
-    from app.graph.workflow import get_graph
-    graph = get_graph()
-
-    agent = Agent(
-        instructions="",
-        llm=langchain.LLMAdapter(
-            graph=graph,
-            stream_mode="custom",
-        ),
-    )
 
     session = AgentSession(
         stt=nvidia.STT(language_code="en-US"),
@@ -80,6 +78,32 @@ async def tendo_session(ctx: JobContext):
         ),
         turn_handling=TurnHandlingOptions(
             turn_detection=inference.TurnDetector(),
+            interruption={
+               "mode": "adaptive",
+            }
+        ),
+    )
+
+    async def _voice_emit(event_name: str, payload: dict):
+        data = json.dumps(payload).encode("utf-8")
+        await ctx.room.local_participant.publish_data(data, reliable=True)
+
+    context = {
+        "vc_session": session,
+        "record_id": record_id,
+        "business_id": business_id,
+        "session_id": session_id,
+        "emit_event": _voice_emit,
+        "user_id": user_id,
+    }
+
+    agent = Agent(
+        instructions="",
+        llm=langchain.LLMAdapter(
+            graph=graph,
+            stream_mode="custom",
+            context=context,
+            config={"configurable": {"thread_id": session_id}}
         ),
     )
 
@@ -87,11 +111,6 @@ async def tendo_session(ctx: JobContext):
         agent=agent,
         room=ctx.room,
     )
-
-    from app.planner.planner import set_active_session
-    set_active_session(session=session, business_id=business_id, session_id=session_id)
-
-    from livekit.agents import ErrorEvent, llm, stt, tts
 
     @session.on("error")
     def on_error(ev: ErrorEvent):
@@ -106,14 +125,15 @@ async def tendo_session(ctx: JobContext):
             return
 
     await ctx.connect()
-    logger.info(f"[tendo_session] Agent connected and listening")
 
     @session.on("close")
     def on_close(*args):
-        logger.info("[tendo_session] Session closed, shutting down")
+        logger.info("[tendo_session] Session closed")
 
     async def _shutdown():
+        logger.info("[tendo_session] Shutting down...")
         await session.aclose()
+        logger.info("[tendo_session] Shutdown complete")
 
     ctx.add_shutdown_callback(_shutdown)
 
