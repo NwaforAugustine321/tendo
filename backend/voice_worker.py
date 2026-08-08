@@ -80,7 +80,11 @@ async def tendo_session(ctx: JobContext):
             turn_detection=inference.TurnDetector(),
             interruption={
                "mode": "adaptive",
-            }
+               "backchannel_boundary": (0.5, 2.0)
+            },
+            endpointing={
+               "mode": "dynamic"
+           },
         ),
     )
 
