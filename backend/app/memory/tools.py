@@ -61,11 +61,17 @@ Use this function before executing sequential or paginated browse actions
 
             df = storage._table.to_pandas()
             if scopes:
-                mask = None
-                for s in scopes:
-                    scope_mask = df["scope"].str.startswith(s)
-                    mask = scope_mask if mask is None else (mask | scope_mask)
-                scoped = df[mask] if mask is not None else df
+                valid_prefixes = [s.rstrip("/") for s in scopes if s and s.strip("/")]
+                if valid_prefixes:
+                    def _row_matches(scope_val):
+                        if isinstance(scope_val, list):
+                            return any(s in valid_prefixes or any(s.startswith(p) for p in valid_prefixes) for s in scope_val)
+                        return False
+
+                    mask = df["scope"].apply(_row_matches)
+                    scoped = df[mask]
+                else:
+                    scoped = df
             else:
                 scoped = df
 
@@ -105,11 +111,17 @@ Use this function when the request requires a broad sweep, overview, sequential 
 
             df = storage._table.to_pandas()
             if scopes:
-                mask = None
-                for s in scopes:
-                    scope_mask = df["scope"].str.startswith(s)
-                    mask = scope_mask if mask is None else (mask | scope_mask)
-                scoped = df[mask].iloc[::-1].reset_index(drop=True) if mask is not None else df.iloc[::-1].reset_index(drop=True)
+                valid_prefixes = [s.rstrip("/") for s in scopes if s and s.strip("/")]
+                if valid_prefixes:
+                    def _row_matches(scope_val):
+                        if isinstance(scope_val, list):
+                            return any(s in valid_prefixes or any(s.startswith(p) for p in valid_prefixes) for s in scope_val)
+                        return False
+
+                    mask = df["scope"].apply(_row_matches)
+                    scoped = df[mask].iloc[::-1].reset_index(drop=True)
+                else:
+                    scoped = df.iloc[::-1].reset_index(drop=True)
             else:
                 scoped = df.iloc[::-1].reset_index(drop=True)
 
@@ -175,7 +187,7 @@ CRITICAL: All records, items, domain details, and contextual data are structural
             search_scopes = scopes or [f"/business/{business_id}"]
             memory = Memory(scopes=search_scopes, business_id=business_id)
             results = await memory.recall(query=query, limit=limit)
-
+            print("entries >>>>",results,business_id,search_scopes)
             if not results:
                 return {"content": "No relevant results found.", "metadata": {}, "images": [], "videos": [], "audios": []}
 
@@ -186,7 +198,7 @@ CRITICAL: All records, items, domain details, and contextual data are structural
                 if record.images:
                     all_images.extend(record.images)
         
-            console.log("entries >>>>",entries)
+            
             return {
                 "content": json.dumps(entries, default=str),
                 "metadata": {"total": len(entries)},

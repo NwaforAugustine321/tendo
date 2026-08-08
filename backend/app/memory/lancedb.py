@@ -21,7 +21,7 @@ def _build_schema(vector_dim: int) -> pa.Schema:
     return pa.schema([
         pa.field("id", pa.string()),
         pa.field("content", pa.string()),
-        pa.field("scope", pa.string()),
+        pa.field("scope", pa.list_(pa.string())),
         pa.field("metadata", pa.string()),
         pa.field("images", pa.list_(pa.binary())),
         pa.field("audio", pa.list_(pa.binary())),
@@ -86,6 +86,10 @@ class LanceDBStorage:
             self._table.create_fts_index("content", replace=False)
         except Exception:
             pass
+        try:
+            self._table.create_scalar_index("scope", index_type="LABEL_LIST", replace=False)
+        except Exception:
+            pass
 
     def _create_table(self, name: str, vector_dim: int) -> Any:
         schema = _build_schema(vector_dim)
@@ -93,7 +97,7 @@ class LanceDBStorage:
             {
                 "id": "__schema_placeholder__",
                 "content": "",
-                "scope": "/",
+                "scope": ["/"],
                 "metadata": "{}",
                 "images": [],
                 "audio": [],
@@ -141,10 +145,13 @@ class LanceDBStorage:
         elif metadata is None:
             metadata = "{}"
 
+       
+        scope = record.scope if isinstance(record.scope, list) else ["/"]
+
         return {
             "id": record.id,
             "content": record.content,
-            "scope": record.scope,
+            "scope": scope,
             "metadata": metadata,
             "images": self._to_bytes_list(record.images) if record.images else [],
             "audio": self._to_bytes_list(record.audio) if record.audio else [],
@@ -201,10 +208,17 @@ class LanceDBStorage:
                     return {}
             return {}
 
+        def _parse_scope(val: Any) -> list[str]:
+            if val is None:
+                return ["/"]
+            if isinstance(val, list):
+                return [str(s) for s in val]
+            return ["/"]
+
         record_data = {
             "id": str(row.get("id", "")),
             "content": str(row.get("content", "")),
-            "scope": str(row.get("scope", "/")),
+            "scope": _parse_scope(row.get("scope")),
             "metadata": _parse_metadata(row.get("metadata")),
             "images": self._from_bytes_list(row.get("images")),
             "audio": self._from_bytes_list(row.get("audio")),
@@ -258,14 +272,13 @@ class LanceDBStorage:
 
         query = target_table.search(query_embedding)
 
+
         scope_expr = None
         if scope_prefixes:
             valid = [s.rstrip("/") for s in scope_prefixes if s and s.strip("/")]
-            if len(valid) == 1:
-                scope_expr = f"scope LIKE '{valid[0]}%'"
-            elif len(valid) > 1:
-                parts = [f"scope LIKE '{p}%'" for p in valid]
-                scope_expr = "(" + " OR ".join(parts) + ")"
+            if valid:
+                escaped = [f"'{v}'" for v in valid]
+                scope_expr = f"array_has_any(scope, [{', '.join(escaped)}])"
 
         if scope_expr and filters:
             combined = f"({scope_expr}) AND ({filters})"
@@ -301,11 +314,8 @@ class LanceDBStorage:
             if not valid:
                 return 0
             before = int(self._table.count_rows())
-            if len(valid) == 1:
-                self._table.delete(f"scope LIKE '{valid[0]}%'")
-            else:
-                parts = " OR ".join(f"scope LIKE '{p}%'" for p in valid)
-                self._table.delete(f"({parts})")
+            escaped = [f"'{v}'" for v in valid]
+            self._table.delete(f"array_has_any(scope, [{', '.join(escaped)}])")
             return before - int(self._table.count_rows())
 
         before = int(self._table.count_rows())
@@ -330,39 +340,22 @@ class LanceDBStorage:
             return []
 
         try:
-            # Build scope filter
-            scope_expr = None
+            df = target_table.to_pandas()
+
+            if df.empty:
+                return []
+
+            # Filter by scope using native list column
             if scope_prefixes:
                 valid = [s.rstrip("/") for s in scope_prefixes if s and s.strip("/")]
-                if len(valid) == 1:
-                    scope_expr = f"scope LIKE '{valid[0]}%'"
-                elif len(valid) > 1:
-                    parts = [f"scope LIKE '{p}%'" for p in valid]
-                    scope_expr = "(" + " OR ".join(parts) + ")"
+                if valid:
+                    def _row_matches(scope_val):
+                        if isinstance(scope_val, list):
+                            return any(s in valid or any(s.startswith(p) for p in valid) for s in scope_val)
+                        return False
 
-     
-            combined_filter = None
-            if scope_expr and filters:
-                combined_filter = f"({scope_expr}) AND ({filters})"
-            elif scope_expr:
-                combined_filter = scope_expr
-            elif filters:
-                combined_filter = filters
-
-        
-            if combined_filter:
-                df = target_table.to_pandas()
-                # Apply filter manually using pandas
-                if scope_prefixes:
-                    valid = [s.rstrip("/") for s in scope_prefixes if s and s.strip("/")]
-                    mask = None
-                    for prefix in valid:
-                        cond = df["scope"].str.startswith(prefix)
-                        mask = cond if mask is None else (mask | cond)
-                    if mask is not None:
-                        df = df[mask]
-            else:
-                df = target_table.to_pandas()
+                    mask = df["scope"].apply(_row_matches)
+                    df = df[mask]
 
             if df.empty:
                 return []

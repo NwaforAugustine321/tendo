@@ -26,13 +26,13 @@ logger = logging.getLogger("voice-worker")
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from app.graph.workflow import graph
-
 server = AgentServer()
 
 
 @server.rtc_session(agent_name="tendo-voice")
 async def tendo_session(ctx: JobContext):
+
+    from app.graph.workflow import get_graph
 
     metadata_str = ctx.job.metadata or ctx.room.metadata or "{}"
     try:
@@ -100,7 +100,7 @@ async def tendo_session(ctx: JobContext):
     agent = Agent(
         instructions="",
         llm=langchain.LLMAdapter(
-            graph=graph,
+            graph=get_graph(),
             stream_mode="custom",
             context=context,
             config={"configurable": {"thread_id": session_id}}

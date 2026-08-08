@@ -10,10 +10,17 @@ def get_whatsapp_data_sources() -> list[dict]:
 
 def get_business_id_by_phone_number(phone_number_id: str) -> str | None:
     """Resolve business_id from a WhatsApp phone_number_id."""
+    import json as _json
     rows = get_whatsapp_data_sources()
     for row in rows:
         data = row.get("data") or {}
-        if str(data.get("phone_number_id")) == str(phone_number_id):
+        # Handle case where data is a JSON string instead of a dict
+        if isinstance(data, str):
+            try:
+                data = _json.loads(data)
+            except (ValueError, TypeError):
+                continue
+        if str(data.get("phone_number_id", "")) == str(phone_number_id):
             return row["business_id"]
     return None
 

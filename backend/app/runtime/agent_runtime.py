@@ -156,10 +156,10 @@ class AgentRuntime:
             self._llm = self._llm.bind_tools(self._tools)
 
         if self._use_system_prompt is not True:
-          prompt_tools = [] if (hasattr(self._llm, 'bind_tools') and self._tools) else self._tools
+        #   prompt_tools = [] if (hasattr(self._llm, 'bind_tools') and self._tools) else self._tools
           prompt, _ = await prepare_system_prompt(
             agent=self._agent,
-            tools=prompt_tools,
+            tools=self._tools,
             max_thinking_steps=self._max_thinking_steps
           )
           
@@ -286,6 +286,7 @@ class AgentRuntime:
             observation = i18n.get("errors.wrong_tool_name").replace("{tool}",tool_name).replace("{tools}",tools_schema_and_description(self._tools))
             return observation
         r = await self._run_tool_fn(tool_name, tool_args, tool_fn)
+        
         return r
 
     async def _run_tool_fn(self, tool_name: str, tool_args: dict, tool_fn: Any) -> str:
@@ -298,8 +299,11 @@ class AgentRuntime:
             observation = i18n.get("slices.post_tool_reasoning")
             observation += f"{tool_result}\n\n"
 
+            print('tool result >>>>>>>', tool_result)
+
             return observation 
         except Exception as e:
+            print('tool error >>>>>>>', e)
             logger.warning(f"Tool '{tool_name}' failed: {e}")
             error_msg = "{tool_name} tool failed"
             observation = i18n.get("slices.post_tool_reasoning")
@@ -346,6 +350,7 @@ class AgentRuntime:
             response = await self._invoke_llm_safe(user_msg)
 
             # print(response)
+            print(response.tool_calls)
 
             if response.tool_calls and len(response.tool_calls) > 0:
                 result = await self._handle_native_tool_calls(response)

@@ -51,7 +51,7 @@ async def planner_node(state: State,config: RunnableConfig, runtime: Runtime):
     if not user_message:
         writer("I didn't catch that. Could you repeat?")
         return {"messages": []}
-        
+
     if emit_event and user_message:
         await emit_event("transcript", {
             "type": "transcript",
@@ -74,4 +74,15 @@ def build_graph() -> StateGraph:
     builder.add_edge("planner", END)
     return builder
 
-graph = build_graph().compile()
+
+_compiled_graph = None
+
+
+def get_graph():
+    global _compiled_graph
+    if _compiled_graph is None:
+        _compiled_graph = build_graph().compile()
+    return _compiled_graph
+
+
+graph = get_graph()

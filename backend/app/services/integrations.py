@@ -23,13 +23,23 @@ modes_setting = ['testing']
 
 
 async def _download_media_as_data_url(media_url: str, phone_number_id: str, mime_type: str | None) -> tuple[str, str]:
-    """Download media from WhatsApp URL, upload to Supabase, return (data_url, file_url)."""
+    """Download media from WhatsApp URL, return as base64 data URL.
+    
+    File storage is handled by the record content processing pipeline which
+    uploads to records_files/{record_id}/ path.
+    """
     try:
         sources = get_whatsapp_data_sources()
         access_token = None
         for row in sources:
             data = row.get("data") or {}
-            if str(data.get("phone_number_id")) == str(phone_number_id):
+            if isinstance(data, str):
+                try:
+                    import json as _json
+                    data = _json.loads(data)
+                except (ValueError, TypeError):
+                    continue
+            if str(data.get("phone_number_id", "")) == str(phone_number_id):
                 access_token = data.get("access_token")
                 break
 
@@ -46,16 +56,7 @@ async def _download_media_as_data_url(media_url: str, phone_number_id: str, mime
         b64 = base64.b64encode(file_bytes).decode("utf-8")
         data_url = f"data:{mime};base64,{b64}"
 
-        # Upload to Supabase Storage
-        import uuid
-        ext = mime.split("/")[-1]
-        file_name = f"whatsapp_media/{uuid.uuid4()}.{ext}"
-        db = get_client()
-        bucket_name = settings.bucket_name
-        db.storage.from_(bucket_name).upload(file_name, file_bytes, {"content-type": mime})
-        file_url = db.storage.from_(bucket_name).get_public_url(file_name)
-
-        return data_url, file_url
+        return data_url, ""
     except Exception as e:
         logger.error(f"Failed to download media: {e}")
         return "", ""

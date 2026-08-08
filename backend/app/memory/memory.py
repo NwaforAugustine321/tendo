@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class MemoryRecord(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     content: str
-    scope: str = Field(default="/")
+    scope: list[str] = Field(default_factory=lambda: ["/"])
     metadata: dict[str, Any] = Field(default_factory=dict)
     images: list[str] = Field(default_factory=list)
     audio: list[str] = Field(default_factory=list)
@@ -57,7 +57,7 @@ class Memory:
     async def remember(
         self,
         content: str,
-        scope: str | None = None,
+        scope: str | list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         images: list[str] | None = None,
         audio: list[str] | None = None,
@@ -70,12 +70,18 @@ class Memory:
         if not embedding:
             return None
 
-        effective_scope = scope or self._scopes[0]
+        # Normalize scope to a list
+        if scope is None:
+            effective_scopes = list(self._scopes)
+        elif isinstance(scope, str):
+            effective_scopes = [scope]
+        else:
+            effective_scopes = scope
 
         record = MemoryRecord(
             id=str(uuid4()),
             content=content,
-            scope=effective_scope,
+            scope=effective_scopes,
             metadata=metadata or {},
             images=images or [],
             audio=audio or [],
@@ -90,7 +96,7 @@ class Memory:
     async def remember_many(
         self,
         contents: list[str],
-        scope: str | None = None,
+        scope: str | list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         images: list[str] | None = None,
         audio: list[str] | None = None,
@@ -105,14 +111,20 @@ class Memory:
 
         embeddings = await self._embed_batch(valid_contents)
 
-        effective_scope = scope or self._scopes[0]
+        # Normalize scope to a list
+        if scope is None:
+            effective_scopes = list(self._scopes)
+        elif isinstance(scope, str):
+            effective_scopes = [scope]
+        else:
+            effective_scopes = scope
 
         records = []
         for content, embedding in zip(valid_contents, embeddings):
             record = MemoryRecord(
                 id=str(uuid4()),
                 content=content,
-                scope=effective_scope,
+                scope=effective_scopes,
                 metadata=metadata or {},
                 images=images or [],
                 audio=audio or [],
@@ -178,7 +190,7 @@ class Memory:
     async def save(
         self,
         content: str,
-        scope: str | None = None,
+        scope: str | list[str] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> MemoryRecord | None:
         """Save a message as a plain row without generating an embedding.
@@ -189,18 +201,24 @@ class Memory:
         if not content or not content.strip():
             return None
 
-        effective_scope = scope or self._scopes[0]
+        # Normalize scope to a list
+        if scope is None:
+            effective_scopes = list(self._scopes)
+        elif isinstance(scope, str):
+            effective_scopes = [scope]
+        else:
+            effective_scopes = scope
 
         record = MemoryRecord(
             id=str(uuid4()),
             content=content,
-            scope=effective_scope,
+            scope=effective_scopes,
             metadata=metadata or {},
             created_at=datetime.utcnow(),
             embedding=None,
         )
 
-        self._storage.save([record], table_name=self._table_name)
+        self._storage.save(records=[record], table_name=self._table_name)
         return record
 
     def forget(self, scope: str | None = None) -> int:

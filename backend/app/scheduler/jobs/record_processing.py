@@ -1,9 +1,11 @@
 import asyncio
+import base64
 import logging
 import random
 import string
 from uuid import uuid4
 
+from app.config.settings import settings
 from app.db.tools.data_sources import update_record_content_status
 from app.db.tools.records import create_record, add_record_content
 from app.record_knowledge.extractors import extract_and_chunk
@@ -73,6 +75,24 @@ async def _run_extraction(
         # Save summary to record_content table, update record title
         if chunks:
             file_url = (metadata or {}).get("file_url", "")
+
+            # If content is a base64 data URL and no file_url yet, upload to storage
+            if not file_url and content.startswith("data:") and content_type != "text":
+                try:
+                    import uuid as _uuid
+                    header, b64data = content.split(",", 1)
+                    mime_type = header.split(":")[1].split(";")[0]
+                    file_bytes = base64.b64decode(b64data)
+                    ext = mime_type.split("/")[-1]
+                    file_name = f"records_files/{record_id}/{_uuid.uuid4()}.{ext}"
+                    from app.db.client import get_client as _get_client
+                    db = _get_client()
+                    bucket_name = settings.bucket_name
+                    db.storage.from_(bucket_name).upload(file_name, file_bytes, {"content-type": mime_type})
+                    file_url = db.storage.from_(bucket_name).get_public_url(file_name)
+                except Exception as e:
+                    logger.warning(f"File upload failed in record processing: {e}")
+
             if not content_id:
                 from app.db.client import get_client as _get_client
                 db = _get_client()
@@ -123,14 +143,14 @@ async def _run_extraction(
                     clean_metadata[key] = value
 
             memory = Memory(
-                scopes=f"/{business_id}/record/{record_id}",
+                scopes=[f"/{business_id}/record/{record_id}", f"/business/{business_id}"],
                 business_id=business_id,
             )
 
             await memory.remember_many(
                 contents=chunks,
-                scope=f"/{business_id}/record/{record_id}",
-                metadata=clean_metadata,
+                scope=[f"/{business_id}/record/{record_id}", f"/business/{business_id}"],
+                metadata={**clean_metadata, "record_id": record_id},
                 images=images,
                 audio=audio,
                 videos=videos,
