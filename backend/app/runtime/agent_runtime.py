@@ -299,11 +299,11 @@ class AgentRuntime:
             observation = i18n.get("slices.post_tool_reasoning")
             observation += f"{tool_result}\n\n"
 
-            print('tool result >>>>>>>', tool_result)
+      
 
             return observation 
         except Exception as e:
-            print('tool error >>>>>>>', e)
+           
             logger.warning(f"Tool '{tool_name}' failed: {e}")
             error_msg = "{tool_name} tool failed"
             observation = i18n.get("slices.post_tool_reasoning")

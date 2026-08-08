@@ -187,7 +187,7 @@ CRITICAL: All records, items, domain details, and contextual data are structural
             search_scopes = scopes or [f"/business/{business_id}"]
             memory = Memory(scopes=search_scopes, business_id=business_id)
             results = await memory.recall(query=query, limit=limit)
-            print("entries >>>>",results,business_id,search_scopes)
+            
             if not results:
                 return {"content": "No relevant results found.", "metadata": {}, "images": [], "videos": [], "audios": []}
 
