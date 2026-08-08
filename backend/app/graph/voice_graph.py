@@ -44,11 +44,11 @@ async def planner_node(state: VoiceState):
 
     if not last_human:
         writer("I didn't catch that. Could you repeat?")
-        return {"messages": [AIMessage(content="I didn't catch that. Could you repeat?")]}
+        return {"messages": []}
 
     response_msg = await planner.run(user_request=last_human, messages=messages)
     writer(response_msg.content)
-    return {"messages": [response_msg]}
+    return {"messages": []}
 
 
 def build_voice_graph() -> StateGraph:

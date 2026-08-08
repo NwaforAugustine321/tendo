@@ -67,6 +67,8 @@ export function useVoiceSession() {
     if (clientRef.current?.isConnected()) return
     if (params) connectParamsRef.current = params
 
+    setState('connecting')
+
     // Always read fresh businessId from store if not provided
     const { useBusinessStore } = await import('../store/business')
     const storeBusinessId = useBusinessStore.getState().currentProfile?.id || ''
@@ -89,7 +91,6 @@ export function useVoiceSession() {
       return
     }
 
-    setState('connecting')
     setErrorMessage('')
 
     try {
@@ -104,7 +105,14 @@ export function useVoiceSession() {
       })
 
       const client = new LiveKitVoiceClient({
-        onConnected: () => setState('idle'),
+        onConnected: () => {
+          setState('connecting')
+          client.startMic().catch(() => {})
+        },
+        onAgentReady: () => {
+          setMicActive(true)
+          setState('listening')
+        },
         onDisconnected: () => {
           setState('idle')
           setAgentSpeaking(false)
@@ -142,6 +150,11 @@ export function useVoiceSession() {
       })
 
       await client.connect(tokenResponse.url, tokenResponse.token)
+      client.setReconnectHandler(() => {
+        client.disconnect()
+        clientRef.current = null
+        connect(connectParamsRef.current)
+      })
       clientRef.current = client
       setState('idle')
     } catch {
@@ -157,6 +170,10 @@ export function useVoiceSession() {
     if (!clientRef.current?.isConnected()) {
       setErrorMessage('Voice not available.')
       setState('error')
+      return
+    }
+    if (!clientRef.current?.isAgentReady()) {
+      setErrorMessage('Agent is connecting. Please wait.')
       return
     }
     try {

@@ -24,6 +24,7 @@ import {
 export type VoiceCallbacks = {
   onConnected: () => void
   onDisconnected: () => void
+  onAgentReady: () => void
   onUserSpeakingChange: (speaking: boolean) => void
   onAgentSpeakingChange: (speaking: boolean) => void
   onMessage: (data: any) => void
@@ -39,11 +40,31 @@ export class LiveKitVoiceClient {
   private callbacks: VoiceCallbacks
   private audioElement: HTMLAudioElement | null = null
 
+  private reconnectAttempts = 0
+  private maxReconnectAttempts = 3
+  private reconnectDelay = 5000
+  private reconnectTimer: ReturnType<typeof setInterval> | null = null
+  private lastUrl = ''
+  private lastToken = ''
+  private onReconnectNeeded: (() => void) | null = null
+  private isReconnecting = false
+  private agentReady = false
+
   constructor(callbacks: VoiceCallbacks) {
     this.callbacks = callbacks
   }
 
+  setReconnectHandler(handler: () => void) {
+    this.onReconnectNeeded = handler
+  }
+
   async connect(url: string, token: string) {
+    this.lastUrl = url
+    this.lastToken = token
+    this.reconnectAttempts = 0
+    this.isReconnecting = false
+    this.stopReconnectTimer()
+
     this.room = new Room({
       adaptiveStream: true,
       dynacast: true,
@@ -54,17 +75,79 @@ export class LiveKitVoiceClient {
       },
     })
 
-    this.room.on(RoomEvent.Connected, () => this.callbacks.onConnected())
-    this.room.on(RoomEvent.Disconnected, () => this.callbacks.onDisconnected())
+    this.room.on(RoomEvent.Connected, () => {
+      this.reconnectAttempts = 0
+      this.stopReconnectTimer()
+      this.callbacks.onConnected()
+    })
+
+    this.room.on(RoomEvent.Disconnected, () => {
+      this.agentReady = false
+      this.detachAudio()
+      this.callbacks.onAgentSpeakingChange(false)
+      this.callbacks.onDisconnected()
+      if (!this.isReconnecting) {
+        this.isReconnecting = true
+        this.attemptReconnect()
+      }
+    })
+
+    this.room.on(RoomEvent.ParticipantDisconnected, (_participant: RemoteParticipant) => {
+      this.detachAudio()
+      this.callbacks.onAgentSpeakingChange(false)
+      if (!this.isReconnecting) {
+        this.isReconnecting = true
+        this.room?.disconnect()
+        this.room = null
+        if (this.onReconnectNeeded && this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.reconnectAttempts++
+          setTimeout(() => {
+            if (this.onReconnectNeeded) this.onReconnectNeeded()
+          }, this.reconnectDelay)
+        }
+      }
+    })
 
     // Agent publishes audio track — attach it for playback
     this.room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub: RemoteTrackPublication, _participant: RemoteParticipant) => {
       if (track.kind === Track.Kind.Audio) {
+        if (!this.agentReady) {
+          this.agentReady = true
+          this.callbacks.onAgentReady()
+        }
         this.attachAudio(track)
-        this.callbacks.onAgentSpeakingChange(true)
         track.on(TrackEvent.Ended, () => this.callbacks.onAgentSpeakingChange(false))
       }
     })
+
+    // Agent participant joins — not yet ready, wait for agent state
+    this.room.on(RoomEvent.ParticipantConnected, () => {})
+
+    // Agent state changes — controls ready state and speaking
+    this.room.on(RoomEvent.ParticipantAttributeChanged, (changedAttributes: Record<string, string>, participant: RemoteParticipant) => {
+      const agentState = changedAttributes['lk.agent.state']
+      if (!agentState) return
+
+      if (agentState === 'listening' && !this.agentReady) {
+        this.agentReady = true
+        this.callbacks.onAgentReady()
+      }
+
+      if (agentState === 'speaking') {
+        this.callbacks.onAgentSpeakingChange(true)
+      } else if (agentState === 'listening' || agentState === 'thinking') {
+        this.callbacks.onAgentSpeakingChange(false)
+      }
+    })
+
+    // Check if agent is already in listening state
+    for (const [, p] of this.room.remoteParticipants) {
+      if (p.attributes?.['lk.agent.state'] === 'listening' && !this.agentReady) {
+        this.agentReady = true
+        this.callbacks.onAgentReady()
+        break
+      }
+    }
 
     this.room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
       if (track.kind === Track.Kind.Audio) {
@@ -154,6 +237,7 @@ export class LiveKitVoiceClient {
 
   private detachAudio() {
     if (this.audioElement) {
+      this.audioElement.pause()
       this.audioElement.srcObject = null
     }
   }
@@ -162,7 +246,39 @@ export class LiveKitVoiceClient {
     return this.room?.state === ConnectionState.Connected
   }
 
+  isAgentReady(): boolean {
+    return this.agentReady
+  }
+
+  private async attemptReconnect() {
+    if (this.isReconnecting) return
+
+    this.isReconnecting = true
+    this.room?.disconnect()
+    this.room = null
+
+    this.reconnectTimer = setInterval(() => {
+      if (this.room?.state === ConnectionState.Connected) {
+        this.stopReconnectTimer()
+        return
+      }
+      if (this.onReconnectNeeded) {
+        this.onReconnectNeeded()
+      }
+    }, this.reconnectDelay)
+  }
+
+  private stopReconnectTimer() {
+    if (this.reconnectTimer) {
+      clearInterval(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+    this.isReconnecting = false
+  }
+
   disconnect() {
+    this.stopReconnectTimer()
+    this.maxReconnectAttempts = 0
     this.stopMic()
     if (this.audioElement) {
       this.audioElement.remove()

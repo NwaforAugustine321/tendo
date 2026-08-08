@@ -75,7 +75,7 @@ async def tendo_session(ctx: JobContext):
     session = AgentSession(
         stt=nvidia.STT(language_code="en-US"),
         tts=nvidia.TTS(
-            voice="Magpie-Multilingual.EN-US.Leo",
+            voice="Magpie-Multilingual.EN-US.Jason",
             language_code="en-US",
         ),
         turn_handling=TurnHandlingOptions(
@@ -83,13 +83,39 @@ async def tendo_session(ctx: JobContext):
         ),
     )
 
-    await session.start(agent=agent, room=ctx.room)
+    await session.start(
+        agent=agent,
+        room=ctx.room,
+    )
 
     from app.planner.planner import set_active_session
     set_active_session(session, business_id)
 
+    from livekit.agents import ErrorEvent, llm, stt, tts
+
+    @session.on("error")
+    def on_error(ev: ErrorEvent):
+        if ev.error.recoverable:
+            return
+        if isinstance(ev.source, (tts.TTS, llm.LLM)):
+            ev.error.recoverable = True
+            return
+        if isinstance(ev.source, stt.STT):
+            session.update_agent(session.current_agent)
+            ev.error.recoverable = True
+            return
+
     await ctx.connect()
     logger.info(f"[tendo_session] Agent connected and listening")
+
+    @session.on("close")
+    def on_close(*args):
+        logger.info("[tendo_session] Session closed, shutting down")
+
+    async def _shutdown():
+        await session.aclose()
+
+    ctx.add_shutdown_callback(_shutdown)
 
 
 if __name__ == "__main__":

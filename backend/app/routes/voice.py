@@ -68,13 +68,12 @@ async def generate_token(request: Request):
         async with LiveKitAPI() as api:
             from livekit.protocol.room import UpdateRoomMetadataRequest
 
-            # Create or get room, then update metadata
             await api.room.create_room(CreateRoomRequest(
                 name=room_name,
                 metadata=metadata,
+                empty_timeout=30,
             ))
 
-            # Always update metadata (create_room doesn't update existing rooms)
             try:
                 await api.room.update_room_metadata(UpdateRoomMetadataRequest(
                     room=room_name,
@@ -83,14 +82,17 @@ async def generate_token(request: Request):
             except Exception:
                 pass
 
-            # Dispatch the agent to the room
-            await api.agent_dispatch.create_dispatch(CreateAgentDispatchRequest(
-                room=room_name,
-                agent_name="tendo-voice",
-                metadata=metadata,
-            ))
+            # Only dispatch if no active agent in the room
+            try:
+                await api.agent_dispatch.create_dispatch(CreateAgentDispatchRequest(
+                    room=room_name,
+                    agent_name="tendo-voice",
+                    metadata=metadata,
+                ))
+                logger.info(f"Agent dispatched: {room_name}")
+            except Exception as e:
+                logger.warning(f"Dispatch failed: {e}")
 
-            logger.info(f"Room created and agent dispatched: {room_name} metadata={metadata}")
     except Exception as e:
         logger.warning(f"Room/dispatch: {e}")
 

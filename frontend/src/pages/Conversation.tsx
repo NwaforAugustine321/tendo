@@ -154,12 +154,7 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
 
   useEffect(() => {
     if (voice.errorMessage) {
-      setMessages((prev) => [...prev, {
-        id: `err-${Date.now()}`,
-        role: 'assistant',
-        content: voice.errorMessage,
-        type: 'text',
-      }])
+      console.warn('[Voice] error:', voice.errorMessage)
     }
   }, [voice.errorMessage])
 
@@ -225,10 +220,7 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
       if (!bizId) {
         return
       }
-      if (!voice.isConnected) {
-        await voice.connect({ sessionId, businessId: bizId })
-      }
-      await voice.startListening()
+      await voice.connect({ sessionId, businessId: bizId })
       setWakeActive(true)
     }
   }
@@ -255,8 +247,8 @@ export function Conversation({ initialMessages, sessionTitle, sessionId, fullScr
   return (
     <>
       <SpeakingIndicator
-        active={voice.isListening || voice.isSpeaking || voice.userSpeaking || voice.agentSpeaking}
-        speaking={voice.userSpeaking || voice.agentSpeaking}
+        active={voice.state === 'listening' || voice.state === 'speaking'}
+        speaking={voice.agentSpeaking}
       />
       <ConversationPage
       messages={messages}
