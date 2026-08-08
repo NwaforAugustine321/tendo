@@ -39,12 +39,16 @@ class PlanningError(Exception):
 _AGENT_REGISTRY = None
 _active_session = None
 _active_business_id = ""
+_active_emit_callback = None
+_active_session_id = ""
 
 
-def set_active_session(session, business_id: str = ""):
-    global _active_session, _active_business_id
+def set_active_session(session=None, business_id: str = "", emit_callback=None, session_id: str = ""):
+    global _active_session, _active_business_id, _active_emit_callback, _active_session_id
     _active_session = session
     _active_business_id = business_id
+    _active_emit_callback = emit_callback
+    _active_session_id = session_id
 
 
 def _get_registry():
@@ -91,7 +95,7 @@ async def delegate_to_agents(
 
     agent_names = [a.get("agent_id", "") for a in agent_dicts]
     
-    return "Sucessfully delegated to specialize agent. No further action required while wiating "
+    return "Task delegated to specialist agents. They are processing now. Provide a brief acknowledgment to the user."
 
 
 async def _run_parallel(agents: list[dict], registry: dict, shared_constraints: str) -> str:
@@ -151,14 +155,32 @@ async def _run_sequential(agents: list[dict], registry: dict, shared_constraints
 
 async def _run_parallel_and_speak(agents: list[dict], registry: dict, shared_constraints: str):
     result = await _run_parallel(agents, registry, shared_constraints)
-    if result and _active_session:
-        _active_session.say(result)
+    if result:
+        if _active_session:
+            _active_session.say(result)
+        if _active_emit_callback:
+            await _active_emit_callback("message", {
+                "type": "message",
+                "data": {"response": result, "msg_type": "answer"},
+            })
+        if _active_session_id and _active_business_id:
+            from app.db.tools.messages import save_messages
+            await save_messages(_active_business_id, _active_session_id, [{"role": "assistant", "content": result}])
 
 
 async def _run_sequential_and_speak(agents: list[dict], registry: dict, shared_constraints: str):
     result = await _run_sequential(agents, registry, shared_constraints)
-    if result and _active_session:
-        _active_session.say(result)
+    if result:
+        if _active_session:
+            _active_session.say(result)
+        if _active_emit_callback:
+            await _active_emit_callback("message", {
+                "type": "message",
+                "data": {"response": result, "msg_type": "answer"},
+            })
+        if _active_session_id and _active_business_id:
+            from app.db.tools.messages import save_messages
+            await save_messages(_active_business_id, _active_session_id, [{"role": "assistant", "content": result}])
 
 
 class Planner:

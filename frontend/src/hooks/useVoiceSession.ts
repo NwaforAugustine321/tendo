@@ -107,14 +107,16 @@ export function useVoiceSession() {
       const client = new LiveKitVoiceClient({
         onConnected: () => {
           setState('connecting')
-          client.startMic().catch(() => {})
         },
         onAgentReady: () => {
-          setMicActive(true)
-          setState('listening')
+          client.startMic().then(() => {
+            setMicActive(true)
+            setState('listening')
+          }).catch(() => {})
         },
         onDisconnected: () => {
           setState('idle')
+          setMicActive(false)
           setAgentSpeaking(false)
           setUserSpeaking(false)
         },

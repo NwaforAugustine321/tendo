@@ -1,42 +1,72 @@
 import logging
+from typing import Annotated, TypedDict
+
+from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph import END, START, StateGraph
-from app.graph.nodes.moa_orchestrator import moa_orchestrator_node
-from app.graph.nodes.response import response_node
-from app.models.state import GraphState
+from langgraph.graph.message import add_messages
 
 logger = logging.getLogger(__name__)
+
+
+class State(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
+    business_id: str
+    session_id: str
+    user_id: str
+
+
+_planner = None
+
+
+def _get_planner():
+    global _planner
+    if _planner is None:
+        from app.planner import Planner
+        _planner = Planner()
+    return _planner
+
+
+async def planner_node(state: State):
+    from langgraph.config import get_stream_writer
+    writer = get_stream_writer()
+
+    planner = _get_planner()
+    messages = state["messages"]
+
+    last_human = ""
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            last_human = msg.content
+
+    if not last_human:
+        writer("I didn't catch that. Could you repeat?")
+        return {"messages": []}
+
+    response_msg = await planner.run(user_request=last_human, messages=messages)
+    writer(response_msg.content)
+    return {"messages": []}
+
+
+def build_graph() -> StateGraph:
+    builder = StateGraph(State)
+    builder.add_node("planner", planner_node)
+    builder.add_edge(START, "planner")
+    builder.add_edge("planner", END)
+    return builder
+
 
 _compiled_graph = None
 
 
-def route_from_moa(state: GraphState) -> str:
-    if state.get("error"):
-        return "response"
-    return "response"
-
-
-def build_graph() -> StateGraph:
-    builder = StateGraph(GraphState)
-
-    builder.add_node("moa", moa_orchestrator_node)
-    builder.add_node("response", response_node)
-
-    builder.add_edge(START, "moa")
-    builder.add_edge("moa", "response")
-    builder.add_edge("response", END)
-
-    return builder
-
-
 async def init_graph():
     global _compiled_graph
-    builder = build_graph()
-    _compiled_graph = builder.compile()
-    logger.info("Graph compiled — MOA Orchestrator architecture")
+    _compiled_graph = build_graph().compile()
+    logger.info("Graph compiled")
     return _compiled_graph
 
 
 def get_graph():
+    global _compiled_graph
     if _compiled_graph is None:
-        raise RuntimeError("Graph not initialized. Call init_graph() during app startup.")
+        _compiled_graph = build_graph().compile()
     return _compiled_graph

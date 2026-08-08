@@ -61,8 +61,8 @@ async def tendo_session(ctx: JobContext):
     logger.info(f"[tendo_session] business_id={business_id} session_id={session_id}")
     ctx.log_context_fields = {"room": ctx.room.name}
 
-    from app.graph.voice_graph import get_voice_graph
-    graph = get_voice_graph()
+    from app.graph.workflow import get_graph
+    graph = get_graph()
 
     agent = Agent(
         instructions="",
@@ -89,7 +89,7 @@ async def tendo_session(ctx: JobContext):
     )
 
     from app.planner.planner import set_active_session
-    set_active_session(session, business_id)
+    set_active_session(session=session, business_id=business_id, session_id=session_id)
 
     from livekit.agents import ErrorEvent, llm, stt, tts
 

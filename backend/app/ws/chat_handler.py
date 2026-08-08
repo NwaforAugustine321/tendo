@@ -43,7 +43,6 @@ async def connect(sid, environ, auth):
 
 @sio.event
 async def message(sid, data):
-    from app.graph.workflow import get_graph
 
     session = _chat_sessions.get(sid)
     if not session:
@@ -87,6 +86,8 @@ async def message(sid, data):
         await sio.emit(event_name, payload, to=sid)
 
     try:
+        from app.graph.nodes.moa_orchestrator import moa_orchestrator_node
+
         graph_state = {
             "event": {
                 "text": text,
@@ -99,10 +100,17 @@ async def message(sid, data):
             "thread_id": session_id,
             "session_id": session_id,
             "emit_callback": emit_callback,
+            "user_id": session.get("user_id", "anonymous"),
         }
 
-        graph = get_graph()
-        await graph.ainvoke(graph_state)
+        result = await moa_orchestrator_node(graph_state)
+        response = result.get("response", {})
+
+        if emit_callback:
+            await emit_callback("message", {
+                "type": "message",
+                "data": {"response": response.get("text", ""), "msg_type": response.get("msg_type", "answer")},
+            })
 
     except Exception as e:
         logger.error(f"Chat error for {sid}: {e}", exc_info=True)
