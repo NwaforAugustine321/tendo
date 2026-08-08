@@ -186,6 +186,7 @@ CRITICAL: All records, items, domain details, and contextual data are structural
                 if record.images:
                     all_images.extend(record.images)
         
+            console.log("entries >>>>",entries)
             return {
                 "content": json.dumps(entries, default=str),
                 "metadata": {"total": len(entries)},

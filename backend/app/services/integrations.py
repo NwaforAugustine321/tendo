@@ -171,7 +171,7 @@ async def disconnect_data_source(business_id: str, source_type: str) -> dict:
 
 async def exchange_code_for_token(code: str) -> dict:
     async with httpx.AsyncClient() as client:
-        print(f"{settings.whatsapp_redirect_uri}/app")
+        
         resp = await client.get(
             f"{GRAPH_API_BASE}/{settings.whatsapp_api_version}/oauth/access_token",
             params={
@@ -194,7 +194,7 @@ async def subscribe_to_waba(waba_id: str, access_token: str) -> bool:
         )
         resp.raise_for_status()
         data = resp.json()
-        print(data)
+       
         return data.get("success", False)
 
 

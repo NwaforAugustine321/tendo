@@ -345,7 +345,7 @@ class AgentRuntime:
 
             response = await self._invoke_llm_safe(user_msg)
 
-            print(response)
+            # print(response)
 
             if response.tool_calls and len(response.tool_calls) > 0:
                 result = await self._handle_native_tool_calls(response)

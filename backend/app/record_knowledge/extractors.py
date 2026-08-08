@@ -32,7 +32,6 @@ def chunk_text(text: str) -> list[str]:
         return []
     chunks = _splitter.split_text(text)
     chunks = [c for c in chunks if c.strip()]
-    print(chunks)
     return chunks
 
 
