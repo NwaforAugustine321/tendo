@@ -16,6 +16,12 @@ from app.runtime.toolsets.executor import ToolExecutionResult
 from app.toolsets import function_tool
 from app.llm.client import get_client
 from app.runtime.llm_vendors.langchain import LangChainLLM
+from app.runtime.memory.factory import (
+    create_memory_provider,
+)
+from app.runtime.rag.factory import (
+    create_rag_provider
+)
 
 _llm = get_client()
 
@@ -243,7 +249,8 @@ class Planner:
             name="Assistant",
 
             llm=llm,
-
+            memory=create_memory_provider(),
+            rag=create_rag_provider(),
             instructions="""
                 You are a helpful assistant.
 

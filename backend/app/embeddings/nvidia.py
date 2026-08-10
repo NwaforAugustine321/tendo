@@ -1,11 +1,9 @@
-"""NVIDIA embedding provider using nemotron-3-embed-1b with truncation to 768 dims."""
 
 from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
 from langchain_core.embeddings import Embeddings
 
 
-class TruncatedNVIDIAEmbeddings(Embeddings):
-    """Wraps NVIDIAEmbeddings and truncates output vectors to target dimensionality."""
+class ENVIDIAEmbeddings(Embeddings):
 
     def __init__(self, base: NVIDIAEmbeddings, target_dim: int = 768):
         self._base = base
@@ -34,10 +32,10 @@ class TruncatedNVIDIAEmbeddings(Embeddings):
         return [v[: self._target_dim] for v in vectors]
 
 
-_client: TruncatedNVIDIAEmbeddings | None = None
+_client: ENVIDIAEmbeddings | None = None
 
 
-def get_client() -> TruncatedNVIDIAEmbeddings:
+def get_client() -> ENVIDIAEmbeddings:
     global _client
     if _client is None:
         from app.config.settings import settings
@@ -46,5 +44,5 @@ def get_client() -> TruncatedNVIDIAEmbeddings:
             api_key=settings.nvidia_api_key,
             truncate="END",
         )
-        _client = TruncatedNVIDIAEmbeddings(base, target_dim=768)
+        _client = ENVIDIAEmbeddings(base, target_dim=768)
     return _client

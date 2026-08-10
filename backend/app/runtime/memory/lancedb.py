@@ -1,0 +1,254 @@
+from __future__ import annotations
+
+from datetime import datetime, UTC
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+import lancedb
+from lancedb.pydantic import LanceModel, Vector
+from pydantic import Field
+
+from app.runtime.embeddings.client import (
+    get_embedding_client,
+)
+from app.runtime.embeddings.provider import (
+    EmbeddingProvider,
+)
+
+from .context import MemoryContext
+from .models import MemoryEntry
+from .reflection import MemoryReflection
+from .store import MemoryStore
+
+
+def _create_memory_schema(
+    dimension: int,
+) -> type[LanceModel]:
+    """
+    Create a LanceDB schema using the configured
+    embedding dimension.
+    """
+
+    class MemoryRecord(LanceModel):
+        id: str
+
+        text: str
+
+        category: str = "general"
+
+        confidence: float = 1.0
+
+        metadata: dict[str, Any] = Field(
+            default_factory=dict,
+        )
+
+        created_at: datetime
+
+        vector: Vector(dimension)
+
+    return MemoryRecord
+
+
+class LanceMemoryStore(
+    MemoryStore,
+):
+    """
+    LanceDB implementation of MemoryStore.
+    """
+
+    def __init__(
+        self,
+        *,
+        db: lancedb.DBConnection | None = None,
+        namespace: str,
+        table_name: str = "memory",
+        uri: str | Path = "./data/memory",
+        embeddings: EmbeddingProvider | None = None,
+    ) -> None:
+
+        self._embeddings = (
+            embeddings
+            or get_embedding_client()
+        )
+
+        self._db = (
+            db
+            or lancedb.connect(
+                str(
+                    Path(uri) / namespace
+                )
+            )
+        )
+
+        self._schema = _create_memory_schema(
+            self._embeddings.dimension,
+        )
+
+        self._table = self._get_or_create_table(
+            table_name,
+        )
+
+    def _get_or_create_table(
+        self,
+        table_name: str,
+    ) -> lancedb.table.Table:
+
+        if table_name in self._db.table_names():
+
+            return self._db.open_table(
+                table_name,
+            )
+
+        return self._db.create_table(
+            table_name,
+            schema=self._schema,
+        )
+
+    async def retrieve(
+        self,
+        *,
+        query: str,
+        limit: int = 10,
+    ) -> MemoryContext:
+
+        if not query.strip():
+            return MemoryContext()
+
+        vector = await self._embeddings.embed(
+            query,
+        )
+
+        rows = (
+            self._table.search(vector)
+            .limit(limit)
+            .to_list()
+        )
+
+        return MemoryContext(
+            entries=[
+                MemoryEntry(
+                    id=row["id"],
+                    text=row["text"],
+                    category=row["category"],
+                    confidence=row["confidence"],
+                    metadata=row["metadata"],
+                )
+                for row in rows
+            ]
+        )
+
+    async def save(
+        self,
+        *,
+        reflection: MemoryReflection,
+    ) -> None:
+
+        create_entries: list[MemoryEntry] = []
+
+        for operation in reflection.operations:
+
+            entry = operation.entry
+
+            match operation.operation:
+
+                case "create":
+
+                    create_entries.append(
+                        entry,
+                    )
+
+                case "update":
+
+                    if not entry.id:
+                        create_entries.append(
+                            entry,
+                        )
+                        continue
+
+                    await self._update(
+                        entry,
+                    )
+
+                case "delete":
+
+                    if entry.id:
+
+                        await self.delete(
+                            memory_id=entry.id,
+                        )
+
+                case _:
+
+                    raise ValueError(
+                        f"Unknown memory operation '{operation.operation}'."
+                    )
+
+        if create_entries:
+
+            await self._insert(
+                create_entries,
+            )
+
+    async def delete(
+        self,
+        *,
+        memory_id: str,
+    ) -> None:
+
+        self._table.delete(
+            f"id='{memory_id}'",
+        )
+
+    async def _insert(
+        self,
+        entries: list[MemoryEntry],
+    ) -> None:
+
+        vectors = await self._embeddings.embed_documents(
+            [
+                entry.text
+                for entry in entries
+            ]
+        )
+
+        rows = [
+            self._schema(
+                id=entry.id or str(uuid4()),
+                text=entry.text,
+                category=entry.category,
+                confidence=entry.confidence,
+                metadata=entry.metadata,
+                created_at=datetime.now(UTC),
+                vector=vector,
+            )
+            for entry, vector in zip(
+                entries,
+                vectors,
+            )
+        ]
+
+        self._table.add(
+            rows,
+        )
+
+    async def _update(
+        self,
+        entry: MemoryEntry,
+    ) -> None:
+
+        vector = await self._embeddings.embed(
+            entry.text,
+        )
+
+        self._table.update(
+            where=f"id='{entry.id}'",
+            values={
+                "text": entry.text,
+                "category": entry.category,
+                "confidence": entry.confidence,
+                "metadata": entry.metadata,
+                "created_at": datetime.now(UTC),
+                "vector": vector,
+            },
+        )

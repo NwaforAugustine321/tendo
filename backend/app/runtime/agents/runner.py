@@ -43,6 +43,7 @@ class AgentRunner:
 
         chat_context = session.chat_context
         run_context = session.run_context
+        run_context.clear_current_messages()
 
         response: LLMResponse | None = None
 
@@ -57,24 +58,15 @@ class AgentRunner:
 
                 try:
 
-                    #
-                    # Input guardrails.
-                    #
                     await run_context.guardrails.check_request(
                         run_context,
                     )
 
-                    #
-                    # Before LLM middleware.
-                    #
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.BEFORE_LLM,
                         run_context,
                     )
 
-                    #
-                    # Execute the model.
-                    #
                     stream = session.agent.llm.chat(
                         ctx=chat_context,
                         run_context=run_context,
@@ -93,9 +85,6 @@ class AgentRunner:
                     finally:
                         session.clear_activity()
 
-                    #
-                    # Output guardrails.
-                    #
                     response = (
                         await run_context.guardrails.check_response(
                             run_context,
@@ -103,34 +92,27 @@ class AgentRunner:
                         )
                     )
 
-                    #
-                    # Middleware observes the approved response.
-                    #
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.AFTER_LLM,
                         run_context,
                         response,
                     )
 
-                    #
-                    # Persist assistant message.
-                    #
-                    chat_context.add(
-                        ChatMessage.from_llm_response(
-                            response
-                        )
-
+                    assistant_message = ChatMessage.from_llm_response(
+                        response,
                     )
 
-                    #
-                    # Finished.
-                    #
+                    chat_context.add(
+                        assistant_message,
+                    )
+
+                    run_context.add_current_message(
+                        assistant_message,
+                    )
+
                     if not response.has_tool_calls:
                         return response
 
-                    #
-                    # Before tool execution.
-                    #
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.BEFORE_TOOLS,
                         run_context,
@@ -142,25 +124,27 @@ class AgentRunner:
                         ctx=run_context,
                     )
 
-                    #
-                    # After tool execution.
-                    #
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.AFTER_TOOLS,
                         run_context,
                         results,
                     )
 
-                    chat_context.extend(
+                    tool_messages = (
                         self._tool_executor.build_tool_messages(
                             results,
                         )
                     )
 
+                    chat_context.extend(
+                        tool_messages,
+                    )
+
+                    run_context.add_current_messages(
+                        tool_messages,
+                    )
+
                 except RetryRequest:
-                    #
-                    # Restart the current iteration.
-                    #
                     continue
 
             raise RuntimeError(
@@ -184,3 +168,20 @@ class AgentRunner:
                 run_context,
                 response,
             )
+
+            if (
+                response is not None
+                and session.agent.memory is not None
+            ):
+                try:
+
+                    await session.agent.memory.reflect(
+                        run_context,
+                    )
+
+                except Exception as error:
+
+                    logger.exception(
+                        "Memory reflection failed.",
+                        exc_info=error,
+                    )

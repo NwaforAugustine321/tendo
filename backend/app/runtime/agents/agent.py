@@ -8,6 +8,7 @@ from app.runtime.agents.middleware import MiddlewareManager, AgentMiddleware
 from app.runtime.guardrails.manager import GuardrailManager
 from app.runtime.prompts.template import PromptTemplate
 from app.runtime.prompts.default_template import DefaultPromptTemplate
+from app.runtime.memory.provider import MemoryProvider
 
 if TYPE_CHECKING:
     from .session import AgentSession
@@ -41,6 +42,7 @@ class Agent:
         middleware: list[AgentMiddleware] | None = None,
         guardrails: GuardrailManager | None = None,
         prompt_template: PromptTemplate | None = None,
+        memory: MemoryProvider | None = None,
     ) -> None:
 
         self._name = name
@@ -49,6 +51,7 @@ class Agent:
             middleware,
         )
 
+        self._memory = memory
         self._guardrails = (
             guardrails
             if guardrails is not None
@@ -68,6 +71,12 @@ class Agent:
             tools,
         )
         self._metadata = metadata or {}
+
+    @property
+    def memory(
+        self,
+    ) -> MemoryProvider | None:
+        return self._memory
 
     @property
     def guardrails(

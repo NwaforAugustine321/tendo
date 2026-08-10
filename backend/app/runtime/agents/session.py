@@ -50,19 +50,27 @@ class AgentSession:
         self._current_activity: AgentActivity | None = None
 
     @property
-    def id(self) -> str:
+    def id(
+        self,
+    ) -> str:
         return self._id
 
     @property
-    def agent(self) -> Agent:
+    def agent(
+        self,
+    ) -> Agent:
         return self._agent
 
     @property
-    def chat_context(self) -> ChatContext:
+    def chat_context(
+        self,
+    ) -> ChatContext:
         return self._chat_context
 
     @property
-    def run_context(self) -> RunContext:
+    def run_context(
+        self,
+    ) -> RunContext:
         return self._run_context
 
     @property
@@ -72,18 +80,21 @@ class AgentSession:
         return self._current_activity
 
     @property
-    def messages(self) -> list[ChatMessage]:
+    def messages(
+        self,
+    ) -> list[ChatMessage]:
         return self._chat_context.messages
 
     @property
-    def last_message(self) -> ChatMessage | None:
+    def last_message(
+        self,
+    ) -> ChatMessage | None:
         return self._chat_context.last
 
     @property
     def running(
         self,
     ) -> bool:
-
         return (
             self._current_activity is not None
             and not self._current_activity.finished
@@ -95,19 +106,12 @@ class AgentSession:
     ) -> LLMResponse:
         """
         Execute one conversational turn.
-
-        The user message is appended to the
-        conversation before invoking the runner.
         """
 
-        self._chat_context.add(
+        return await self.run_message(
             ChatMessage.user(
                 message,
             )
-        )
-
-        return await self._agent.runner.run(
-            self,
         )
 
     async def run_message(
@@ -120,6 +124,10 @@ class AgentSession:
         """
 
         self._chat_context.add(
+            message,
+        )
+
+        self._run_context.start_run(
             message,
         )
 
