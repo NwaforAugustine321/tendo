@@ -46,7 +46,7 @@ async def run_understanding_agent(business_id: str, record_id: str) -> Understan
     prompt = "Fetch write comprehensive overview of it from current knowledge system"
     #f"/business/{business_id}", 
     scopes = [f"/{business_id}/record/{record_id}"]
-    _agent.bind_tools(business_id)
+    await _agent.bind_tools(business_id)
     # response = await _agent.execute_agent(SYSTEM_PROMPT)
     # print(response)
     return {"insight": '', "suggestions": []}

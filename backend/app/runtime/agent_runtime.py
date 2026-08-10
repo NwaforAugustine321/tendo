@@ -349,7 +349,7 @@ class AgentRuntime:
 
             response = await self._invoke_llm_safe(user_msg)
 
-            # print(response)
+            print(response)
             print(response.tool_calls)
 
             if response.tool_calls and len(response.tool_calls) > 0:
@@ -416,6 +416,7 @@ class AgentRuntime:
         self._messages.append({"role": "assistant", "content": response.content or "", "tool_calls": response.tool_calls})
         for tc in response.tool_calls:
             tool_result = await self._execute_tool(tc)
+            print(f"[tool_call] {tc['name']} -> result: {str(tool_result)[:500]}")
             self._messages.append({"role": "tool", "tool_call_id": tc["id"], "content": str(tool_result)})
         return None
 
@@ -433,12 +434,12 @@ class AgentRuntime:
         if fa_match and fa_match.group(1).strip():
             self._last_final_answer = fa_match.group(1).strip()
 
-        # <Thought> + <Final_Answer> → extract final answer and return immediately
+        # <Thought> + <Final_Answer> → append message and continue (let the loop accumulate reasoning)
         if thought_match and fa_match:
+            self._messages.append({"role": "assistant", "content": raw})
             content = fa_match.group(1).strip()
             if content:
-                return content
-            self._messages.append({"role": "assistant", "content": raw})
+                self._last_final_answer = content
             return None
 
         # <Thought> + <Action> → skip append, execute action directly

@@ -51,7 +51,7 @@ app = FastAPI(title="Tendo", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://gasoline-approx-likelihood-blocked.trycloudflare.com","http://localhost:5173" ],
+    allow_origins=["https://journal-points-bundle-income.trycloudflare.com","http://localhost:5173" ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

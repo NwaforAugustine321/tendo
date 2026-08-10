@@ -20,7 +20,7 @@ class OnboardingAgent:
                 tool_binder=ToolBinder(),
         )
 
-    def bind_tools(self, business_id: str, scopes: list[str] = []) -> list[Any]:
+    async def bind_tools(self, business_id: str, scopes: list[str] = []) -> None:
         self._runtime.bind_tool(get_onboarding_tools(business_id) + get_knowledge_tools(business_id=business_id, scopes=scopes))
 
     async def execute_agent(self, *args, **kwargs):
