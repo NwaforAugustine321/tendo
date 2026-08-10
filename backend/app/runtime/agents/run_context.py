@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from app.runtime.chat.context import ChatContext
 from app.runtime.chat.message import ChatMessage
+from app.runtime.conversation.context import (
+    ConversationContext,
+)
 
 if TYPE_CHECKING:
     from .agent import Agent
@@ -16,34 +18,74 @@ class RunContext:
     """
     Context shared across a single execution of an AgentSession.
 
-    RunContext provides convenient access to the current
-    AgentSession while also tracking the messages generated
-    during the current run.
-
-    ChatContext contains the entire conversation.
-
-    RunContext only contains the messages produced during
-    the current execution, making it suitable for reflection,
-    memory extraction, analytics, and learning.
+    RunContext contains only data related to the current
+    execution. It does not contain the full conversation
+    history, retrieved memories, or retrieved knowledge.
     """
 
     session: AgentSession
 
-    _run_messages: list[ChatMessage] = field(
+    user_request: str = ""
+
+    _messages: list[ChatMessage] = field(
         default_factory=list,
     )
 
     @property
-    def current_messages(
+    def messages(
         self,
     ) -> list[ChatMessage]:
         """
-        Messages generated during the current execution.
+        Messages produced during the current execution.
         """
-        return list(self._run_messages)
+
+        return list(
+            self._messages,
+        )
 
     @property
-    def current_conversation(
+    def current_user_message(
+        self,
+    ) -> ChatMessage | None:
+        """
+        The current user message.
+        """
+
+        for message in self._messages:
+
+            if message.role == "user" or getattr(
+                message.role,
+                "value",
+                None,
+            ) == "user":
+                return message
+
+        return None
+
+    @property
+    def current_assistant_message(
+        self,
+    ) -> ChatMessage | None:
+        """
+        The latest assistant message produced during
+        this execution.
+        """
+
+        for message in reversed(
+            self._messages,
+        ):
+
+            if message.role == "assistant" or getattr(
+                message.role,
+                "value",
+                None,
+            ) == "assistant":
+                return message
+
+        return None
+
+    @property
+    def conversation(
         self,
     ) -> str:
         """
@@ -52,8 +94,28 @@ class RunContext:
 
         return "\n".join(
             f"{message.role}: {message.content}"
-            for message in self._run_messages
+            for message in self._messages
         )
+
+    @property
+    def conversation_context(
+        self,
+    ) -> ConversationContext:
+        """
+        Previously persisted conversation.
+        """
+
+        return self.session.conversation_context
+
+    @property
+    def conversation_id(
+        self,
+    ) -> str | None:
+        """
+        Current conversation identifier.
+        """
+
+        return self.conversation_context.conversation_id
 
     @property
     def middleware(
@@ -68,6 +130,7 @@ class RunContext:
         """
         Agent guardrail manager.
         """
+
         return self.agent.guardrails
 
     @property
@@ -77,16 +140,8 @@ class RunContext:
         """
         The executing agent.
         """
-        return self.session.agent
 
-    @property
-    def chat_context(
-        self,
-    ) -> ChatContext:
-        """
-        Complete conversation history.
-        """
-        return self.session.chat_context
+        return self.session.agent
 
     @property
     def session_id(
@@ -95,6 +150,7 @@ class RunContext:
         """
         Unique session identifier.
         """
+
         return self.session.id
 
     @property
@@ -104,9 +160,10 @@ class RunContext:
         """
         Optional runtime metadata.
         """
+
         return {}
 
-    def add_current_message(
+    def add_message(
         self,
         message: ChatMessage,
     ) -> None:
@@ -114,11 +171,11 @@ class RunContext:
         Add a message to the current execution.
         """
 
-        self._run_messages.append(
+        self._messages.append(
             message,
         )
 
-    def add_current_messages(
+    def add_messages(
         self,
         messages: list[ChatMessage],
     ) -> None:
@@ -126,20 +183,22 @@ class RunContext:
         Add multiple messages to the current execution.
         """
 
-        self._run_messages.extend(
+        self._messages.extend(
             messages,
         )
 
-    def clear_current_messages(
+    def clear(
         self,
     ) -> None:
         """
-        Reset the current execution transcript.
+        Reset the current execution.
         """
 
-        self._run_messages.clear()
+        self._messages.clear()
 
-    def start_run(
+        self.user_request = ""
+
+    def start(
         self,
         user_message: ChatMessage,
     ) -> None:
@@ -147,8 +206,12 @@ class RunContext:
         Begin a new execution.
         """
 
-        self.clear_current_messages()
+        self.clear()
 
-        self.add_current_message(
+        self.user_request = (
+            user_message.content
+        )
+
+        self.add_message(
             user_message,
         )

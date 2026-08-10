@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -16,13 +17,17 @@ from app.runtime.toolsets.tool_proxy import (
 )
 
 
-@dataclass(slots=True)
+@dataclass(
+    slots=True,
+    frozen=True,
+)
 class ToolExecutionResult:
     """
     Result of executing a single tool.
     """
 
     tool_call: ToolCall
+
     output: Any
 
 
@@ -32,8 +37,9 @@ class ToolExecutor:
 
     Responsibilities
     ----------------
-    - Delegate execution to ToolProxyToolset
-    - Convert execution failures into ToolMessages
+    - Delegate execution to ToolProxyToolset.
+    - Normalize execution failures.
+    - Produce tool messages.
     """
 
     def __init__(
@@ -42,6 +48,13 @@ class ToolExecutor:
     ) -> None:
 
         self._proxy = proxy
+
+    @property
+    def proxy(
+        self,
+    ) -> ToolProxyToolset:
+
+        return self._proxy
 
     async def execute_one(
         self,
@@ -93,57 +106,67 @@ class ToolExecutor:
         *,
         ctx: RunContext | None = None,
     ) -> list[ToolExecutionResult]:
+        """
+        Execute all tool calls.
+        """
 
-        return [
-            await self.execute_one(
-                tool_call,
-                ctx=ctx,
+        if not tool_calls:
+            return []
+
+        return await asyncio.gather(
+            *(
+                self.execute_one(
+                    tool_call,
+                    ctx=ctx,
+                )
+                for tool_call in tool_calls
             )
-            for tool_call in tool_calls
-        ]
+        )
 
     def build_tool_messages(
         self,
         results: list[ToolExecutionResult],
     ) -> list[ChatMessage]:
+        """
+        Convert tool execution results into
+        ToolMessages for the conversation.
+        """
 
-        messages: list[ChatMessage] = []
+        return [
+            ChatMessage.tool(
+                tool_call_id=result.tool_call.id,
+                name=result.tool_call.name,
+                content=self._serialize_output(
+                    result.output,
+                ),
+            )
+            for result in results
+        ]
 
-        for result in results:
+    def _serialize_output(
+        self,
+        output: Any,
+    ) -> str:
 
-            output = result.output
+        if output is None:
+            return ""
 
-            if output is None:
+        if isinstance(
+            output,
+            str,
+        ):
+            return output
 
-                content = ""
+        try:
 
-            elif isinstance(
+            return json.dumps(
                 output,
-                str,
-            ):
-
-                content = output
-
-            else:
-
-                try:
-
-                    content = json.dumps(
-                        output,
-                        ensure_ascii=False,
-                        default=str,
-                    )
-
-                except Exception:
-
-                    content = str(output)
-
-            messages.append(
-                ChatMessage.tool(
-                    tool_call_id=result.tool_call.id,
-                    name=result.tool_call.name,
-                    content=content,
-                )
+                ensure_ascii=False,
+                default=str,
             )
 
-        return messages
+        except Exception:
+
+            return str(
+                output,
+            )

@@ -1,17 +1,18 @@
 from __future__ import annotations
-from typing import Any
 
 from abc import ABC
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Any
 
-from enum import Enum
-
+from app.runtime.chat.message import ChatMessage
 from app.runtime.llm.response import LLMResponse
 from app.runtime.toolsets.executor import ToolExecutionResult
 
-from .run_context import RunContext
+from app.runtime.agents.run_context import RunContext
 
 
-class MiddlewareEvent(str, Enum):
+class MiddlewareEvent(StrEnum):
     BEFORE_RUN = "before_run"
     AFTER_RUN = "after_run"
 
@@ -24,11 +25,57 @@ class MiddlewareEvent(str, Enum):
     ON_ERROR = "on_error"
 
 
+#
+# ------------------------------------------------------------------
+# Event payloads
+# ------------------------------------------------------------------
+#
+
+@dataclass(slots=True)
+class AfterLLMEvent:
+
+    message: ChatMessage
+
+    response: LLMResponse
+
+
+@dataclass(slots=True)
+class BeforeToolsEvent:
+
+    tool_calls: Any
+
+
+@dataclass(slots=True)
+class AfterToolsEvent:
+
+    messages: list[ChatMessage]
+
+    results: list[ToolExecutionResult]
+
+
+@dataclass(slots=True)
+class ErrorEvent:
+
+    error: Exception
+
+
+@dataclass(slots=True)
+class AfterRunEvent:
+
+    response: LLMResponse | None
+
+
+#
+# ------------------------------------------------------------------
+# Middleware
+# ------------------------------------------------------------------
+#
+
 class AgentMiddleware(ABC):
     """
     Base class for Agent middleware.
 
-    Every lifecycle method is optional.
+    Every lifecycle hook is optional.
     """
 
     async def before_run(
@@ -40,7 +87,7 @@ class AgentMiddleware(ABC):
     async def after_run(
         self,
         ctx: RunContext,
-        response: LLMResponse,
+        event: AfterRunEvent,
     ) -> None:
         pass
 
@@ -53,31 +100,37 @@ class AgentMiddleware(ABC):
     async def after_llm(
         self,
         ctx: RunContext,
-        response: LLMResponse | None,
+        event: AfterLLMEvent,
     ) -> None:
         pass
 
     async def before_tools(
         self,
         ctx: RunContext,
-        tool_calls: Any
+        event: BeforeToolsEvent,
     ) -> None:
         pass
 
     async def after_tools(
         self,
         ctx: RunContext,
-        results: list[ToolExecutionResult],
+        event: AfterToolsEvent,
     ) -> None:
         pass
 
     async def on_error(
         self,
         ctx: RunContext,
-        error: Exception,
+        event: ErrorEvent,
     ) -> None:
         pass
 
+
+#
+# ------------------------------------------------------------------
+# Manager
+# ------------------------------------------------------------------
+#
 
 class MiddlewareManager:
     """
@@ -90,6 +143,15 @@ class MiddlewareManager:
     ) -> None:
 
         self._middleware = middleware or []
+
+    @property
+    def middleware(
+        self,
+    ) -> list[AgentMiddleware]:
+
+        return list(
+            self._middleware,
+        )
 
     def add(
         self,
@@ -112,12 +174,11 @@ class MiddlewareManager:
     async def dispatch(
         self,
         event: MiddlewareEvent,
-        *args: Any,
+        ctx: RunContext,
+        payload: Any = None,
     ) -> list[Any]:
         """
         Dispatch a lifecycle event to every middleware.
-
-        Returns every middleware result in execution order.
         """
 
         results: list[Any] = []
@@ -133,10 +194,21 @@ class MiddlewareManager:
             if handler is None:
                 continue
 
-            results.append(
-                await handler(
-                    *args,
+            if payload is None:
+
+                result = await handler(
+                    ctx,
                 )
+
+            else:
+
+                result = await handler(
+                    ctx,
+                    payload,
+                )
+
+            results.append(
+                result,
             )
 
         return results

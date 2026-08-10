@@ -3,8 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from app.runtime.agents.run_context import RunContext
-from app.runtime.chat.context import ChatContext
+from app.runtime.agents.run_context import (
+    RunContext,
+)
+from app.runtime.conversation.context import (
+    ConversationContext,
+)
 
 if TYPE_CHECKING:
     from app.runtime.agents.agent import Agent
@@ -20,4 +24,4 @@ class PromptContext:
 
     run_context: RunContext
 
-    chat_context: ChatContext
+    conversation_context: ConversationContext

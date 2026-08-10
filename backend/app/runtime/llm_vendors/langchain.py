@@ -13,13 +13,23 @@ from langchain_core.messages import (
 )
 
 from app.runtime.agents.run_context import RunContext
-from app.runtime.chat.context import ChatContext
 from app.runtime.chat.message import ChatMessage
-from app.runtime.llm.inference_stream import InferenceStream
+from app.runtime.conversation.context import (
+    ConversationContext,
+)
+from app.runtime.llm.inference_stream import (
+    InferenceStream,
+)
 from app.runtime.llm.llm import LLM
-from app.toolsets.tool_context import ToolContext
-from app.runtime.toolsets.utils import to_langchain_tools
-from app.runtime.structured_output.parser import ResponseParser
+from app.runtime.structured_output.parser import (
+    ResponseParser,
+)
+from app.runtime.toolsets.tool_context import (
+    ToolContext,
+)
+from app.runtime.toolsets.utils import (
+    to_langchain_tools,
+)
 
 
 class LangChainLLM(LLM):
@@ -37,36 +47,41 @@ class LangChainLLM(LLM):
         self._supports_structured_output = (
             supports_structured_output
         )
+
         self._response_parser = ResponseParser()
 
     @property
     def response_parser(
         self,
     ) -> ResponseParser:
+
         return self._response_parser
 
     @property
     def supports_structured_output(
         self,
     ) -> bool:
+
         return self._supports_structured_output
 
     @property
     def model(
         self,
     ) -> BaseChatModel:
+
         return self._model
 
     def chat(
         self,
-        ctx: ChatContext,
-        run_context: RunContext
+        *,
+        conversation_context: ConversationContext,
+        run_context: RunContext,
     ) -> InferenceStream:
 
         return InferenceStream(
             agent=run_context.agent,
-            chat_context=ctx,
-            run_context=run_context
+            conversation_context=conversation_context,
+            run_context=run_context,
         )
 
     def prepare(
@@ -85,6 +100,7 @@ class LangChainLLM(LLM):
         # Bind tools.
         #
         if not tool_context.is_empty():
+
             model = model.bind_tools(
                 to_langchain_tools(
                     tool_context.proxy.tools,
@@ -92,12 +108,13 @@ class LangChainLLM(LLM):
             )
 
         #
-        # Bind structured output only when supported.
+        # Bind structured output.
         #
         if (
             output_type is not None
             and self.supports_structured_output
         ):
+
             model = model.with_structured_output(
                 output_type,
             )
@@ -139,7 +156,9 @@ class LangChainLLM(LLM):
         """
 
         if not chunks:
-            return AIMessage(content="")
+            return AIMessage(
+                content="",
+            )
 
         merged = chunks[0]
 
@@ -160,6 +179,7 @@ class LangChainLLM(LLM):
             match message.role:
 
                 case "system":
+
                     result.append(
                         SystemMessage(
                             content=message.content,
@@ -167,6 +187,7 @@ class LangChainLLM(LLM):
                     )
 
                 case "user":
+
                     result.append(
                         HumanMessage(
                             content=message.content,
@@ -174,6 +195,7 @@ class LangChainLLM(LLM):
                     )
 
                 case "assistant":
+
                     result.append(
                         AIMessage(
                             content=message.content,
@@ -181,6 +203,7 @@ class LangChainLLM(LLM):
                     )
 
                 case "tool":
+
                     result.append(
                         ToolMessage(
                             content=message.content,
@@ -189,6 +212,7 @@ class LangChainLLM(LLM):
                     )
 
                 case _:
+
                     raise ValueError(
                         f"Unknown role '{message.role}'."
                     )

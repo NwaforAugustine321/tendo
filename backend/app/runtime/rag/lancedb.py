@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -39,8 +40,8 @@ def create_rag_schema(
 
         source: str = ""
 
-        metadata: dict[str, Any] = Field(
-            default_factory=dict,
+        metadata: str = Field(
+            default="{}",
         )
 
         created_at: datetime
@@ -138,9 +139,8 @@ class LanceRAGStore(
                     title=row["title"],
                     content=row["content"],
                     source=row["source"],
-                    metadata=row.get(
-                        "metadata",
-                        {},
+                    metadata=json.loads(
+                        row.get("metadata", "{}"),
                     ),
                 )
                 for row in rows
@@ -180,7 +180,9 @@ class LanceRAGStore(
                     title=document.title,
                     content=document.content,
                     source=document.source,
-                    metadata=document.metadata,
+                    metadata=json.dumps(
+                        document.metadata,
+                    ),
                     created_at=now,
                     updated_at=now,
                     vector=vector,
@@ -189,6 +191,16 @@ class LanceRAGStore(
 
         self._table.add(
             rows,
+        )
+
+    async def index(
+        self,
+        *,
+        documents: list[RAGDocument],
+    ) -> None:
+
+        await self.add(
+            documents=documents,
         )
 
     async def delete(

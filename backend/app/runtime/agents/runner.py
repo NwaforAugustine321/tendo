@@ -1,16 +1,26 @@
 from __future__ import annotations
 
+import logging
+
+from app.runtime.middlewares.middleware import (
+    AfterLLMEvent,
+    AfterRunEvent,
+    AfterToolsEvent,
+    BeforeToolsEvent,
+    ErrorEvent,
+    MiddlewareEvent,
+)
+from app.runtime.chat.message import ChatMessage
 from app.runtime.guardrails.exceptions import (
-    GuardrailViolation,
     RetryRequest,
 )
-from app.runtime.agents.middleware import MiddlewareEvent
-from app.runtime.chat.message import ChatMessage
 from app.runtime.llm.response import LLMResponse
 from app.runtime.toolsets.executor import ToolExecutor
 
 from .activity import AgentActivity
 from .session import AgentSession
+
+logger = logging.getLogger(__name__)
 
 
 class AgentRunner:
@@ -19,11 +29,10 @@ class AgentRunner:
 
     Responsibilities
     ----------------
-    - Coordinate LLM execution
     - Coordinate middleware
     - Coordinate guardrails
+    - Coordinate LLM execution
     - Coordinate tool execution
-    - Update the ChatContext
     """
 
     def __init__(
@@ -41,23 +50,32 @@ class AgentRunner:
         session: AgentSession,
     ) -> LLMResponse:
 
-        chat_context = session.chat_context
         run_context = session.run_context
-        run_context.clear_current_messages()
 
         response: LLMResponse | None = None
 
         try:
 
+            #
+            # BEFORE_RUN
+            #
+            # ConversationMiddleware persists the
+            # current user message here.
+            #
             await run_context.middleware.dispatch(
                 MiddlewareEvent.BEFORE_RUN,
                 run_context,
             )
 
-            for _ in range(self._max_iterations):
+            for _ in range(
+                self._max_iterations,
+            ):
 
                 try:
 
+                    #
+                    # Guardrails
+                    #
                     await run_context.guardrails.check_request(
                         run_context,
                     )
@@ -67,8 +85,11 @@ class AgentRunner:
                         run_context,
                     )
 
+                    #
+                    # Execute LLM
+                    #
                     stream = session.agent.llm.chat(
-                        ctx=chat_context,
+                        conversation_context=session.conversation_context,
                         run_context=run_context,
                     )
 
@@ -81,8 +102,11 @@ class AgentRunner:
                     )
 
                     try:
+
                         response = await activity.wait()
+
                     finally:
+
                         session.clear_activity()
 
                     response = (
@@ -92,42 +116,49 @@ class AgentRunner:
                         )
                     )
 
+                    assistant_message = (
+                        ChatMessage.from_llm_response(
+                            response,
+                        )
+                    )
+
+                    #
+                    # Track current execution.
+                    #
+                    run_context.add_message(
+                        assistant_message,
+                    )
+
+                    #
+                    # ConversationMiddleware persists
+                    # the assistant message here.
+                    #
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.AFTER_LLM,
                         run_context,
-                        response,
+                        AfterLLMEvent(
+                            message=assistant_message,
+                            response=response,
+                        ),
                     )
 
-                    assistant_message = ChatMessage.from_llm_response(
-                        response,
-                    )
-
-                    chat_context.add(
-                        assistant_message,
-                    )
-
-                    run_context.add_current_message(
-                        assistant_message,
-                    )
-
+                    #
+                    # Finished?
+                    #
                     if not response.has_tool_calls:
                         return response
 
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.BEFORE_TOOLS,
                         run_context,
-                        response.tool_calls,
+                        BeforeToolsEvent(
+                            tool_calls=response.tool_calls,
+                        ),
                     )
 
                     results = await self._tool_executor.execute(
                         tool_calls=response.tool_calls,
                         ctx=run_context,
-                    )
-
-                    await run_context.middleware.dispatch(
-                        MiddlewareEvent.AFTER_TOOLS,
-                        run_context,
-                        results,
                     )
 
                     tool_messages = (
@@ -136,12 +167,24 @@ class AgentRunner:
                         )
                     )
 
-                    chat_context.extend(
+                    #
+                    # Track current execution.
+                    #
+                    run_context.add_messages(
                         tool_messages,
                     )
 
-                    run_context.add_current_messages(
-                        tool_messages,
+                    #
+                    # ConversationMiddleware persists
+                    # tool messages here.
+                    #
+                    await run_context.middleware.dispatch(
+                        MiddlewareEvent.AFTER_TOOLS,
+                        run_context,
+                        AfterToolsEvent(
+                            messages=tool_messages,
+                            results=results,
+                        ),
                     )
 
                 except RetryRequest:
@@ -156,7 +199,9 @@ class AgentRunner:
             await run_context.middleware.dispatch(
                 MiddlewareEvent.ON_ERROR,
                 run_context,
-                error,
+                ErrorEvent(
+                    error=error,
+                ),
             )
 
             raise
@@ -166,7 +211,9 @@ class AgentRunner:
             await run_context.middleware.dispatch(
                 MiddlewareEvent.AFTER_RUN,
                 run_context,
-                response,
+                AfterRunEvent(
+                    response=response,
+                ),
             )
 
             if (
@@ -179,9 +226,8 @@ class AgentRunner:
                         run_context,
                     )
 
-                except Exception as error:
+                except Exception:
 
                     logger.exception(
                         "Memory reflection failed.",
-                        exc_info=error,
                     )

@@ -3,9 +3,7 @@ from __future__ import annotations
 from app.runtime.agents.run_context import RunContext
 
 from .context import MemoryContext
-from .reflection import (
-    MemoryReflectionEngine,
-)
+from .reflection import MemoryReflectionEngine
 from .store import MemoryStore
 
 
@@ -15,8 +13,7 @@ class MemoryProvider:
 
     Responsibilities
     ----------------
-    - Build a retrieval query from the current run.
-    - Retrieve memories from the configured MemoryStore.
+    - Retrieve memories.
     - Reflect over completed runs.
     - Persist learned memories.
     """
@@ -45,24 +42,21 @@ class MemoryProvider:
 
         return self._reflection
 
+    def middleware(
+        self,
+    ) -> list:
+
+        return []
+
     def build_query(
         self,
         ctx: RunContext,
     ) -> str:
         """
-        Build the retrieval query.
-
-        Override this method if a provider wants to customize
-        retrieval (for example, using only the latest user
-        message or a summarized conversation).
+        Build the memory retrieval query.
         """
 
-        return "\n".join(
-            str(message.content)
-            for message in ctx.current_messages
-            if message.content
-            and str(message.content).strip()
-        )
+        return ctx.user_request.strip()
 
     async def retrieve(
         self,

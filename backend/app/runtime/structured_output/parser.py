@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -7,7 +6,10 @@ from typing import Any
 from langchain_core.messages import AIMessage
 from pydantic import BaseModel
 
-from app.runtime.llm.response import LLMResponse, ToolCall
+from app.runtime.llm.response import (
+    LLMResponse,
+    ToolCall,
+)
 
 
 class ResponseParser:
@@ -19,21 +21,22 @@ class ResponseParser:
         self,
         *,
         provider_response: Any,
-        output_type: type | None,
+        output_type: type | None = None,
     ) -> LLMResponse:
 
-        if not isinstance(provider_response, AIMessage):
+        if not isinstance(
+            provider_response,
+            AIMessage,
+        ):
             raise TypeError(
-                f"Unsupported provider response "
-                f"{type(provider_response).__name__}"
+                "Unsupported provider response "
+                f"'{type(provider_response).__name__}'."
             )
 
-        text = self.extract_text(
-            provider_response,
-        )
-
         return LLMResponse(
-            text=text,
+            text=self.extract_text(
+                provider_response,
+            ),
             output=self.parse_output(
                 provider_response=provider_response,
                 output_type=output_type,
@@ -73,11 +76,12 @@ class ResponseParser:
             provider_response,
             AIMessage,
         ):
+
             return self._parse_text(
-                self.extract_text(
+                text=self.extract_text(
                     provider_response,
                 ),
-                output_type,
+                output_type=output_type,
             )
 
         #
@@ -88,9 +92,12 @@ class ResponseParser:
             dict,
         ):
 
-            if issubclass(
-                output_type,
-                BaseModel,
+            if (
+                isinstance(output_type, type)
+                and issubclass(
+                    output_type,
+                    BaseModel,
+                )
             ):
                 return output_type.model_validate(
                     provider_response,
@@ -99,8 +106,8 @@ class ResponseParser:
             return provider_response
 
         raise TypeError(
-            f"Unsupported structured output "
-            f"{type(provider_response).__name__}"
+            "Unsupported structured output "
+            f"'{type(provider_response).__name__}'."
         )
 
     def extract_text(
@@ -129,7 +136,9 @@ class ResponseParser:
                     item,
                     str,
                 ):
-                    parts.append(item)
+                    parts.append(
+                        item,
+                    )
 
                 elif isinstance(
                     item,
@@ -149,9 +158,13 @@ class ResponseParser:
                         str(item)
                     )
 
-            return "".join(parts)
+            return "".join(
+                parts,
+            )
 
-        return str(content)
+        return str(
+            content,
+        )
 
     def extract_metadata(
         self,
@@ -160,9 +173,13 @@ class ResponseParser:
 
         metadata: dict[str, Any] = {}
 
-        for key, value in vars(message).items():
+        for key, value in vars(
+            message,
+        ).items():
 
-            if key.startswith("_"):
+            if key.startswith(
+                "_",
+            ):
                 continue
 
             if key in {
@@ -191,8 +208,14 @@ class ResponseParser:
 
             tool_calls.append(
                 ToolCall(
-                    id=tool.get("id", ""),
-                    name=tool.get("name", ""),
+                    id=tool.get(
+                        "id",
+                        "",
+                    ),
+                    name=tool.get(
+                        "name",
+                        "",
+                    ),
                     arguments=tool.get(
                         "args",
                         {},
@@ -204,18 +227,34 @@ class ResponseParser:
 
     def _parse_text(
         self,
+        *,
         text: str,
         output_type: type,
     ) -> Any:
 
-        if issubclass(
-            output_type,
-            BaseModel,
+        text = text.strip()
+
+        if not text:
+            return None
+
+        if (
+            isinstance(output_type, type)
+            and issubclass(
+                output_type,
+                BaseModel,
+            )
         ):
             return output_type.model_validate_json(
                 text,
             )
 
-        return json.loads(
-            text,
-        )
+        try:
+            return json.loads(
+                text,
+            )
+
+        except json.JSONDecodeError as error:
+
+            raise ValueError(
+                "Model returned invalid JSON."
+            ) from error

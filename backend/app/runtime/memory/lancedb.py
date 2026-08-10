@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
@@ -39,8 +40,8 @@ def _create_memory_schema(
 
         confidence: float = 1.0
 
-        metadata: dict[str, Any] = Field(
-            default_factory=dict,
+        metadata: str = Field(
+            default="{}",
         )
 
         created_at: datetime
@@ -132,7 +133,9 @@ class LanceMemoryStore(
                     text=row["text"],
                     category=row["category"],
                     confidence=row["confidence"],
-                    metadata=row["metadata"],
+                    metadata=json.loads(
+                        row.get("metadata", "{}"),
+                    ),
                 )
                 for row in rows
             ]
@@ -218,7 +221,7 @@ class LanceMemoryStore(
                 text=entry.text,
                 category=entry.category,
                 confidence=entry.confidence,
-                metadata=entry.metadata,
+                metadata=json.dumps(entry.metadata),
                 created_at=datetime.now(UTC),
                 vector=vector,
             )
@@ -247,7 +250,7 @@ class LanceMemoryStore(
                 "text": entry.text,
                 "category": entry.category,
                 "confidence": entry.confidence,
-                "metadata": entry.metadata,
+                "metadata": json.dumps(entry.metadata),
                 "created_at": datetime.now(UTC),
                 "vector": vector,
             },

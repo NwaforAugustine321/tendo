@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.config.settings import settings
 from app.embeddings.nvidia import get_client
 from .provider import EmbeddingProvider
 from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings

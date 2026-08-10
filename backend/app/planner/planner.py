@@ -11,7 +11,7 @@ from app.agents.specs.domain import TransactionsAgent, InventoryAgent, Knowledge
 from app.db.tools.messages import save_messages
 from app.memory.memory import Memory
 from app.runtime.agents.agent import Agent
-from app.runtime.agents.middleware import AgentMiddleware
+from app.runtime.middlewares.middleware import AgentMiddleware
 from app.runtime.toolsets.executor import ToolExecutionResult
 from app.toolsets import function_tool
 from app.llm.client import get_client
@@ -22,6 +22,15 @@ from app.runtime.memory.factory import (
 from app.runtime.rag.factory import (
     create_rag_provider
 )
+
+from app.runtime.conversation.factory import (
+    create_conversation_provider
+)
+
+
+# conversation = create_conversation_provider(
+
+# )
 
 _llm = get_client()
 
@@ -52,14 +61,14 @@ async def get_weather(
 class ToolLoggingMiddleware(AgentMiddleware):
     """Logs tool calls and their results."""
 
-    async def before_tools(self, ctx, tool_calls) -> None:
+    async def before_tools(self, ctx, event) -> None:
 
         logger.info("[middleware] Tool execution starting...")
-        print(tool_calls)
+        print(event.tool_calls)
         print('\n\n')
 
-    async def after_tools(self, ctx, results: list[ToolExecutionResult]) -> None:
-        for r in results:
+    async def after_tools(self, ctx, event) -> None:
+        for r in event.results:
             logger.info(
                 "tool result"
             )
@@ -249,8 +258,9 @@ class Planner:
             name="Assistant",
 
             llm=llm,
-            memory=create_memory_provider(),
-            rag=create_rag_provider(),
+            memory=create_memory_provider(namespace=self._business_id),
+            rag=create_rag_provider(namespace=self._business_id),
+            # conversation=conversation,
             instructions="""
                 You are a helpful assistant.
 
@@ -276,8 +286,9 @@ class Planner:
             "What's the weather in Lagos?"
         )
 
-        print(response.text)
-        for message in self._session.messages:
+        # print(response.text)
+        # print(self._session.run_context.messages)
+        for message in self._session.run_context.messages:
             print(message.content)
 
         # try:

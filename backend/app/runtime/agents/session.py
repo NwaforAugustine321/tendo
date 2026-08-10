@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from app.runtime.chat.context import ChatContext
 from app.runtime.chat.message import ChatMessage
+from app.runtime.conversation.context import (
+    ConversationContext,
+)
 from app.runtime.llm.response import LLMResponse
 
 from .activity import AgentActivity
@@ -19,7 +21,7 @@ class AgentSession:
 
     Responsibilities
     ----------------
-    - Own the ChatContext
+    - Own the ConversationContext
     - Own the RunContext
     - Track the active AgentActivity
     - Execute conversations
@@ -30,17 +32,19 @@ class AgentSession:
         self,
         *,
         agent: Agent,
-        chat_context: ChatContext | None = None,
+        conversation_context: ConversationContext | None = None,
     ) -> None:
 
         self._id = str(uuid4())
 
         self._agent = agent
 
-        self._chat_context = (
-            chat_context
-            if chat_context is not None
-            else ChatContext()
+        self._conversation_context = (
+            conversation_context
+            if conversation_context is not None
+            else ConversationContext(
+                conversation_id=self._id,
+            )
         )
 
         self._run_context = RunContext(
@@ -62,15 +66,23 @@ class AgentSession:
         return self._agent
 
     @property
-    def chat_context(
+    def conversation_context(
         self,
-    ) -> ChatContext:
-        return self._chat_context
+    ) -> ConversationContext:
+        """
+        Loaded conversation history.
+        """
+
+        return self._conversation_context
 
     @property
     def run_context(
         self,
     ) -> RunContext:
+        """
+        Current execution context.
+        """
+
         return self._run_context
 
     @property
@@ -80,21 +92,10 @@ class AgentSession:
         return self._current_activity
 
     @property
-    def messages(
-        self,
-    ) -> list[ChatMessage]:
-        return self._chat_context.messages
-
-    @property
-    def last_message(
-        self,
-    ) -> ChatMessage | None:
-        return self._chat_context.last
-
-    @property
     def running(
         self,
     ) -> bool:
+
         return (
             self._current_activity is not None
             and not self._current_activity.finished
@@ -119,15 +120,13 @@ class AgentSession:
         message: ChatMessage,
     ) -> LLMResponse:
         """
-        Execute one conversational turn using an
-        existing ChatMessage.
+        Execute one conversational turn.
         """
 
-        self._chat_context.add(
-            message,
-        )
-
-        self._run_context.start_run(
+        #
+        # Start a new execution.
+        #
+        self._run_context.start(
             message,
         )
 
@@ -152,11 +151,13 @@ class AgentSession:
         self,
     ) -> None:
         """
-        Clear the conversation while preserving
+        Reset the session while preserving
         the session identity.
         """
 
-        self._chat_context.clear()
+        self._conversation_context = ConversationContext(
+            conversation_id=self.id,
+        )
 
         self._run_context = RunContext(
             session=self,

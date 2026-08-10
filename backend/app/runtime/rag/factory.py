@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from .default_loader import (
+from .ingestion.default_loader import (
     DefaultDocumentLoader,
 )
 from .default_retrieval import (
     DefaultRetrieval,
 )
-from .default_splitter import (
+from .ingestion.default_splitter import (
     DefaultDocumentSplitter,
 )
 from .ingestion.pipeline import (

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .provider import MemoryProvider
+from .memory_provider import MemoryProvider
 from .lancedb import LanceMemoryStore
 from .default_reflection import DefaultMemoryReflection
 

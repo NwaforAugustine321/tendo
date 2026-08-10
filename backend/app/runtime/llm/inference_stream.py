@@ -1,18 +1,25 @@
 from __future__ import annotations
+
 import asyncio
 from collections.abc import AsyncIterator
-from typing import Any, TYPE_CHECKING
-from app.runtime.chat.context import ChatContext
-from app.runtime.llm.events import LLMEvent
-from app.runtime.llm.response import LLMResponse
 from enum import Enum
-from app.runtime.llm.events import ErrorEvent
-from app.runtime.llm.events import GenerationFinishedEvent
-from app.runtime.llm.response import ToolCall
+from typing import TYPE_CHECKING, Any
+
+from langchain_core.messages import AIMessageChunk
+
+from app.runtime.agents.run_context import RunContext
+from app.runtime.chat.message import ChatMessage
+from app.runtime.conversation.context import (
+    ConversationContext,
+)
+from app.runtime.llm.events import (
+    ErrorEvent,
+    GenerationFinishedEvent,
+    LLMEvent,
+)
+from app.runtime.llm.response import LLMResponse
 from app.runtime.prompts.builder import PromptBuilder
 from app.runtime.prompts.context import PromptContext
-from app.runtime.chat.message import ChatMessage
-from app.runtime.agents.run_context import RunContext
 
 if TYPE_CHECKING:
     from app.runtime.agents.agent import Agent
@@ -27,51 +34,52 @@ class InferenceStream(AsyncIterator[LLMEvent]):
     """
     Represents one active inference.
 
-    One stream == one model generation.
-
     Responsibilities
     ----------------
-    - Build provider messages
+    - Build prompt messages
     - Invoke the model
     - Emit normalized events
     - Build the final LLMResponse
-    - Support cancellation
     """
 
     def __init__(
         self,
         *,
         agent: Agent,
-        chat_context: ChatContext,
+        conversation_context: ConversationContext,
         run_context: RunContext,
         mode: InferenceMode = InferenceMode.STREAM,
     ) -> None:
 
-        self._mode = mode
-        self._chat_context = chat_context
-        self._closed = False
-        self._error: Exception | None = None
-        self._finished = False
-
         self._agent = agent
+        self._conversation_context = conversation_context
         self._run_context = run_context
+        self._mode = mode
+
+        self._closed = False
+        self._finished = False
+        self._error: Exception | None = None
+
+        self._response: LLMResponse | None = None
 
         self._events: asyncio.Queue[
             LLMEvent | None
         ] = asyncio.Queue()
-
-        self._response: LLMResponse | None = None
 
         self._task = asyncio.create_task(
             self._run(),
         )
 
     @property
-    def finished(self) -> bool:
+    def finished(
+        self,
+    ) -> bool:
         return self._finished
 
     @property
-    def closed(self) -> bool:
+    def closed(
+        self,
+    ) -> bool:
         return self._closed
 
     @property
@@ -79,12 +87,6 @@ class InferenceStream(AsyncIterator[LLMEvent]):
         self,
     ) -> Exception | None:
         return self._error
-
-    @property
-    def task(
-        self,
-    ) -> asyncio.Task:
-        return self._task
 
     @property
     def response(
@@ -95,7 +97,6 @@ class InferenceStream(AsyncIterator[LLMEvent]):
     def __aiter__(
         self,
     ) -> AsyncIterator[LLMEvent]:
-
         return self
 
     async def __anext__(
@@ -116,11 +117,6 @@ class InferenceStream(AsyncIterator[LLMEvent]):
     async def _run(
         self,
     ) -> None:
-        """
-        Execute one inference.
-
-        This owns the entire inference lifecycle.
-        """
 
         try:
 
@@ -128,15 +124,19 @@ class InferenceStream(AsyncIterator[LLMEvent]):
                 context=PromptContext(
                     agent=self._agent,
                     run_context=self._run_context,
-                    chat_context=self._chat_context,
+                    conversation_context=self._conversation_context,
                 ),
             )
 
-            messages = builder.build()
+            messages = await builder.build()
 
             self._agent.llm.prepare(
                 tool_context=self._agent.tool_context,
-                output_type=getattr(self._agent, "output_type", None),
+                output_type=getattr(
+                    self._agent,
+                    "output_type",
+                    None,
+                ),
             )
 
             provider_response = await self._invoke(
@@ -146,15 +146,21 @@ class InferenceStream(AsyncIterator[LLMEvent]):
             self._response = (
                 self._agent.llm.response_parser.parse(
                     provider_response=provider_response,
-                    output_type=getattr(self._agent, "output_type", None),
+                    output_type=getattr(
+                        self._agent,
+                        "output_type",
+                        None,
+                    ),
                 )
             )
 
             await self._finish()
 
-        except Exception as e:
+        except Exception as error:
 
-            await self._handle_error(e)
+            await self._handle_error(
+                error,
+            )
 
     async def _invoke(
         self,
@@ -174,9 +180,6 @@ class InferenceStream(AsyncIterator[LLMEvent]):
         self,
         messages: list[ChatMessage],
     ) -> Any:
-        """
-        One-shot inference.
-        """
 
         return await self._agent.llm.invoke(
             messages,
@@ -192,7 +195,10 @@ class InferenceStream(AsyncIterator[LLMEvent]):
         async for chunk in self._agent.llm.stream(
             messages,
         ):
-            chunks.append(chunk)
+
+            chunks.append(
+                chunk,
+            )
 
             await self._emit_chunk(
                 chunk,
@@ -206,22 +212,19 @@ class InferenceStream(AsyncIterator[LLMEvent]):
         self,
         event: LLMEvent,
     ) -> None:
-        """
-        Push an event to subscribers.
-        """
 
         if self._closed:
             return
 
-        await self._events.put(event)
+        await self._events.put(
+            event,
+        )
 
     async def _emit_chunk(
         self,
         chunk: AIMessageChunk,
     ) -> None:
         """
-        Emit events for a streamed chunk.
-
         Placeholder for future token events.
         """
 
@@ -230,9 +233,6 @@ class InferenceStream(AsyncIterator[LLMEvent]):
     async def _finish(
         self,
     ) -> None:
-        """
-        Mark the inference as complete.
-        """
 
         if self._finished:
             return
@@ -240,18 +240,19 @@ class InferenceStream(AsyncIterator[LLMEvent]):
         self._finished = True
 
         await self._emit(
-            GenerationFinishedEvent()
+            GenerationFinishedEvent(),
         )
 
-        await self._events.put(None)
+        await self._events.put(
+            None,
+        )
 
     async def _handle_error(
         self,
         error: Exception,
     ) -> None:
-        """
-        Handle inference failure.
-        """
+
+        self._error = error
 
         await self._emit(
             ErrorEvent(
@@ -259,16 +260,12 @@ class InferenceStream(AsyncIterator[LLMEvent]):
             )
         )
 
-        self._error = error
         await self._finish()
 
     async def final_response(
         self,
     ) -> LLMResponse:
-        """
-        Wait for inference completion and return
-        the normalized response.
-        """
+
         await self._task
 
         if self._error is not None:
@@ -281,7 +278,9 @@ class InferenceStream(AsyncIterator[LLMEvent]):
 
         return self._response
 
-    async def aclose(self):
+    async def aclose(
+        self,
+    ) -> None:
 
         if self._closed:
             return
@@ -289,6 +288,7 @@ class InferenceStream(AsyncIterator[LLMEvent]):
         self._closed = True
 
         if not self._task.done():
+
             self._task.cancel()
 
             try:
@@ -297,9 +297,12 @@ class InferenceStream(AsyncIterator[LLMEvent]):
                 pass
 
         while True:
+
             try:
                 self._events.get_nowait()
             except asyncio.QueueEmpty:
                 break
 
-        await self._events.put(None)
+        await self._events.put(
+            None,
+        )

@@ -57,20 +57,8 @@ class DefaultDocumentLoader(
         from .loaders.audio import (
             AudioLoader,
         )
-        from .loaders.csv import (
-            CSVLoader,
-        )
-        from .loaders.docx import (
-            DocxLoader,
-        )
-        from .loaders.html import (
-            HTMLLoader,
-        )
         from .loaders.image import (
             ImageLoader,
-        )
-        from .loaders.json import (
-            JSONLoader,
         )
         from .loaders.markdown import (
             MarkdownLoader,
@@ -151,29 +139,6 @@ class DefaultDocumentLoader(
         self.register(
             ".flac",
             audio_loader,
-        )
-
-        #
-        # Other formats
-        #
-        self.register(
-            ".html",
-            HTMLLoader(),
-        )
-
-        self.register(
-            ".csv",
-            CSVLoader(),
-        )
-
-        self.register(
-            ".json",
-            JSONLoader(),
-        )
-
-        self.register(
-            ".docx",
-            DocxLoader(),
         )
 
     async def load(

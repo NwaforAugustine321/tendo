@@ -11,8 +11,8 @@ class DefaultRetrieval(
     """
     Default retrieval strategy.
 
-    Builds a search query from the messages generated
-    during the current run.
+    Builds a search query from the current
+    user request.
     """
 
     async def build_query(
@@ -20,9 +20,4 @@ class DefaultRetrieval(
         ctx: RunContext,
     ) -> str:
 
-        return "\n".join(
-            str(message.content)
-            for message in ctx.current_messages
-            if message.content
-            and str(message.content).strip()
-        )
+        return ctx.user_request.strip()

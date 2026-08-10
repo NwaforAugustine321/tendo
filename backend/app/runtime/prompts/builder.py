@@ -2,6 +2,13 @@ from __future__ import annotations
 
 from app.runtime.chat.message import ChatMessage
 from app.runtime.memory.builder import MemoryPromptBuilder
+from app.runtime.structured_output.formatter import OutputFormatter
+from app.runtime.prompts.sections.conversation import (
+    ConversationPromptBuilder,
+)
+from app.runtime.prompts.sections.user_task import (
+    UserTaskPromptBuilder,
+)
 from app.runtime.rag.builder import RAGPromptBuilder
 
 from .context import PromptContext
@@ -20,8 +27,11 @@ class PromptBuilder:
 
         self._context = context
 
+        self._task_builder = UserTaskPromptBuilder()
+        self._conversation_builder = ConversationPromptBuilder()
         self._memory_builder = MemoryPromptBuilder()
         self._rag_builder = RAGPromptBuilder()
+        self._output_formatter = OutputFormatter()
 
     @property
     def context(
@@ -44,27 +54,67 @@ class PromptBuilder:
 
         parts: list[str] = []
 
-        memory_prompt = await self._build_memory_prompt()
+        #
+        # User task
+        #
+        prompt = self._task_builder.build(
+            self._context.run_context,
+        )
 
-        if memory_prompt:
+        if prompt:
             parts.append(
-                memory_prompt,
+                prompt,
             )
 
-        rag_prompt = await self._build_rag_prompt()
+        #
+        # Conversation history
+        #
+        prompt = self._conversation_builder.build(
+            self._context.conversation_context,
+        )
 
-        if rag_prompt:
+        if prompt:
             parts.append(
-                rag_prompt,
+                prompt,
             )
 
-        agent_prompt = self._context.agent.prompt_template.build(
+        #
+        # Memory
+        #
+        prompt = await self._build_memory_prompt()
+
+        if prompt:
+            parts.append(
+                prompt,
+            )
+
+        #
+        # Retrieved knowledge
+        #
+        prompt = await self._build_rag_prompt()
+
+        if prompt:
+            parts.append(
+                prompt,
+            )
+
+        #
+        # Agent instructions
+        #
+        template_messages = self._context.agent.prompt_template.build(
             self._context,
         )
 
-        if agent_prompt:
+        #
+        # Structured output
+        #
+        prompt = self._output_formatter.build(
+            self._context.agent.output_type,
+        )
+
+        if prompt:
             parts.append(
-                agent_prompt,
+                prompt,
             )
 
         messages: list[ChatMessage] = []
@@ -77,8 +127,19 @@ class PromptBuilder:
                 )
             )
 
+        #
+        # Template-contributed messages.
+        #
+        if template_messages:
+            messages.extend(
+                template_messages,
+            )
+
+        #
+        # Current inference messages.
+        #
         messages.extend(
-            self._context.chat_context.messages,
+            self._context.run_context.messages,
         )
 
         return messages

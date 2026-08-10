@@ -124,7 +124,7 @@ class DefaultMemoryReflection(
         ctx: RunContext,
     ) -> MemoryReflection:
 
-        if not ctx.current_messages:
+        if not ctx.messages:
             return MemoryReflection()
 
         messages = [
@@ -134,14 +134,21 @@ class DefaultMemoryReflection(
             }
         ]
 
-        for message in ctx.current_messages:
+        for message in ctx.messages:
 
             if not message.content:
                 continue
 
+            role = getattr(message.role, "value", str(message.role))
+
+            # Skip tool messages — reflection only needs
+            # user/assistant conversation content.
+            if role == "tool":
+                continue
+
             messages.append(
                 {
-                    "role": message.role,
+                    "role": role,
                     "content": str(message.content),
                 }
             )
