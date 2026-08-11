@@ -108,7 +108,7 @@ class LanceMemoryStore(
         self,
         *,
         query: str,
-        limit: int = 10,
+        limit: int = 5,
     ) -> MemoryContext:
 
         if not query.strip():

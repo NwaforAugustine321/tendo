@@ -43,6 +43,6 @@ class TextLoader(
                 title="",
                 source="text",
                 content=text,
-                metadata={},
+                metadata={"source_type": "text"},
             )
         ]

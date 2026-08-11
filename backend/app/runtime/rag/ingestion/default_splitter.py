@@ -25,7 +25,7 @@ class DefaultDocumentSplitter(
     def __init__(
         self,
         *,
-        chunk_size: int = 1000,
+        chunk_size: int = 780,
         chunk_overlap: int = 200,
     ) -> None:
 

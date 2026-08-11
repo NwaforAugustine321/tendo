@@ -39,6 +39,6 @@ class MarkdownLoader(
                 title="",
                 source="markdown",
                 content=markdown,
-                metadata={},
+                metadata={"source_type": "markdown"},
             )
         ]

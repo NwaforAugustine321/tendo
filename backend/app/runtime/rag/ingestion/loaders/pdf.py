@@ -285,6 +285,7 @@ class PDFLoader(
                         source="pdf",
                         content=markdown,
                         metadata={
+                            "source_type": "pdf",
                             "page": page_number,
                             "json_blocks": matched_blocks,
                             "images": page_images,

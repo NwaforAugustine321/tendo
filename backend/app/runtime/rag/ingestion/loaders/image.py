@@ -64,7 +64,7 @@ class ImageLoader(
                 title="",
                 source="image",
                 content=text,
-                metadata={},
+                metadata={"source_type": "image"},
             )
         ]
 

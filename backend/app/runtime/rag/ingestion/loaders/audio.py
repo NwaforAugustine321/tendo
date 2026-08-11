@@ -65,7 +65,7 @@ class AudioLoader(
                 title="",
                 source="audio",
                 content=transcript,
-                metadata={},
+                metadata={"source_type": "audio"},
             )
         ]
 

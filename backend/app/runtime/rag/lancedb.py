@@ -112,7 +112,7 @@ class LanceRAGStore(
         self,
         *,
         query: str,
-        limit: int = 10,
+        limit: int = 5,
     ) -> RAGContext:
 
         if not query.strip():
