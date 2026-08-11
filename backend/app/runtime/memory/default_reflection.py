@@ -14,33 +14,36 @@ from .reflection import (
 logger = logging.getLogger(__name__)
 
 
-SYSTEM_PROMPT = """
-You are responsible for extracting durable long-term memory from ONE completed conversation run.
+EXTRACT_MEMORIES_PROMPT = """You extract discrete, reusable memory statements from raw content (e.g. a task description and its result, or a conversation between a user and an assistant).
 
-Extract ONLY information that is likely to remain useful in future conversations.
+For the given content, output a list of memory statements. Each memory must:
+- Be one clear sentence or short statement
+- Be understandable without the original context
+- Capture a decision, fact, outcome, preference, lesson, or observation worth remembering
+- NOT be a vague summary or a restatement of the task description
+- NOT duplicate the same idea in different words
 
-Store:
-- User preferences
-- Long-term goals
-- Ongoing projects
-- Stable personal facts
-- Stable business facts
+When the content is a conversation, pay special attention to facts stated by the user (first-person statements). These personal facts are HIGH PRIORITY and must always be extracted:
+- What the user did, bought, made, visited, attended, or completed
+- Names of people, pets, places, brands, and specific items the user mentions
+- Quantities, durations, dates, and measurements the user states
+- Subordinate clauses and casual asides often contain important personal details (e.g. "by the way, it took me 4 hours" or "my Golden Retriever Max")
 
-Do NOT store:
-- Greetings
-- Temporary requests
-- Tool outputs
-- Small talk
-- One-time questions
+Also extract from assistant and tool messages:
+- Facts the assistant discovered or confirmed via tools
+- Results of searches, lookups, or calculations that reveal user context
+- Decisions or recommendations the user accepted
 
-If nothing should be remembered, return exactly: NONE
+Preserve exact names and numbers — never generalize (e.g. keep "lavender gin fizz" not just "cocktail", keep "12 largemouth bass" not just "fish caught", keep "Golden Retriever" not just "dog").
 
-Otherwise return one memory per line as plain text. No JSON. No formatting.
+Additional extraction rules:
+- Presupposed facts: When the user reveals a fact indirectly in a question (e.g. "What collar suits a Golden Retriever like Max?" presupposes Max is a Golden Retriever), extract that fact as a separate memory.
+- Date precision: Always preserve the full date including day-of-month when stated (e.g. "February 14th" not just "February", "March 5" not just "March").
+- Life events in passing: When the user mentions a life event (birth, wedding, graduation, move, adoption) while discussing something else, extract the life event as its own memory (e.g. "my friend David had a baby boy named Jasper" is a birth fact, even if mentioned while planning to send congratulations).
 
-Example:
-User prefers Python
-User is building a SaaS for restaurants
-"""
+If there is nothing worth remembering (e.g. empty result, no decisions or facts), return exactly: NONE
+
+Otherwise return one memory per line as plain text. No JSON. No formatting. No bullets. No numbering."""
 
 
 class DefaultMemoryReflection(
@@ -72,12 +75,9 @@ class DefaultMemoryReflection(
         if not ctx.messages:
             return MemoryReflection()
 
-        messages = [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT,
-            }
-        ]
+        # Build conversation content including all roles
+        # (user, assistant, tool, system).
+        conversation_lines = []
 
         for message in ctx.messages:
 
@@ -88,15 +88,34 @@ class DefaultMemoryReflection(
                 message.role, "value", str(message.role)
             )
 
-            if role == "tool":
+            # Skip system messages — they're instructions,
+            # not conversation content.
+            if role == "system":
                 continue
 
-            messages.append(
-                {
-                    "role": role,
-                    "content": str(message.content),
-                }
+            content = message.content
+            if not isinstance(content, str):
+                content = str(content)
+
+            conversation_lines.append(
+                f"{role}: {content.strip()}"
             )
+
+        if not conversation_lines:
+            return MemoryReflection()
+
+        conversation_text = "\n".join(conversation_lines)
+
+        messages = [
+            {
+                "role": "system",
+                "content": EXTRACT_MEMORIES_PROMPT,
+            },
+            {
+                "role": "user",
+                "content": conversation_text,
+            },
+        ]
 
         response = await self._llm.ainvoke(messages)
 
@@ -111,22 +130,24 @@ class DefaultMemoryReflection(
             return MemoryReflection()
 
         # Each line is one memory.
-        lines = [
+        memories = [
             line.strip()
             for line in content.splitlines()
-            if line.strip() and line.strip().upper() != "NONE"
+            if line.strip()
+            and line.strip().upper() != "NONE"
         ]
 
-        if not lines:
+        if not memories:
             return MemoryReflection()
 
         entries = [
             MemoryEntry(
                 id="",
-                text=line,
+                text=str(item).strip(),
                 category="general",
             )
-            for line in lines
+            for item in memories
+            if item and str(item).strip()
         ]
 
         return MemoryReflection(entries=entries)

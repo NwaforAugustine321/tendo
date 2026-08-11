@@ -38,6 +38,15 @@ class AudioLoader(
 
         source = str(source)
 
+        # Handle HTTP(S) URLs — download and convert to data URL.
+        if source.startswith("http://") or source.startswith("https://"):
+            logger.info(f"AudioLoader: downloading from URL: {source[:80]}")
+            source = await self._download_as_data_url(source)
+            logger.info(
+                f"AudioLoader: data URL length after download: {len(source)}")
+            if not source:
+                return []
+
         if not source.startswith(
             "data:audio",
         ):
@@ -274,6 +283,46 @@ class AudioLoader(
 
             logger.warning(
                 "Audio transcription failed: %s",
+                error,
+            )
+
+            return ""
+
+    async def _download_as_data_url(
+        self,
+        url: str,
+    ) -> str:
+        """
+        Download an audio file from a URL and convert
+        to a data URL for transcription.
+        """
+
+        import httpx
+
+        try:
+
+            async with httpx.AsyncClient(
+                timeout=120.0,
+            ) as client:
+
+                response = await client.get(url)
+                response.raise_for_status()
+
+            content_type = response.headers.get(
+                "content-type",
+                "audio/mpeg",
+            )
+
+            b64 = base64.b64encode(
+                response.content,
+            ).decode("utf-8")
+
+            return f"data:{content_type};base64,{b64}"
+
+        except Exception as error:
+
+            logger.warning(
+                "Failed to download audio from URL: %s",
                 error,
             )
 

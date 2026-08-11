@@ -166,12 +166,28 @@ class LanceMemoryStore(
         entries: list[MemoryEntry],
     ) -> None:
 
+        # Dedup: only insert entries that don't already
+        # have a semantically similar match in the store.
+        unique_entries = []
+        unique_vectors = []
+
         vectors = await self._embeddings.embed_documents(
             [
                 entry.text
                 for entry in entries
             ]
         )
+
+        for entry, vector in zip(entries, vectors):
+
+            if self._is_duplicate(vector):
+                continue
+
+            unique_entries.append(entry)
+            unique_vectors.append(vector)
+
+        if not unique_entries:
+            return
 
         rows = [
             self._schema(
@@ -183,14 +199,45 @@ class LanceMemoryStore(
                 vector=vector,
             )
             for entry, vector in zip(
-                entries,
-                vectors,
+                unique_entries,
+                unique_vectors,
             )
         ]
 
         self._table.add(
             rows,
         )
+
+    def _is_duplicate(
+        self,
+        vector: list[float],
+        threshold: float = 0.92,
+    ) -> bool:
+        """
+        Check if a semantically similar memory already exists.
+        Returns True if a match with cosine similarity >= threshold is found.
+        """
+
+        try:
+            results = (
+                self._table.search(vector)
+                .limit(1)
+                .to_list()
+            )
+
+            if not results:
+                return False
+
+            score = results[0].get("_distance", 1.0)
+
+            # LanceDB returns L2 distance by default.
+            # Lower distance = more similar.
+            # For cosine metric, distance 0 = identical.
+            # Threshold: distance < (1 - similarity)
+            return score < (1.0 - threshold)
+
+        except Exception:
+            return False
 
     async def _update(
         self,

@@ -128,6 +128,11 @@ class LanceRAGStore(
             .to_list()
         )
 
+        import logging
+        _logger = logging.getLogger(__name__)
+        _logger.info(
+            f"RAG retrieve: query='{query[:50]}', rows_found={len(rows)}")
+
         return RAGContext(
             documents=[
                 RAGDocument(

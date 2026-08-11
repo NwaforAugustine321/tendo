@@ -141,6 +141,26 @@ class DefaultDocumentLoader(
             audio_loader,
         )
 
+        self.register(
+            ".mpeg",
+            audio_loader,
+        )
+
+        self.register(
+            ".ogg",
+            audio_loader,
+        )
+
+        self.register(
+            ".aac",
+            audio_loader,
+        )
+
+        self.register(
+            ".wma",
+            audio_loader,
+        )
+
     async def load(
         self,
         *,
@@ -156,11 +176,18 @@ class DefaultDocumentLoader(
                 f"'{type(source).__name__}'."
             )
 
-        path = Path(source)
+        source_str = str(source)
 
-        extension = (
-            path.suffix.lower()
-        )
+        # For URLs, extract extension from the URL path
+        # but keep the original string (don't convert to Path).
+        if source_str.startswith("http://") or source_str.startswith("https://"):
+            from urllib.parse import urlparse
+            url_path = urlparse(source_str).path
+            extension = Path(url_path).suffix.lower()
+        else:
+            path = Path(source)
+            extension = path.suffix.lower()
+            source_str = str(path)
 
         loader = self._loaders.get(
             extension,
@@ -174,5 +201,5 @@ class DefaultDocumentLoader(
             )
 
         return await loader.load(
-            source=path,
+            source=source_str,
         )

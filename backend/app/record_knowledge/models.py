@@ -21,6 +21,7 @@ class RecordContentInput(BaseModel):
     record_id: str | None = None
     content_type: str
     content: str
+    file_url: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

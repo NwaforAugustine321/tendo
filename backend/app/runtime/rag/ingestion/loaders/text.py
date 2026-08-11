@@ -25,7 +25,14 @@ class TextLoader(
         source: str | Path | Any,
     ) -> list[RAGDocument]:
 
-        text = str(source).strip()
+        path = Path(source)
+
+        # If it's an actual file, read its contents.
+        if path.is_file():
+            text = path.read_text(encoding="utf-8").strip()
+        else:
+            # Treat source as raw text.
+            text = str(source).strip()
 
         if not text:
             return []

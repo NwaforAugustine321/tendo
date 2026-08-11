@@ -12,7 +12,7 @@ from app.record_knowledge.models import RecordContentInput, ProcessingStatus
 logger = logging.getLogger(__name__)
 
 
-async def process_content_background(business_id: str, record_id: str, content_id: str, content_type: str, content: str, metadata: dict):
+async def process_content_background(business_id: str, record_id: str, content_id: str, content_type: str, content: str, metadata: dict, file_url: str = ""):
     try:
         from app.ws.socketio_server import sio
         await sio.emit("record_processing_status", ProcessingStatus(status="processing", record_id=record_id).model_dump())
@@ -25,6 +25,7 @@ async def process_content_background(business_id: str, record_id: str, content_i
             record_id=record_id,
             content_type=content_type,
             content=content,
+            file_url=file_url,
             metadata=metadata,
         )
         result = await process_record_content(record_content)
@@ -42,7 +43,8 @@ async def process_content_background(business_id: str, record_id: str, content_i
             entity_id=content_id,
             event_type="record_content.created",
             source="system",
-            payload={"record_id": record_id, "content_type": content_type, "content": content},
+            payload={"record_id": record_id,
+                     "content_type": content_type, "content": content},
         )
 
     except Exception as e:
@@ -50,7 +52,8 @@ async def process_content_background(business_id: str, record_id: str, content_i
         try:
             from app.db.client import get_client
             client = get_client()
-            client.table("record_content").update({"status": "failed"}).eq("id", content_id).execute()
+            client.table("record_content").update(
+                {"status": "failed"}).eq("id", content_id).execute()
         except Exception:
             pass
         try:

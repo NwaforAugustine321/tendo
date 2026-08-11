@@ -83,8 +83,6 @@ class PromptBuilder:
         #
         prompt = await self._build_memory_prompt()
 
-        print('conv hist >>>', prompt)
-
         if prompt:
             parts.append(
                 prompt,
