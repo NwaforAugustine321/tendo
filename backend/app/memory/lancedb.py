@@ -61,10 +61,12 @@ class LanceDBStorage:
 
         # Conversations table (auto-created alongside knowledge)
         try:
-            self._conversations_table: Any = self._db.open_table(CONVERSATIONS_TABLE_NAME)
+            self._conversations_table: Any = self._db.open_table(
+                CONVERSATIONS_TABLE_NAME)
         except Exception:
             dim = self._vector_dim or DEFAULT_VECTOR_DIM
-            self._conversations_table = self._create_table(CONVERSATIONS_TABLE_NAME, dim)
+            self._conversations_table = self._create_table(
+                CONVERSATIONS_TABLE_NAME, dim)
 
         self._ensure_fts_index()
 
@@ -87,7 +89,8 @@ class LanceDBStorage:
         except Exception:
             pass
         try:
-            self._table.create_scalar_index("scope", index_type="LABEL_LIST", replace=False)
+            self._table.create_scalar_index(
+                "scope", index_type="LABEL_LIST", replace=False)
         except Exception:
             pass
 
@@ -107,7 +110,8 @@ class LanceDBStorage:
             }
         ]
         try:
-            table = self._db.create_table(name, data=placeholder, schema=schema)
+            table = self._db.create_table(
+                name, data=placeholder, schema=schema)
         except (ValueError, Exception):
             try:
                 table = self._db.open_table(name)
@@ -129,7 +133,8 @@ class LanceDBStorage:
         if self._conversations_table is not None:
             return self._conversations_table
         dim = vector_dim or self._vector_dim or DEFAULT_VECTOR_DIM
-        self._conversations_table = self._create_table(CONVERSATIONS_TABLE_NAME, dim)
+        self._conversations_table = self._create_table(
+            CONVERSATIONS_TABLE_NAME, dim)
         return self._conversations_table
 
     def get_table(self, table_name: str | None = None) -> Any:
@@ -145,7 +150,6 @@ class LanceDBStorage:
         elif metadata is None:
             metadata = "{}"
 
-       
         scope = record.scope if isinstance(record.scope, list) else ["/"]
 
         return {
@@ -228,7 +232,8 @@ class LanceDBStorage:
         }
 
         if columns:
-            all_fields = {"content", "scope", "metadata", "images", "audio", "videos", "created_at"}
+            all_fields = {"content", "scope", "metadata",
+                          "images", "audio", "videos", "created_at"}
             exclude = all_fields - set(columns)
             for field in exclude:
                 if field == "content":
@@ -265,17 +270,18 @@ class LanceDBStorage:
         limit: int = 10,
         columns: list[str] | None = None,
         table_name: str | None = None,
+        distance_threshold: float = 0.75,
     ) -> list[tuple[Any, float]]:
         target_table = self.get_table(table_name)
         if target_table is None:
             return []
 
-        query = target_table.search(query_embedding)
-
+        query = target_table.search(query_embedding).metric("cosine")
 
         scope_expr = None
         if scope_prefixes:
-            valid = [s.rstrip("/") for s in scope_prefixes if s and s.strip("/")]
+            valid = [s.rstrip("/")
+                     for s in scope_prefixes if s and s.strip("/")]
             if valid:
                 escaped = [f"'{v}'" for v in valid]
                 scope_expr = f"array_has_any(scope, [{', '.join(escaped)}])"
@@ -293,8 +299,11 @@ class LanceDBStorage:
 
         out: list[tuple[Any, float]] = []
         for row in results:
+            distance = row.get("_distance", 1.0)
+            if distance > distance_threshold:
+                continue
             record = self._row_to_record(row, columns=columns)
-            out.append((record, row.get("_relevance_score", row.get("_distance", 0.0))))
+            out.append((record, row.get("_relevance_score", distance)))
             if len(out) >= limit:
                 break
         return out[:limit]
@@ -347,7 +356,8 @@ class LanceDBStorage:
 
             # Filter by scope using native list column
             if scope_prefixes:
-                valid = [s.rstrip("/") for s in scope_prefixes if s and s.strip("/")]
+                valid = [s.rstrip("/")
+                         for s in scope_prefixes if s and s.strip("/")]
                 if valid:
                     def _row_matches(scope_val):
                         if isinstance(scope_val, list):
@@ -374,7 +384,7 @@ class LanceDBStorage:
             return []
 
     def save(self, records: list, table_name: str | None = None) -> None:
-   
+
         if not records:
             return
 
@@ -390,7 +400,7 @@ class LanceDBStorage:
 
         rows = [self._record_to_row(rec) for rec in records]
         for row in rows:
-           
+
             row["vector"] = [0.0] * self._vector_dim
         target_table.add(rows)
 

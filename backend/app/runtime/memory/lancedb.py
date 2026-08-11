@@ -21,6 +21,9 @@ from .context import MemoryContext
 from .models import MemoryEntry
 from .reflection import MemoryReflection
 from .store import MemoryStore
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 def _create_memory_schema(
@@ -109,6 +112,7 @@ class LanceMemoryStore(
         *,
         query: str,
         limit: int = 5,
+        distance_threshold: float = 0.75,
     ) -> MemoryContext:
 
         if not query.strip():
@@ -120,8 +124,21 @@ class LanceMemoryStore(
 
         rows = (
             self._table.search(vector)
+            .metric("cosine")
             .limit(limit)
             .to_list()
+        )
+
+        # Filter out results that are too far from the query
+        # Cosine distance: 0 = identical, ~0.6-0.7 = somewhat related, >1.0 = unrelated
+        relevant_rows = [
+            row for row in rows
+            if row.get("_distance", 1.0) <= distance_threshold
+        ]
+
+        _logger.info(
+            f"Mem retrieve: query='{query[:50]}', "
+            f"rows_found={len(rows)}, "
         )
 
         return MemoryContext(
@@ -134,7 +151,7 @@ class LanceMemoryStore(
                         row.get("metadata", "{}"),
                     ),
                 )
-                for row in rows
+                for row in relevant_rows
             ]
         )
 
@@ -221,6 +238,7 @@ class LanceMemoryStore(
         try:
             results = (
                 self._table.search(vector)
+                .metric("cosine")
                 .limit(1)
                 .to_list()
             )
@@ -228,13 +246,12 @@ class LanceMemoryStore(
             if not results:
                 return False
 
-            score = results[0].get("_distance", 1.0)
+            distance = results[0].get("_distance", 1.0)
 
-            # LanceDB returns L2 distance by default.
-            # Lower distance = more similar.
-            # For cosine metric, distance 0 = identical.
-            # Threshold: distance < (1 - similarity)
-            return score < (1.0 - threshold)
+            # Cosine distance: 0 = identical, 1 = completely different.
+            # similarity = 1 - distance
+            # We want: similarity >= threshold → distance <= (1 - threshold)
+            return distance <= (1.0 - threshold)
 
         except Exception:
             return False

@@ -62,8 +62,8 @@ class ENvidiaEmbedding(
         if input_type == "passage":
             vectors = await self._base.aembed_documents([text])
             return vectors[0][: self._target_dim] if vectors else [0.0] * self._target_dim
-        vectors = await self._base.aembed_documents([text])
-        return vectors[0][: self._target_dim] if vectors else [0.0] * self._target_dim
+        vector = await self._base.aembed_query(text)
+        return vector[: self._target_dim]
 
     async def _aembed_documents(self, texts: list[str]) -> list[list[float]]:
         vectors = await self._base.aembed_documents(texts)

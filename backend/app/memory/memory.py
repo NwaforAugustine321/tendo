@@ -19,7 +19,8 @@ class MemoryRecord(BaseModel):
     audio: list[str] = Field(default_factory=list)
     videos: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    embedding: list[float] | None = Field(default=None, exclude=True, repr=False)
+    embedding: list[float] | None = Field(
+        default=None, exclude=True, repr=False)
 
 
 class Memory:
@@ -41,13 +42,14 @@ class Memory:
         elif business_id:
             self._storage = LanceDBStorage(business_id=business_id)
         else:
-            raise ValueError("Either 'storage' or 'business_id' must be provided to Memory.")
+            raise ValueError(
+                "Either 'storage' or 'business_id' must be provided to Memory.")
 
     async def _embed(self, text: str) -> list[float]:
         from app.embeddings.client import get_embedding_client
         embedder = get_embedding_client()
-        embeddings = await embedder.aembed_documents([text])
-        return embeddings[0] if embeddings else []
+        vector = await embedder.aembed_query(text)
+        return vector if vector else []
 
     async def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         from app.embeddings.client import get_embedding_client
@@ -148,7 +150,6 @@ class Memory:
             return []
 
         search_query = query
-       
 
         query_embedding = await self._embed(search_query)
         if not query_embedding:
@@ -169,14 +170,13 @@ class Memory:
 
         return [record for record, _ in raw_results]
 
-
     async def fetch(
         self,
         limit: int = 10,
         filters: str | None = None,
     ) -> list[MemoryRecord]:
         """Fetch recent messages by scope without semantic search.
-        
+
         Simply retrieves the most recent rows from the table, ordered by created_at.
         No embedding or vector similarity is used.
         """
@@ -194,7 +194,7 @@ class Memory:
         metadata: dict[str, Any] | None = None,
     ) -> MemoryRecord | None:
         """Save a message as a plain row without generating an embedding.
-        
+
         No vector embedding is computed — the row is stored with a zero vector.
         Use this for conversation messages that only need chronological retrieval.
         """

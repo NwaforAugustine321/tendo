@@ -20,6 +20,9 @@ from app.runtime.embeddings.provider import (
 from .context import RAGContext
 from .models import RAGDocument
 from .store import RAGStore
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 def create_rag_schema(
@@ -113,6 +116,7 @@ class LanceRAGStore(
         *,
         query: str,
         limit: int = 5,
+        distance_threshold: float = 0.75,
     ) -> RAGContext:
 
         if not query.strip():
@@ -124,14 +128,23 @@ class LanceRAGStore(
 
         rows = (
             self._table.search(vector)
+            .metric("cosine")
             .limit(limit)
             .to_list()
         )
 
-        import logging
-        _logger = logging.getLogger(__name__)
+        # Filter out results that are too far from the query
+        # Cosine distance: 0 = identical, ~0.6-0.7 = somewhat related, >1.0 = unrelated
+        relevant_rows = [
+            row for row in rows
+            if row.get("_distance", 1.0) <= distance_threshold
+        ]
+
         _logger.info(
-            f"RAG retrieve: query='{query[:50]}', rows_found={len(rows)}")
+            f"RAG retrieve: query='{query[:50]}', "
+            f"rows_found={len(rows)}, "
+
+        )
 
         return RAGContext(
             documents=[
@@ -148,7 +161,7 @@ class LanceRAGStore(
                         row.get("metadata", "{}"),
                     ),
                 )
-                for row in rows
+                for row in relevant_rows
             ]
         )
 

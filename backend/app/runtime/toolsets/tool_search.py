@@ -7,7 +7,7 @@ from typing import Any
 
 from typing_extensions import Self
 
-from app.toolsets.tool_context import (
+from .tool_context import (
     BM25SearchStrategy,
     FunctionTool,
     NOT_GIVEN,
@@ -28,12 +28,13 @@ from app.toolsets.tool_context import (
 
 
 _DEFAULT_SEARCH_DESCRIPTION = (
-    "Search for available tools by describing what you need. "
-    "Returns the schemas of matching tools. Use call_tool to invoke them."
+    "Search for available tools by describing what tool you need using keywords and facts extracted from the message.\n"
+    "Do not use the whole message, insteady rephrase into keywords and facts for best tool seach\n"
+    "Returns the schemas of matching tools."
 )
 
 _DEFAULT_QUERY_DESCRIPTION = (
-    "keywords to search for in the tool names and descriptions, split by spaces"
+    "extracted keywords to search for in the tool names and descriptions, split by spaces"
 )
 
 
@@ -183,7 +184,21 @@ class ToolSearchToolset(Toolset):
             )
             return
 
-        raise ValueError(f"Unsupported tool type: {type(tool)}")
+        provider_tool = ProviderTool(tool)
+        params = {}
+        if provider_tool.args_schema:
+            for field_name, field_info in provider_tool.args_schema.model_fields.items():
+                params[field_name] = field_info.description or ""
+
+        self._search_items.append(
+            SearchItem(
+                source=source,
+                name=provider_tool.id,
+                description=provider_tool.description,
+                parameters=params,
+            )
+        )
+        return
 
     async def _search_tools(
         self,
@@ -203,7 +218,16 @@ class ToolSearchToolset(Toolset):
         if inspect.isawaitable(results):
             results = await results
 
-        return list(dict.fromkeys(item.source for item in results))
+        # Deduplicate by id(source) since some tools aren't hashable.
+        seen = set()
+        unique_sources = []
+        for item in results:
+            obj_id = id(item.source)
+            if obj_id not in seen:
+                seen.add(obj_id)
+                unique_sources.append(item.source)
+
+        return unique_sources
 
     async def _handle_search(
         self,

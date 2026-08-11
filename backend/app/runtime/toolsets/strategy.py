@@ -3,9 +3,10 @@ from __future__ import annotations
 import re
 from collections.abc import Awaitable
 from dataclasses import dataclass, field
-from typing import Any, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
-from app.toolsets.tool_context import Tool, Toolset
+if TYPE_CHECKING:
+    from .tool_context import Tool, Toolset
 
 # ---------------------------------------------------------------------------
 # SearchItem / SearchStrategy / KeywordSearchStrategy / BM25SearchStrategy

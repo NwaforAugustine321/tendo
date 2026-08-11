@@ -7,7 +7,7 @@ from typing import Any, TYPE_CHECKING
 from app.runtime.chat.context import ChatContext
 from app.runtime.chat.message import ChatMessage
 from app.runtime.structured_output.parser import ResponseParser
-from app.toolsets.tool_context import ToolContext
+from app.runtime.toolsets.tool_context import ToolContext
 from app.runtime.agents.run_context import RunContext
 
 if TYPE_CHECKING:

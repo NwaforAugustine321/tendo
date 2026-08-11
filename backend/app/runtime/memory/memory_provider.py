@@ -110,10 +110,10 @@ class MemoryProvider:
             return MemoryContext()
 
         # Rewrite query for better semantic search.
-        rewritten = await self._rewrite_query(query)
+        # rewritten = await self._rewrite_query(query)
 
         return await self.store.retrieve(
-            query=rewritten,
+            query=query,
             limit=5,
         )
 

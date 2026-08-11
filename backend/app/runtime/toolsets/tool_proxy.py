@@ -6,9 +6,9 @@ from typing import Any, Literal
 
 from typing_extensions import Self
 from dataclasses import dataclass
-from app.toolsets.tool_search import ToolSearchToolset
-from app.toolsets.utils import prepare_function_arguments
-from app.toolsets.tool_context import (
+from .tool_search import ToolSearchToolset
+from .utils import prepare_function_arguments
+from .tool_context import (
     NOT_GIVEN,
     NotGivenOr,
     RunContext,
@@ -51,7 +51,8 @@ class ToolResult:
         "validation_error",
         "tool_error",
         "no_tool_found",
-        "tool_result"
+        "tool_result",
+        "runtime_error"
     ]
     observation: str | None = None
 
@@ -68,9 +69,7 @@ class ToolExecutionResult:
 
 
 _DEFAULT_CALL_DESCRIPTION = (
-    "Execute a tool that was previously discovered using tool_search.\n"
-    "Always call tool_search first.\n"
-    "Then call call_tool with the discovered tool name and parameters."
+    "Execute a tool that was previously discovered using after tool search providing the right tool name and all optional and required parameter\n"
 )
 
 
@@ -105,21 +104,12 @@ class ToolProxyToolset(ToolSearchToolset):
             query_description=query_description,
         )
 
-        #
-        # Permanent registry.
-        #
         self._registry = ToolContext(
             tools or [],
         )
 
-        #
-        # Current search result.
-        #
         self._selected_tools: ToolContext | None = None
 
-        #
-        # Build search index.
-        #
         for tool in tools or []:
 
             self._index_tool(
@@ -226,71 +216,81 @@ class ToolProxyToolset(ToolSearchToolset):
         query: str,
     ) -> dict[str, Any]:
 
-        if not query:
+        try:
 
-            return ToolResult(
-                type="validation_error",
-                observation=(
-                    "Tool discovery completed.\n",
-                    f"query cannot be empty'."
+            if not query:
+                return ToolResult(
+                    type="validation_error",
+                    observation=(
+                        "Tool discovery completed.\n",
+                        f"query cannot be empty'."
 
+                    )
                 )
+
+            tools = await self._search_tools(
+                query,
             )
 
-        tools = await self._search_tools(
-            query,
-        )
+            if not tools:
 
-        if not tools:
+                return ToolResult(
+                    type="no_tool_found",
+                    observation=(
+                        "Tool discovery completed.\n",
+                        f"No tool found matching {query}\n",
+                        f"Tools: []\n",
+                    )
+                )
+
+            self._selected_tools = ToolContext(
+                tools,
+            )
+
+            schemas: list[dict[str, Any]] = []
+
+            for tool in self._selected_tools.function_tools.values():
+
+                schemas.append(
+                    _build_tool_schema(
+                        tool,
+                    )
+                )
+
+            for tool in self._selected_tools.provider_tools:
+
+                schemas.append(
+                    {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": (
+                            tool.args_schema.model_json_schema()
+                            if tool.args_schema
+                            else {
+                                "type": "object",
+                                "properties": {},
+                            }
+                        ),
+                    }
+                )
 
             return ToolResult(
-                type="no_tool_found",
+                type="tool_search",
                 observation=(
                     "Tool discovery completed.\n",
-                    f"No tool found matching {query}\n",
+                    "Selected tools:\n",
+                    f"{schemas}/n",
+                )
+            )
+        except Exception as e:
+            return ToolResult(
+                type="runtime_error",
+                observation=(
+                    "Tool discovery completed.\n",
+                    f"Failed to find tool for {query}\n",
                     f"Tools: []\n",
                 )
             )
-
-        self._selected_tools = ToolContext(
-            tools,
-        )
-
-        schemas: list[dict[str, Any]] = []
-
-        for tool in self._selected_tools.function_tools.values():
-
-            schemas.append(
-                _build_tool_schema(
-                    tool,
-                )
-            )
-
-        for tool in self._selected_tools.provider_tools:
-
-            schemas.append(
-                {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": (
-                        tool.args_schema.model_json_schema()
-                        if tool.args_schema
-                        else {
-                            "type": "object",
-                            "properties": {},
-                        }
-                    ),
-                }
-            )
-
-        return ToolResult(
-            type="tool_search",
-            observation=(
-                "Tool discovery completed.\n",
-                "Selected tools:\n",
-                f"{schemas}/n",
-            )
-        )
 
     def _parse_call_arguments(
         self,
@@ -309,7 +309,7 @@ class ToolProxyToolset(ToolSearchToolset):
             return ToolResult(
                 type="validation_error",
                 observation=(
-                    "Tool discovery completed.\n",
+                    "Tool  completed.\n",
                     "Invalid tool params\n",
                     "Expected:\n",
                     """{
@@ -331,7 +331,7 @@ class ToolProxyToolset(ToolSearchToolset):
             return ToolResult(
                 type="validation_error",
                 observation=(
-                    "Tool discovery completed.\n",
+                    "Tool completed.\n",
                     "Invalid tool params\n",
                     "Expected:\n",
                     """{
@@ -360,7 +360,7 @@ class ToolProxyToolset(ToolSearchToolset):
             return ToolResult(
                 type="no_tool_found",
                 observation=(
-                    "Tool discovery completed.\n",
+                    "Tool completed.\n",
                     "No tool has been selected.\n",
                     "Use tool_search first to find tools.\n"
                 )
@@ -395,7 +395,7 @@ class ToolProxyToolset(ToolSearchToolset):
             return ToolResult(
                 type="tool_result",
                 observation=(
-                    "Tool discovery completed.\n",
+                    "Tool completed.\n",
                     f"Tool result:",
                     f"{result}"
 
@@ -426,7 +426,7 @@ class ToolProxyToolset(ToolSearchToolset):
                 return ToolResult(
                     type="tool_result",
                     observation=(
-                        "Tool discovery completed.\n",
+                        "Tool  completed.\n",
                         f"Tool result:",
                         f"{result}"
 
@@ -444,7 +444,7 @@ class ToolProxyToolset(ToolSearchToolset):
                 return ToolResult(
                     type="tool_result",
                     observation=(
-                        "Tool discovery completed.\n",
+                        "Tool completed.\n",
                         f"Tool result:",
                         f"{result}"
 

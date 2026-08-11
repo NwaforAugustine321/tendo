@@ -13,7 +13,7 @@ from app.memory.memory import Memory
 from app.runtime.agents.agent import Agent
 from app.runtime.middlewares.middleware import AgentMiddleware
 from app.runtime.toolsets.executor import ToolExecutionResult
-from app.toolsets import function_tool
+from app.runtime.toolsets import function_tool
 from app.llm.client import get_client
 from app.runtime.llm_vendors.langchain import LangChainLLM
 from app.runtime.memory.factory import (
@@ -26,11 +26,13 @@ from app.runtime.rag.factory import (
 from app.runtime.conversation.factory import (
     create_conversation_provider
 )
+from app.runtime.utils.spec_loader import LoaderAgentSpec
 
+planner_agent_spec = LoaderAgentSpec.from_spec(
+    name='planner_agent', path='planner')
 
-# conversation = create_conversation_provider(
+prompt = f"Role:\n{planner_agent_spec.role}\n\nBackstory:\n{planner_agent_spec.backstory}"
 
-# )
 
 _llm = get_client()
 
@@ -47,7 +49,7 @@ except Exception:
     agent_spec = None
 
 
-@function_tool
+@tool
 async def get_weather(
     city: str,
 ) -> str:
@@ -58,7 +60,7 @@ async def get_weather(
     return f"{city}: Sunny"
 
 
-@function_tool
+@tool
 async def get_temperature(
     city: str,
 ) -> str:
@@ -83,8 +85,8 @@ class ToolLoggingMiddleware(AgentMiddleware):
             logger.info(
                 "tool result"
             )
-            # print(r.output)
-            # print('\n')
+            print(r.output)
+            print('\n')
 
 
 class SelectedAgent(BaseModel):
@@ -124,12 +126,16 @@ def delegate_to_agents(session: dict | None = {}):
         agents: list[SelectedAgent],
         shared_constraints: str = "",
     ) -> str:
-        """Delegate tasks to specialized sub-agents for execution.
+        """Search, find, gather, and look up information from other specialized agents. 
+
+        Use this tool when you need to ask questions, solve complex queries, 
+        delegate tasks, get details, discover data, research a topic, or request 
+        further analysis and execution from sub-agents.
 
            Args:
               agents: List of agent assignments. Each must have:
-                - agent_id: One of "transaction_agent", "inventory_agent", "general_information_agent"
-                - message_input: Clear instruction for what the agent must accomplish
+                - agent_id: <agent_name>
+                - message_input: <user_message>
                 - depends_on: List of agent_ids this agent depends on
               shared_constraints: Constraints that apply to all agents.
 
@@ -150,10 +156,10 @@ def delegate_to_agents(session: dict | None = {}):
         else:
             asyncio.create_task(_run_parallel(
                 agent_dicts, shared_constraints, session=session))
-
+        print("we ar here ......")
         return "Task delegated to specialist agents. They are processing now. Provide a brief natural acknowledgment to the user."
 
-    _tool.name = "delegate_to_agents"
+    _tool.name = "discover_information"
     return _tool
 
 
@@ -273,15 +279,12 @@ class Planner:
             rag=create_rag_provider(namespace=self._business_id),
             conversation=create_conversation_provider(
                 namespace=self._business_id),
-            instructions="""
-                You are a helpful assistant.
-
-                Always use tools when appropriate.
-                """,
+            instructions=prompt,
 
             tools=[
                 get_weather,
-                get_temperature
+                get_temperature,
+                delegate_to_agents(session)
             ],
 
             middleware=[

@@ -34,12 +34,6 @@ class ToolExecutionResult:
 class ToolExecutor:
     """
     Executes runtime tools.
-
-    Responsibilities
-    ----------------
-    - Delegate execution to ToolProxyToolset.
-    - Normalize execution failures.
-    - Produce tool messages.
     """
 
     def __init__(
@@ -62,8 +56,6 @@ class ToolExecutor:
         *,
         ctx: RunContext | None = None,
     ) -> ToolExecutionResult:
-
-        # try:
 
         output = await self._proxy.execute(
             name=tool_call.name,
