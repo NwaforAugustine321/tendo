@@ -63,37 +63,13 @@ class ToolExecutor:
         ctx: RunContext | None = None,
     ) -> ToolExecutionResult:
 
-        try:
+        # try:
 
-            output = await self._proxy.execute(
-                name=tool_call.name,
-                arguments=tool_call.arguments,
-                ctx=ctx,
-            )
-
-        except ToolProtocolError as error:
-
-            output = {
-                "type": "tool_protocol_error",
-                "error": str(error),
-                "expected": error.expected,
-                "received": error.received,
-            }
-
-        except ToolError as error:
-
-            output = {
-                "type": "tool_error",
-                "error": str(error),
-            }
-
-        except Exception as error:
-
-            output = {
-                "type": "tool_runtime_error",
-                "error": type(error).__name__,
-                "message": str(error),
-            }
+        output = await self._proxy.execute(
+            name=tool_call.name,
+            arguments=tool_call.arguments,
+            ctx=ctx,
+        )
 
         return ToolExecutionResult(
             tool_call=tool_call,
@@ -131,17 +107,26 @@ class ToolExecutor:
         Convert tool execution results into
         ToolMessages for the conversation.
         """
-
-        return [
-            ChatMessage.tool(
-                tool_call_id=result.tool_call.id,
-                name=result.tool_call.name,
-                content=self._serialize_output(
-                    result.output,
-                ),
+        _results = []
+        for result in results:
+            _results.append(
+                ChatMessage.tool(
+                    tool_call_id=result.tool_call.id,
+                    name=result.tool_call.name,
+                    content=self._serialize_output(
+                        result.output,
+                    ),
+                )
             )
-            for result in results
-        ]
+
+            if result.output.observation:
+                _results.append(
+                    ChatMessage.system(
+                        content=result.output.observation
+                    )
+                )
+
+        return _results
 
     def _serialize_output(
         self,

@@ -6,7 +6,8 @@ from .store import ConversationStore
 
 def create_conversation_provider(
     *,
-    store: ConversationStore,
+    store: ConversationStore | None = None,
+    namespace: str
 ) -> ConversationProvider:
     """
     Create a ConversationProvider.
@@ -14,4 +15,5 @@ def create_conversation_provider(
 
     return ConversationProvider(
         store=store,
+        namespace=namespace
     )

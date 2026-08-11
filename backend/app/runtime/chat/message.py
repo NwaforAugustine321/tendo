@@ -103,3 +103,61 @@ class ChatMessage:
             tool_calls=response.tool_calls,
             metadata=response.metadata,
         )
+
+    @staticmethod
+    def to_dicts(
+        messages: list[ChatMessage],
+    ) -> list[dict[str, str]]:
+        """
+        Convert a list of ChatMessages to plain
+        [{role, content}] dicts for storage.
+
+        Skips tool messages and empty content.
+        """
+
+        results = []
+
+        for msg in messages:
+
+            role = str(
+                getattr(msg.role, "value", msg.role)
+            )
+
+            if role == "tool":
+                continue
+
+            content = msg.content
+
+            if not content:
+                continue
+
+            if not isinstance(content, str):
+                content = str(content)
+
+            results.append(
+                {
+                    "role": role,
+                    "content": content,
+                }
+            )
+
+        return results
+
+    @classmethod
+    def from_dicts(
+        cls,
+        dicts: list[dict[str, str]],
+    ) -> list[ChatMessage]:
+        """
+        Convert a list of [{role, content}] dicts
+        back to ChatMessage objects.
+        """
+
+        return [
+            cls(
+                role=d["role"],
+                content=d["content"],
+            )
+            for d in dicts
+            if d.get("content")
+        ]

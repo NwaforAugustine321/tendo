@@ -11,6 +11,7 @@ from app.runtime.agents.run_context import (
 from app.runtime.conversation.provider import (
     ConversationProvider,
 )
+from app.runtime.chat.message import ChatMessage
 
 
 class ConversationMiddleware(
@@ -19,6 +20,9 @@ class ConversationMiddleware(
     """
     Synchronizes the in-memory conversation with the
     persistent conversation store.
+
+    Uses ChatMessage.to_dicts() to strip messages down
+    to role+content before persistence.
     """
 
     def __init__(
@@ -52,10 +56,19 @@ class ConversationMiddleware(
         ):
             return
 
-        await self._provider.append(
-            conversation=conversation,
-            message=ctx.messages[0],
-        )
+        # Convert current message to storable form
+        storable = ChatMessage.to_dicts([ctx.messages[0]])
+
+        if not storable:
+            return
+
+        storable_messages = ChatMessage.from_dicts(storable)
+
+        if storable_messages:
+            await self._provider.append(
+                conversation=conversation,
+                message=storable_messages[0],
+            )
 
     async def after_llm(
         self,
@@ -71,10 +84,18 @@ class ConversationMiddleware(
         if conversation is None:
             return
 
-        await self._provider.append(
-            conversation=conversation,
-            message=event.message,
-        )
+        storable = ChatMessage.to_dicts([event.message])
+
+        if not storable:
+            return
+
+        storable_messages = ChatMessage.from_dicts(storable)
+
+        if storable_messages:
+            await self._provider.append(
+                conversation=conversation,
+                message=storable_messages[0],
+            )
 
     async def after_tools(
         self,
@@ -82,7 +103,7 @@ class ConversationMiddleware(
         event: AfterToolsEvent,
     ) -> None:
         """
-        Persist tool messages.
+        Persist non-tool messages from the tool execution.
         """
 
         if not event.messages:
@@ -93,7 +114,16 @@ class ConversationMiddleware(
         if conversation is None:
             return
 
-        await self._provider.append_many(
-            conversation=conversation,
-            messages=event.messages,
-        )
+        # to_dicts already filters out tool messages
+        storable = ChatMessage.to_dicts(event.messages)
+
+        if not storable:
+            return
+
+        storable_messages = ChatMessage.from_dicts(storable)
+
+        if storable_messages:
+            await self._provider.append_many(
+                conversation=conversation,
+                messages=storable_messages,
+            )

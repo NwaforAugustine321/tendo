@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, Literal
 
 from typing_extensions import Self
-
+from dataclasses import dataclass
 from app.toolsets.tool_search import ToolSearchToolset
 from app.toolsets.utils import prepare_function_arguments
 from app.toolsets.tool_context import (
@@ -31,7 +31,7 @@ class ToolProtocolError(ToolError):
         instruction: str,
         expected: dict[str, Any],
         received: dict[str, Any],
-        selected_tool: dict[str, Any] | None = None,
+        selected_tool: dict[str, Any] | None = None
     ) -> None:
 
         super().__init__(message)
@@ -40,6 +40,31 @@ class ToolProtocolError(ToolError):
         self.received = received
         self.selected_tool = selected_tool
         self.instruction = instruction
+
+
+@dataclass(slots=True)
+class ToolResult:
+
+    type: Literal[
+        "tool_search",
+        "execution",
+        "validation_error",
+        "tool_error",
+        "no_tool_found",
+        "tool_result"
+    ]
+    observation: str | None = None
+
+    def __post_init__(self):
+        if isinstance(self.observation, (list, tuple)):
+            self.observation = "".join(str(s) for s in self.observation)
+
+
+@dataclass(slots=True)
+class ToolExecutionResult:
+
+    tool_call: ToolCall
+    result: ToolResult
 
 
 _DEFAULT_CALL_DESCRIPTION = (
@@ -186,8 +211,13 @@ class ToolProxyToolset(ToolSearchToolset):
                 raw_arguments=arguments,
             )
 
-        raise ToolError(
-            f"Unknown runtime tool '{name}'."
+        return ToolResult(
+            type="no_tool_found",
+            observation=(
+                "Tool discovery completed.\n",
+                f"Unknown runtime tool '{name}'."
+
+            )
         )
 
     async def search(
@@ -198,8 +228,13 @@ class ToolProxyToolset(ToolSearchToolset):
 
         if not query:
 
-            raise ToolError(
-                "query cannot be empty",
+            return ToolResult(
+                type="validation_error",
+                observation=(
+                    "Tool discovery completed.\n",
+                    f"query cannot be empty'."
+
+                )
             )
 
         tools = await self._search_tools(
@@ -208,13 +243,14 @@ class ToolProxyToolset(ToolSearchToolset):
 
         if not tools:
 
-            return {
-                "type": "tool_search_result",
-                "tools": [],
-                "message": (
-                    f"No tools found matching '{query}'."
-                ),
-            }
+            return ToolResult(
+                type="no_tool_found",
+                observation=(
+                    "Tool discovery completed.\n",
+                    f"No tool found matching {query}\n",
+                    f"Tools: []\n",
+                )
+            )
 
         self._selected_tools = ToolContext(
             tools,
@@ -247,16 +283,14 @@ class ToolProxyToolset(ToolSearchToolset):
                 }
             )
 
-        return {
-            "type": "tool_search_result",
-            "next_action": "call_tool",
-            "instruction": (
-                "Select one tool and invoke the runtime "
-                "'call_tool' tool using the returned "
-                "tool name and matching parameters."
-            ),
-            "tools": schemas,
-        }
+        return ToolResult(
+            type="tool_search",
+            observation=(
+                "Tool discovery completed.\n",
+                "Selected tools:\n",
+                f"{schemas}/n",
+            )
+        )
 
     def _parse_call_arguments(
         self,
@@ -272,18 +306,20 @@ class ToolProxyToolset(ToolSearchToolset):
         )
 
         if name is None or parameters is None:
-
-            raise ToolProtocolError("Invalid call_tool arguments.",
-                                    expected={"name": "<tool_name>",
-                                              "parameters": {}},
-                                    received=raw_arguments,
-                                    instruction="""
-                                        "Retry the runtime tool 'call_tool' using the "
-                                        "expected schema. Set 'name' to the selected tool "
-                                        "name and put the tool arguments inside "
-                                        "'parameters'."    
-                                        """
-                                    )
+            return ToolResult(
+                type="validation_error",
+                observation=(
+                    "Tool discovery completed.\n",
+                    "Invalid tool params\n",
+                    "Expected:\n",
+                    """{
+                        "name": "<tool_name>",
+                        "parameters": \{}\
+                    }\n""",
+                    f"Received:\n",
+                    f"{raw_arguments}/n",
+                )
+            )
 
         if not isinstance(
             parameters,
@@ -292,18 +328,20 @@ class ToolProxyToolset(ToolSearchToolset):
                 str,
             ),
         ):
-
-            raise ToolProtocolError("Invalid call_tool arguments.",
-                                    expected={"name": "<tool_name>",
-                                              "parameters": {}},
-                                    received=raw_arguments,
-                                    instruction="""
-                                            "Retry the runtime tool 'call_tool' using the "
-                                            "expected schema. Set 'name' to the selected tool "
-                                            "name and put the tool arguments inside "
-                                            "'parameters'."    
-                                            """
-                                    )
+            return ToolResult(
+                type="validation_error",
+                observation=(
+                    "Tool discovery completed.\n",
+                    "Invalid tool params\n",
+                    "Expected:\n",
+                    """{
+                        "name": "<tool_name>",
+                        "parameters": {}
+                    }\n""",
+                    f"Received:\n",
+                    f"{raw_arguments}/n",
+                )
+            )
 
         return (
             str(name),
@@ -319,9 +357,13 @@ class ToolProxyToolset(ToolSearchToolset):
 
         if self._selected_tools is None:
 
-            raise ToolError(
-                "No tool has been selected. "
-                "Use tool_search first."
+            return ToolResult(
+                type="no_tool_found",
+                observation=(
+                    "Tool discovery completed.\n",
+                    "No tool has been selected.\n",
+                    "Use tool_search first to find tools.\n"
+                )
             )
 
         name, parameters = self._parse_call_arguments(
@@ -350,7 +392,15 @@ class ToolProxyToolset(ToolSearchToolset):
             ):
                 result = await result
 
-            return result
+            return ToolResult(
+                type="tool_result",
+                observation=(
+                    "Tool discovery completed.\n",
+                    f"Tool result:",
+                    f"{result}"
+
+                )
+            )
 
         for tool in self._selected_tools.provider_tools:
 
@@ -370,8 +420,17 @@ class ToolProxyToolset(ToolSearchToolset):
 
             try:
 
-                return await tool.ainvoke(
+                result = await tool.ainvoke(
                     arguments,
+                )
+                return ToolResult(
+                    type="tool_result",
+                    observation=(
+                        "Tool discovery completed.\n",
+                        f"Tool result:",
+                        f"{result}"
+
+                    )
                 )
 
             except (
@@ -379,8 +438,17 @@ class ToolProxyToolset(ToolSearchToolset):
                 TypeError,
             ):
 
-                return tool.invoke(
+                result = tool.invoke(
                     arguments,
+                )
+                return ToolResult(
+                    type="tool_result",
+                    observation=(
+                        "Tool discovery completed.\n",
+                        f"Tool result:",
+                        f"{result}"
+
+                    )
                 )
 
         available = list(
@@ -392,14 +460,17 @@ class ToolProxyToolset(ToolSearchToolset):
             for tool in self._selected_tools.provider_tools
         )
 
-        raise ToolProtocolError("Invalid call_tool arguments.",
-                                expected={"name": "<tool_name>",
-                                          "parameters": {}},
-                                received=raw_arguments,
-                                instruction="""
-                                    "Retry the runtime tool 'call_tool' using the "
-                                    "expected schema. Set 'name' to the selected tool "
-                                    "name and put the tool arguments inside "
-                                    "'parameters'."    
-                                    """
-                                )
+        return ToolResult(
+            type="tool_error",
+            observation=(
+                "Tool completed.\n",
+                "Tool error\n",
+                "Expected:\n",
+                """{
+                    "name": "<tool_name>",
+                    "parameters": {}
+                }\n""",
+                f"Received:\n",
+                f"{raw_arguments}/n",
+            )
+        )

@@ -38,8 +38,6 @@ def _create_memory_schema(
 
         category: str = "general"
 
-        confidence: float = 1.0
-
         metadata: str = Field(
             default="{}",
         )
@@ -132,7 +130,6 @@ class LanceMemoryStore(
                     id=row["id"],
                     text=row["text"],
                     category=row["category"],
-                    confidence=row["confidence"],
                     metadata=json.loads(
                         row.get("metadata", "{}"),
                     ),
@@ -147,51 +144,12 @@ class LanceMemoryStore(
         reflection: MemoryReflection,
     ) -> None:
 
-        create_entries: list[MemoryEntry] = []
+        if reflection.empty:
+            return
 
-        for operation in reflection.operations:
-
-            entry = operation.entry
-
-            match operation.operation:
-
-                case "create":
-
-                    create_entries.append(
-                        entry,
-                    )
-
-                case "update":
-
-                    if not entry.id:
-                        create_entries.append(
-                            entry,
-                        )
-                        continue
-
-                    await self._update(
-                        entry,
-                    )
-
-                case "delete":
-
-                    if entry.id:
-
-                        await self.delete(
-                            memory_id=entry.id,
-                        )
-
-                case _:
-
-                    raise ValueError(
-                        f"Unknown memory operation '{operation.operation}'."
-                    )
-
-        if create_entries:
-
-            await self._insert(
-                create_entries,
-            )
+        await self._insert(
+            reflection.entries,
+        )
 
     async def delete(
         self,
@@ -220,7 +178,6 @@ class LanceMemoryStore(
                 id=entry.id or str(uuid4()),
                 text=entry.text,
                 category=entry.category,
-                confidence=entry.confidence,
                 metadata=json.dumps(entry.metadata),
                 created_at=datetime.now(UTC),
                 vector=vector,
@@ -249,7 +206,6 @@ class LanceMemoryStore(
             values={
                 "text": entry.text,
                 "category": entry.category,
-                "confidence": entry.confidence,
                 "metadata": json.dumps(entry.metadata),
                 "created_at": datetime.now(UTC),
                 "vector": vector,

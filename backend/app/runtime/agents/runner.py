@@ -73,9 +73,6 @@ class AgentRunner:
 
                 try:
 
-                    #
-                    # Guardrails
-                    #
                     await run_context.guardrails.check_request(
                         run_context,
                     )
@@ -85,9 +82,6 @@ class AgentRunner:
                         run_context,
                     )
 
-                    #
-                    # Execute LLM
-                    #
                     stream = session.agent.llm.chat(
                         conversation_context=session.conversation_context,
                         run_context=run_context,
@@ -190,8 +184,9 @@ class AgentRunner:
                 except RetryRequest:
                     continue
 
-            raise RuntimeError(
-                "Maximum tool iterations exceeded."
+            return await self._force_final_response(
+                session=session,
+                run_context=run_context,
             )
 
         except Exception as error:
@@ -231,3 +226,48 @@ class AgentRunner:
                     logger.exception(
                         "Memory reflection failed.",
                     )
+
+    async def _force_final_response(
+        self,
+        *,
+        session,
+        run_context,
+    ) -> LLMResponse:
+
+        run_context.add_message(
+            ChatMessage.system(
+                "You have reached the maximum number of tool iterations. "
+                "Provide your best final response to the user now based on "
+                "the information gathered so far. Do not call any more tools."
+            )
+        )
+
+        stream = session.agent.llm.chat(
+            conversation_context=session.conversation_context,
+            run_context=run_context,
+        )
+
+        activity = AgentActivity(
+            stream=stream,
+        )
+
+        session.set_current_activity(activity)
+
+        try:
+            response = await activity.wait()
+        finally:
+            session.clear_activity()
+
+        assistant_message = ChatMessage.from_llm_response(response)
+        run_context.add_message(assistant_message)
+
+        await run_context.middleware.dispatch(
+            MiddlewareEvent.AFTER_LLM,
+            run_context,
+            AfterLLMEvent(
+                message=assistant_message,
+                response=response,
+            ),
+        )
+
+        return response

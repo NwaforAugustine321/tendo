@@ -165,6 +165,13 @@ class LangChainLLM(LLM):
         for chunk in chunks[1:]:
             merged += chunk
 
+        # Deduplicate list fields in additional_kwargs
+        # that get repeated per-chunk during streaming.
+        additional = merged.additional_kwargs or {}
+        for key, value in additional.items():
+            if isinstance(value, list):
+                additional[key] = list(dict.fromkeys(value))
+
         return merged
 
     def _to_langchain_messages(

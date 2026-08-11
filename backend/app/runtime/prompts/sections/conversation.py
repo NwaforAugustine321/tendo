@@ -8,9 +8,6 @@ from app.runtime.conversation.context import (
 class ConversationPromptBuilder:
     """
     Builds the conversation history prompt.
-
-    The current user message is NOT included here.
-    It is sent separately as the final ChatMessage.
     """
 
     HEADER = (

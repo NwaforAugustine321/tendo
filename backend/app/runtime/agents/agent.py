@@ -65,7 +65,6 @@ class Agent:
         metadata: dict[str, Any] | None = None,
         middleware: list[AgentMiddleware] | None = None,
         guardrails: GuardrailManager | None = None,
-        prompt_template: PromptTemplate | None = None,
         memory: MemoryProvider | None = None,
         conversation: ConversationProvider | None = None,
         rag: RAGProvider | None = None,
@@ -95,11 +94,7 @@ class Agent:
             else GuardrailManager()
         )
 
-        self._prompt_template = (
-            prompt_template
-            if prompt_template is not None
-            else DefaultPromptTemplate()
-        )
+        self._prompt_template = DefaultPromptTemplate()
 
         self._middleware = MiddlewareManager()
 
@@ -229,6 +224,7 @@ class Agent:
 
     def create_session(
         self,
+        session_id: str | None = None,
     ) -> AgentSession:
         """
         Create a new conversation session.
@@ -238,4 +234,5 @@ class Agent:
 
         return AgentSession(
             agent=self,
+            session_id=session_id,
         )

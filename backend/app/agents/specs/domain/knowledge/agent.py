@@ -16,14 +16,15 @@ class KnowledgeAgent:
 
     def __init__(self):
         self._runtime = AgentRuntime(
-                agent=agent_spec,
-                tool_binder=ToolBinder(),
-                max_token=1024
+            agent=agent_spec,
+            tool_binder=ToolBinder(),
+            max_token=1024
         )
         self._proxy = None
 
     async def bind_tools(self, business_id: str, scopes: list[str] = []) -> None:
-        all_tools = get_profile_tools(business_id) + get_knowledge_tools(business_id=business_id, scopes=scopes)
+        all_tools = get_profile_tools(
+            business_id) + get_knowledge_tools(business_id=business_id, scopes=scopes)
 
         self._proxy = ToolProxyToolset(
             id=f"knowledge-{business_id}",

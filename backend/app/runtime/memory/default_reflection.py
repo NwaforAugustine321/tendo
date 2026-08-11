@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
-
-from pydantic import BaseModel, Field, ValidationError
+import logging
 
 from app.llm.client import get_client
 from app.runtime.agents.run_context import RunContext
@@ -13,41 +11,15 @@ from .reflection import (
     MemoryReflectionEngine,
 )
 
-
-class ReflectionMemoryModel(BaseModel):
-    text: str = Field(
-        description="The durable memory.",
-    )
-
-    category: str = Field(
-        default="general",
-        description="Memory category.",
-    )
-
-    confidence: float = Field(
-        ge=0.0,
-        le=1.0,
-        default=0.9,
-        description="Confidence that this memory should be stored.",
-    )
-
-
-class ReflectionResponse(BaseModel):
-    entries: list[ReflectionMemoryModel] = Field(
-        default_factory=list,
-    )
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """
 You are responsible for extracting durable long-term memory from ONE completed conversation run.
 
-You will receive only the messages generated during the latest execution.
-
-Extract ONLY information that is likely to remain useful
-in future conversations.
+Extract ONLY information that is likely to remain useful in future conversations.
 
 Store:
-
 - User preferences
 - Long-term goals
 - Ongoing projects
@@ -55,32 +27,19 @@ Store:
 - Stable business facts
 
 Do NOT store:
-
 - Greetings
 - Temporary requests
 - Tool outputs
 - Small talk
 - One-time questions
-- Short-lived information
-- Information already implied by previous memories
 
-If nothing should be remembered, return:
+If nothing should be remembered, return exactly: NONE
 
-{
-  "entries": []
-}
+Otherwise return one memory per line as plain text. No JSON. No formatting.
 
-Return ONLY valid JSON matching this schema:
-
-{
-  "entries": [
-    {
-      "text": "User prefers Python.",
-      "category": "preference",
-      "confidence": 0.95
-    }
-  ]
-}
+Example:
+User prefers Python
+User is building a SaaS for restaurants
 """
 
 
@@ -88,38 +47,24 @@ class DefaultMemoryReflection(
     MemoryReflectionEngine,
 ):
 
-    def __init__(
-        self,
-    ) -> None:
-
+    def __init__(self) -> None:
         self._llm = get_client()
 
-        self._structured_llm = None
-
-        #
-        # Use native structured output when supported.
-        #
-        if hasattr(
-            self._llm,
-            "with_structured_output",
-        ):
-
-            try:
-
-                self._structured_llm = (
-                    self._llm.with_structured_output(
-                        ReflectionResponse,
-                    )
-                )
-
-            except Exception:
-
-                #
-                # Fall back to JSON prompting.
-                #
-                self._structured_llm = None
-
     async def reflect(
+        self,
+        ctx: RunContext,
+    ) -> MemoryReflection:
+
+        try:
+            return await self._do_reflect(ctx)
+        except Exception:
+            logger.debug(
+                "Memory reflection skipped.",
+                exc_info=True,
+            )
+            return MemoryReflection()
+
+    async def _do_reflect(
         self,
         ctx: RunContext,
     ) -> MemoryReflection:
@@ -139,10 +84,10 @@ class DefaultMemoryReflection(
             if not message.content:
                 continue
 
-            role = getattr(message.role, "value", str(message.role))
+            role = getattr(
+                message.role, "value", str(message.role)
+            )
 
-            # Skip tool messages — reflection only needs
-            # user/assistant conversation content.
             if role == "tool":
                 continue
 
@@ -153,68 +98,35 @@ class DefaultMemoryReflection(
                 }
             )
 
-        #
-        # Native structured output.
-        #
-        if self._structured_llm is not None:
+        response = await self._llm.ainvoke(messages)
 
-            result: ReflectionResponse = (
-                await self._structured_llm.ainvoke(
-                    messages,
-                )
+        content = getattr(response, "content", response)
+
+        if isinstance(content, list):
+            content = "".join(str(part) for part in content)
+
+        content = str(content).strip()
+
+        if not content or content.upper() == "NONE":
+            return MemoryReflection()
+
+        # Each line is one memory.
+        lines = [
+            line.strip()
+            for line in content.splitlines()
+            if line.strip() and line.strip().upper() != "NONE"
+        ]
+
+        if not lines:
+            return MemoryReflection()
+
+        entries = [
+            MemoryEntry(
+                id="",
+                text=line,
+                category="general",
             )
+            for line in lines
+        ]
 
-        #
-        # Generic JSON fallback.
-        #
-        else:
-
-            response = await self._llm.ainvoke(
-                messages,
-            )
-
-            content = getattr(
-                response,
-                "content",
-                response,
-            )
-
-            if isinstance(
-                content,
-                list,
-            ):
-                content = "".join(
-                    str(part)
-                    for part in content
-                )
-
-            try:
-
-                result = (
-                    ReflectionResponse.model_validate_json(
-                        str(content),
-                    )
-                )
-
-            except (
-                ValidationError,
-                json.JSONDecodeError,
-                ValueError,
-            ):
-
-                #
-                # Reflection should never fail the agent.
-                #
-                return MemoryReflection()
-
-        return MemoryReflection(
-            entries=[
-                MemoryEntry(
-                    id="",
-                    text=item.text,
-                    category=item.category,
-                    confidence=item.confidence,
-                )
-                for item in result.entries
-            ]
-        )
+        return MemoryReflection(entries=entries)

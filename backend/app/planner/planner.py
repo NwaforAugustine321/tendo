@@ -55,7 +55,18 @@ async def get_weather(
     Get the weather for a city.
     """
 
-    return f"{city}: 28°C Sunny"
+    return f"{city}: Sunny"
+
+
+@function_tool
+async def get_temperature(
+    city: str,
+) -> str:
+    """
+    Get the temperature of city.
+    """
+
+    return f"{city}: 50°C "
 
 
 class ToolLoggingMiddleware(AgentMiddleware):
@@ -64,16 +75,16 @@ class ToolLoggingMiddleware(AgentMiddleware):
     async def before_tools(self, ctx, event) -> None:
 
         logger.info("[middleware] Tool execution starting...")
-        print(event.tool_calls)
-        print('\n\n')
+        # print(event.tool_calls)
+        # print('\n\n')
 
     async def after_tools(self, ctx, event) -> None:
         for r in event.results:
             logger.info(
                 "tool result"
             )
-            print(r.output)
-            print('\n')
+            # print(r.output)
+            # print('\n')
 
 
 class SelectedAgent(BaseModel):
@@ -260,7 +271,8 @@ class Planner:
             llm=llm,
             memory=create_memory_provider(namespace=self._business_id),
             rag=create_rag_provider(namespace=self._business_id),
-            # conversation=conversation,
+            conversation=create_conversation_provider(
+                namespace=self._business_id),
             instructions="""
                 You are a helpful assistant.
 
@@ -268,14 +280,17 @@ class Planner:
                 """,
 
             tools=[
-                get_weather
+                get_weather,
+                get_temperature
             ],
 
             middleware=[
                 ToolLoggingMiddleware(),
             ],
         )
-        self._session = agent.create_session()
+        self._session = agent.create_session(
+            session_id=self._session_id,
+        )
 
     async def _save_msg(self, messages: list[dict]):
         await save_messages(self._business_id, self._session_id, messages, record_id=self._record_id)
@@ -283,13 +298,13 @@ class Planner:
     async def run(self, user_message: str, conversation_history: list[dict] = [], messages: list | None = None):
 
         response = await self._session.run(
-            "What's the weather in Lagos?"
+            user_message
         )
 
-        # print(response.text)
+        print(response.text)
         # print(self._session.run_context.messages)
-        for message in self._session.run_context.messages:
-            print(message.content)
+        # for message in self._session.run_context.messages:
+        #     print(message)
 
         # try:
         #     recent = await self._memory.fetch(limit=10)
@@ -317,7 +332,7 @@ class Planner:
         #     logger.warning("Conversation history persist failed: %s", e)
 
         # await self._save_msg(messages=[{"role": "assistant", "content": response}])
-        # return response
+        return response.text
 
     def _load_manifests(self) -> dict[str, str]:
         manifest_names = ["agents", "skills", "tools", "knowledge"]
