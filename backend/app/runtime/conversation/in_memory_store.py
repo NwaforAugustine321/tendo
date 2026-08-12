@@ -1,21 +1,44 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from uuid import uuid4
 
 import lancedb
 from lancedb.pydantic import LanceModel
 from pydantic import Field
+
 from app.runtime.chat.message import ChatMessage
+
 from .context import ConversationContext
 from .store import ConversationStore
+
+
+class ConversationRecord(LanceModel):
+    """
+    One row per conversation.
+    """
+
+    conversation_id: str
+
+    summary: str | None = None
+
+    metadata: str = Field(
+        default="{}",
+    )
+
+    created_at: datetime
+
+    updated_at: datetime
 
 
 class MessageRecord(LanceModel):
     """
     One row per message.
     """
+
+    message_id: str
 
     conversation_id: str
 
@@ -26,10 +49,11 @@ class MessageRecord(LanceModel):
     created_at: datetime
 
 
-class InMemConversationStore(ConversationStore):
+class InMemConversationStore(
+    ConversationStore,
+):
     """
-    Conversation store.
-
+    LanceDB implementation of ConversationStore.
     """
 
     def __init__(
@@ -38,7 +62,6 @@ class InMemConversationStore(ConversationStore):
         namespace: str,
         db: lancedb.DBConnection | None = None,
         uri: str | Path = "./data/conversations",
-        table_name: str = "messages",
     ) -> None:
 
         self._db = (
@@ -50,144 +73,253 @@ class InMemConversationStore(ConversationStore):
             )
         )
 
-        if table_name in self._db.table_names():
+        self._conversation_table = (
+            self._get_or_create_table(
+                "conversations",
+                ConversationRecord,
+            )
+        )
 
-            self._table = self._db.open_table(
-                table_name,
+        self._message_table = (
+            self._get_or_create_table(
+                "messages",
+                MessageRecord,
+            )
+        )
+
+    def _get_or_create_table(
+        self,
+        name: str,
+        schema: type[LanceModel],
+    ):
+
+        if name in self._db.table_names():
+            return self._db.open_table(
+                name,
             )
 
-        else:
+        return self._db.create_table(
+            name,
+            schema=schema,
+        )
 
-            self._table = self._db.create_table(
-                table_name,
-                schema=MessageRecord,
-            )
-
-    async def save(
+    async def save_conversation(
         self,
         *,
         conversation: ConversationContext,
     ) -> None:
-        """
-        Save messages.
-        """
 
-        conversation_id = conversation.conversation_id or ""
-
-        if not conversation.messages:
-            return
-
-        dicts = ChatMessage.to_dicts(conversation.messages)
-
-        if not dicts:
-            return
-
-        now = datetime.now(UTC)
-
-        rows = [
-            MessageRecord(
-                conversation_id=conversation_id,
-                role=d["role"],
-                content=d["content"],
-                created_at=now,
-            )
-            for d in dicts
-        ]
-
-        self._table.add(rows)
-
-    async def load(
-        self,
-        **kwargs: Any,
-    ) -> ConversationContext:
-        """
-        Load all messages for a conversation.
-        """
-
-        conversation_id = kwargs.get(
-            "conversation_id",
-        )
-        limit = kwargs.get(
-            "limit",
-            10,
-        )
-
-        if isinstance(limit, int):
-            limit = 10
+        conversation_id = conversation.conversation_id
 
         if conversation_id is None:
-            return ConversationContext()
-
-        try:
-            rows = (
-                self._table.search()
-                .where(
-                    f"conversation_id = '{conversation_id}'"
-                )
-                .limit(limit)
-                .to_list()
+            raise ValueError(
+                "conversation_id is required."
             )
-        except Exception:
-            rows = []
 
-        dicts = [
-            {"role": row["role"], "content": row["content"]}
-            for row in rows
-        ]
+        now = datetime.now(
+            UTC,
+        )
 
-        messages = ChatMessage.from_dicts(dicts)
+        rows = (
+            self._conversation_table.search()
+            .where(
+                f"conversation_id = '{conversation_id}'"
+            )
+            .limit(1)
+            .to_list()
+        )
+
+        if rows:
+
+            self._conversation_table.update(
+                where=(
+                    f"conversation_id = "
+                    f"'{conversation_id}'"
+                ),
+                values={
+                    "summary": conversation.summary,
+                    "metadata": json.dumps(conversation.metadata),
+                    "updated_at": now,
+                },
+            )
+
+            return
+
+        self._conversation_table.add(
+            [
+                ConversationRecord(
+                    conversation_id=conversation_id,
+                    summary=conversation.summary,
+                    metadata=json.dumps(conversation.metadata),
+                    created_at=now,
+                    updated_at=now,
+                )
+            ]
+        )
+
+    async def load_conversation(
+        self,
+        *,
+        conversation_id: str,
+    ) -> ConversationContext | None:
+
+        rows = (
+            self._conversation_table.search()
+            .where(
+                f"conversation_id = '{conversation_id}'"
+            )
+            .limit(1)
+            .to_list()
+        )
+
+        if not rows:
+            return None
+
+        row = rows[0]
 
         return ConversationContext(
-            conversation_id=conversation_id,
-            messages=messages,
+            conversation_id=row[
+                "conversation_id"
+            ],
+            summary=row.get(
+                "summary",
+            ),
+            metadata=json.loads(
+                row.get("metadata", "{}"),
+            ),
         )
 
     async def find_all(
         self,
-        **kwargs: Any,
     ) -> list[ConversationContext]:
 
-        limit = kwargs.get(
-            "limit",
-            10,
+        rows = (
+            self._conversation_table.search()
+            .to_list()
         )
-
-        if isinstance(limit, int):
-            limit = 10
-
-        rows = self._table.search().limit(limit).to_list()
-
-        # Group by conversation_id.
-        groups: dict[str, list] = {}
-
-        for row in rows:
-            cid = row["conversation_id"]
-            if cid not in groups:
-                groups[cid] = []
-            groups[cid].append(
-                {"role": row["role"], "content": row["content"]}
-            )
 
         return [
             ConversationContext(
-                conversation_id=cid,
-                messages=ChatMessage.from_dicts(dicts),
+                conversation_id=row[
+                    "conversation_id"
+                ],
+                summary=row.get(
+                    "summary",
+                ),
+                metadata=json.loads(
+                    row.get("metadata", "{}"),
+                ),
             )
-            for cid, dicts in groups.items()
+            for row in rows
         ]
 
-    async def delete(
+    async def delete_conversation(
         self,
-        **kwargs: Any,
+        *,
+        conversation_id: str,
     ) -> None:
 
-        conversation_id = kwargs.get(
-            "conversation_id",
+        self._conversation_table.delete(
+            (
+                f"conversation_id = "
+                f"'{conversation_id}'"
+            )
         )
 
-        if conversation_id is None:
+        await self.delete_messages(
+            conversation_id=conversation_id,
+        )
+
+    async def append_messages(
+        self,
+        *,
+        conversation_id: str,
+        messages: list[ChatMessage],
+    ) -> None:
+
+        if not messages:
             return
 
-        self._table.delete(
-            f"conversation_id = '{conversation_id}'"
+        now = datetime.now(
+            UTC,
+        )
+
+        rows = [
+            MessageRecord(
+                message_id=str(
+                    uuid4(),
+                ),
+                conversation_id=conversation_id,
+                role=message.role,
+                content=message.content,
+                created_at=now,
+            )
+            for message in messages
+        ]
+
+        self._message_table.add(
+            rows,
+        )
+
+    async def load_messages(
+        self,
+        *,
+        conversation_id: str,
+        limit: int | None = None,
+    ) -> list[ChatMessage]:
+
+        query = (
+            self._message_table.search()
+            .where(
+                f"conversation_id = '{conversation_id}'"
+            )
+        )
+
+        if limit is not None:
+            query = query.limit(
+                limit,
+            )
+
+        rows = query.to_list()
+
+        rows.sort(
+            key=lambda row: row[
+                "created_at"
+            ],
+        )
+
+        return [
+            ChatMessage(
+                role=row["role"],
+                content=row["content"],
+            )
+            for row in rows
+        ]
+
+    async def delete_messages(
+        self,
+        *,
+        conversation_id: str,
+        before_message_id: str | None = None,
+    ) -> None:
+
+        #
+        # Future:
+        #
+        # Once MessageRecord stores an ordering key
+        # (or uses message_id as a sortable cursor),
+        # support deleting only summarized messages.
+        #
+        if before_message_id is not None:
+            raise NotImplementedError(
+                "Deleting messages before a "
+                "specific message is not yet "
+                "implemented."
+            )
+
+        self._message_table.delete(
+            (
+                f"conversation_id = "
+                f"'{conversation_id}'"
+            )
         )

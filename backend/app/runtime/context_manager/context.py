@@ -1,17 +1,52 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from app.runtime.chat.message import ChatMessage
-from app.runtime.prompts.builder import PromptBuilder
+if TYPE_CHECKING:
+    from app.runtime.llm.llm import LLM
 
 
 @dataclass(slots=True)
-class ContextManagerContext:
+class ContextBudget:
     """
-    Context used by ContextManager.
+    Represents the available token budget for one
+    model inference.
     """
 
-    builder: PromptBuilder
+    max_context_tokens: int | None
 
-    messages: list[ChatMessage]
+    reserved_output_tokens: int
+
+    @property
+    def max_prompt_tokens(
+        self,
+    ) -> int | None:
+        """
+        Maximum number of tokens available for the
+        input prompt.
+        """
+
+        if self.max_context_tokens is None:
+            return None
+
+        return max(
+            0,
+            self.max_context_tokens
+            - self.reserved_output_tokens,
+        )
+
+    @classmethod
+    def from_llm(
+        cls,
+        llm: LLM,
+    ) -> ContextBudget:
+        """
+        Create a ContextBudget from an LLM
+        configuration.
+        """
+
+        return cls(
+            max_context_tokens=llm.max_context_tokens,
+            reserved_output_tokens=llm.max_output_tokens,
+        )

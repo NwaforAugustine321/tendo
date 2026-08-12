@@ -36,7 +36,8 @@ class InferenceStream(AsyncIterator[LLMEvent]):
 
     Responsibilities
     ----------------
-    - Build prompt messages
+    - Build the prompt
+    - Validate the prompt against the model context window
     - Invoke the model
     - Emit normalized events
     - Build the final LLMResponse
@@ -128,15 +129,18 @@ class InferenceStream(AsyncIterator[LLMEvent]):
                 ),
             )
 
-            messages = await builder.build()
+            #
+            # Build and validate the prompt.
+            #
+            messages = await (
+                self._agent.context_manager.build(
+                    builder,
+                )
+            )
 
             self._agent.llm.prepare(
                 tool_context=self._agent.tool_context,
-                output_type=getattr(
-                    self._agent,
-                    "output_type",
-                    None,
-                ),
+                output_type=self._agent.output_type,
             )
 
             provider_response = await self._invoke(
@@ -146,11 +150,7 @@ class InferenceStream(AsyncIterator[LLMEvent]):
             self._response = (
                 self._agent.llm.response_parser.parse(
                     provider_response=provider_response,
-                    output_type=getattr(
-                        self._agent,
-                        "output_type",
-                        None,
-                    ),
+                    output_type=self._agent.output_type,
                 )
             )
 
@@ -225,9 +225,8 @@ class InferenceStream(AsyncIterator[LLMEvent]):
         chunk: AIMessageChunk,
     ) -> None:
         """
-        Placeholder for future token events.
+        Placeholder for future token streaming events.
         """
-
         return
 
     async def _finish(
@@ -257,7 +256,7 @@ class InferenceStream(AsyncIterator[LLMEvent]):
         await self._emit(
             ErrorEvent(
                 error=error,
-            )
+            ),
         )
 
         await self._finish()
@@ -273,7 +272,7 @@ class InferenceStream(AsyncIterator[LLMEvent]):
 
         if self._response is None:
             raise RuntimeError(
-                "Inference completed without a response."
+                "Inference completed without a response.",
             )
 
         return self._response

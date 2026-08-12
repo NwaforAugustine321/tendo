@@ -2,12 +2,8 @@ from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
-from app.runtime.middlewares.middleware import (
-    AgentMiddleware,
-    MiddlewareManager,
-)
-from app.runtime.rag.provider import (
-    RAGProvider,
+from app.runtime.context_manager.manager import (
+    ContextManager,
 )
 from app.runtime.conversation.provider import (
     ConversationProvider,
@@ -21,11 +17,18 @@ from app.runtime.llm.llm import (
 from app.runtime.memory.provider import (
     MemoryProvider,
 )
+from app.runtime.middlewares.middleware import (
+    AgentMiddleware,
+    MiddlewareManager,
+)
 from app.runtime.prompts.default_template import (
     DefaultPromptTemplate,
 )
 from app.runtime.prompts.template import (
     PromptTemplate,
+)
+from app.runtime.rag.provider import (
+    RAGProvider,
 )
 from app.runtime.toolsets.tool_context import (
     ToolContext,
@@ -46,8 +49,10 @@ class Agent:
 
     - LLM
     - Prompt template
+    - Context manager
     - Memory
     - Conversation
+    - RAG
     - Middleware
     - Guardrails
     - Tool context
@@ -65,6 +70,8 @@ class Agent:
         metadata: dict[str, Any] | None = None,
         middleware: list[AgentMiddleware] | None = None,
         guardrails: GuardrailManager | None = None,
+        prompt_template: PromptTemplate | None = None,
+        context_manager: ContextManager | None = None,
         memory: MemoryProvider | None = None,
         conversation: ConversationProvider | None = None,
         rag: RAGProvider | None = None,
@@ -85,7 +92,6 @@ class Agent:
         )
 
         self._metadata = metadata or {}
-
         self._output_type = output_type
 
         self._guardrails = (
@@ -94,12 +100,22 @@ class Agent:
             else GuardrailManager()
         )
 
-        self._prompt_template = DefaultPromptTemplate()
+        self._prompt_template = (
+            prompt_template
+            if prompt_template is not None
+            else DefaultPromptTemplate()
+        )
+
+        self._context_manager = (
+            context_manager
+            if context_manager is not None
+            else ContextManager()
+        )
 
         self._middleware = MiddlewareManager()
 
         #
-        # User supplied middleware.
+        # User middleware.
         #
         if middleware:
             self._middleware.extend(
@@ -142,6 +158,12 @@ class Agent:
         self,
     ) -> LLM:
         return self._llm
+
+    @property
+    def context_manager(
+        self,
+    ) -> ContextManager:
+        return self._context_manager
 
     @property
     def memory(

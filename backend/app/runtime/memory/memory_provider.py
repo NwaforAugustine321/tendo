@@ -5,6 +5,13 @@ from app.runtime.agents.run_context import RunContext
 from .context import MemoryContext
 from .reflection import MemoryReflectionEngine
 from .store import MemoryStore
+from app.runtime.context_manager.optimizers.optimizer import (
+    ContextOptimizer as Optimizer,
+    OptimizationResult,
+)
+from app.runtime.context_manager.optimizers.default_optimizer import (
+    DefaultConversationOptimizer,
+)
 
 
 class MemoryProvider:
@@ -23,10 +30,18 @@ class MemoryProvider:
         *,
         store: MemoryStore,
         reflection: MemoryReflectionEngine,
+        optimizer: Optimizer | None = None,
     ) -> None:
 
         self._store = store
         self._reflection = reflection
+
+        self._optimizer = (
+            optimizer
+            or DefaultConversationOptimizer(
+                provider=self,
+            )
+        )
 
     @property
     def store(
@@ -41,6 +56,18 @@ class MemoryProvider:
     ) -> MemoryReflectionEngine:
 
         return self._reflection
+
+    async def optimize(
+        self,
+        *,
+        conversation: ConversationContext,
+        target_tokens: int,
+    ) -> OptimizationResult:
+
+        return await self._optimizer.optimize(
+            conversation=conversation,
+            target_tokens=target_tokens,
+        )
 
     def middleware(
         self,

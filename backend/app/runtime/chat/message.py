@@ -104,6 +104,45 @@ class ChatMessage:
             metadata=response.metadata,
         )
 
+    @classmethod
+    def from_provider_messages(
+        cls,
+        messages: list,
+    ) -> list[ChatMessage]:
+        """
+        Convert a list of provider message
+        back to ChatMessage objects.
+        """
+
+        result = []
+        for msg in messages:
+
+            role = msg["role"]
+            content = msg["content"]
+            metadata = msg.get("metadata", {})
+
+            if role == "system":
+                result.append(cls.system(content))
+            elif role == "user":
+                result.append(cls.user(content))
+            elif role == "assistant":
+                tool_calls = msg.get("tool_calls", [])
+                result.append(
+                    cls.assistant(
+                        content,
+                        metadata=metadata,
+                        tool_calls=tool_calls
+                    )
+                )
+            elif role == "tool":
+                result.append(cls.tool(
+                    tool_call_id=msg.get("tool_call_id", ""),
+                    name=msg.get("name", ""),
+                    content=content,
+                    metadata=metadata
+                ))
+        return result
+
     @staticmethod
     def to_dicts(
         messages: list[ChatMessage],
@@ -161,3 +200,26 @@ class ChatMessage:
             for d in dicts
             if d.get("content")
         ]
+
+    @staticmethod
+    def to_text(
+        messages: list["ChatMessage"],
+    ) -> str:
+        """
+        Convert messages into a plain-text transcript.
+
+        Tool messages and empty messages are skipped.
+        """
+
+        lines: list[str] = []
+
+        for message in ChatMessage.to_dicts(
+            messages,
+        ):
+
+            lines.append(
+                f"{message['role']}: "
+                f"{message['content']}"
+            )
+
+        return "\n".join(lines)

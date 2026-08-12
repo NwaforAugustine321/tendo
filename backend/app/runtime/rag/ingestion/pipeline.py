@@ -137,16 +137,3 @@ class DocumentIngestionPipeline:
             chunks=chunk_count,
             entries=chunks,
         )
-
-
-# demo
-# pipeline = DocumentIngestionPipeline(
-#     loader=loader,
-#     splitter=splitter,
-# )
-
-# result = await pipeline.ingest(
-#     source=pdf,
-# )
-
-# print(result.entries)

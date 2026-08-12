@@ -31,6 +31,10 @@ from app.runtime.toolsets.utils import (
     to_langchain_tools,
 )
 
+from app.runtime.context_manager.estimated_token_counter import (
+    EstimatedTokenCounter,
+)
+
 
 class LangChainLLM(LLM):
 
@@ -39,8 +43,12 @@ class LangChainLLM(LLM):
         model: BaseChatModel,
         *,
         supports_structured_output: bool = True,
+        max_context_tokens=10000,
+        max_output_tokens=4096,
     ) -> None:
 
+        self._max_context_tokens = max_context_tokens
+        self._max_output_tokens = max_output_tokens
         self._base_model = model
         self._model = model
 
@@ -49,6 +57,37 @@ class LangChainLLM(LLM):
         )
 
         self._response_parser = ResponseParser()
+
+    @property
+    def max_output_tokens(
+        self,
+    ) -> int:
+        """
+        Maximum number of tokens the model can
+        generate in one response.
+        """
+
+        if self._model.max_tokens is not None:
+            return self._model.max_tokens
+
+        return self._max_output_tokens
+
+    @property
+    def max_context_tokens(
+        self,
+    ) -> int:
+        """
+        Maximum context window supported by
+        the model.
+        """
+
+        return self._max_context_tokens
+
+    @property
+    def token_counter(
+        self,
+    ) -> int:
+        return EstimatedTokenCounter()
 
     @property
     def response_parser(
@@ -127,7 +166,7 @@ class LangChainLLM(LLM):
     ) -> AIMessage:
 
         return await self._model.ainvoke(
-            self._to_langchain_messages(
+            self.to_provider_messages(
                 messages,
             )
         )
@@ -141,7 +180,7 @@ class LangChainLLM(LLM):
         """
 
         async for chunk in self._model.astream(
-            self._to_langchain_messages(
+            self.to_provider_messages(
                 messages,
             )
         ):
@@ -174,7 +213,7 @@ class LangChainLLM(LLM):
 
         return merged
 
-    def _to_langchain_messages(
+    def to_provider_messages(
         self,
         messages: list[ChatMessage],
     ) -> list[BaseMessage]:

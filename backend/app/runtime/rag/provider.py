@@ -13,6 +13,13 @@ from .ingestion.pipeline import (
 from .models import RAGDocument
 from .retrieval import RetrievalEngine
 from .store import RAGStore
+from app.runtime.context_manager.optimizers.optimizer import (
+    ContextOptimizer as Optimizer,
+    OptimizationResult,
+)
+from app.runtime.context_manager.optimizers.default_optimizer import (
+    DefaultConversationOptimizer,
+)
 
 
 class RAGProvider:
@@ -34,11 +41,19 @@ class RAGProvider:
         store: RAGStore,
         retrieval: RetrievalEngine,
         ingestion: DocumentIngestionPipeline | None = None,
+        optimizer: Optimizer | None = None,
     ) -> None:
 
         self._store = store
         self._retrieval = retrieval
         self._ingestion = ingestion
+
+        self._optimizer = (
+            optimizer
+            or DefaultConversationOptimizer(
+                provider=self,
+            )
+        )
 
     @property
     def store(
@@ -69,6 +84,18 @@ class RAGProvider:
         """
 
         return self._ingestion
+
+    async def optimize(
+        self,
+        *,
+        conversation: ConversationContext,
+        target_tokens: int,
+    ) -> OptimizationResult:
+
+        return await self._optimizer.optimize(
+            conversation=conversation,
+            target_tokens=target_tokens,
+        )
 
     async def retrieve(
         self,

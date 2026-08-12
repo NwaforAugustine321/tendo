@@ -5,21 +5,34 @@ from app.runtime.chat.message import ChatMessage
 from .context import ConversationContext
 from .in_memory_store import InMemConversationStore
 from .store import ConversationStore
+from app.runtime.context_manager.optimizers.optimizer import (
+    ContextOptimizer as Optimizer,
+    OptimizationResult,
+)
+from app.runtime.context_manager.optimizers.default_optimizer import (
+    DefaultConversationOptimizer,
+)
 
 
 class ConversationProvider:
     """
-    Coordinates conversation state.
+    Coordinates conversation persistence.
 
-    The provider keeps the in-memory ConversationContext
-    synchronized with the underlying ConversationStore.
+    Responsibilities
+    ----------------
+    - Load conversation metadata and messages.
+    - Persist conversation metadata.
+    - Append conversation messages.
+    - Update conversation summaries.
+    - Clear conversations.
     """
 
     def __init__(
         self,
         *,
-        store: ConversationStore | None = None,
         namespace: str,
+        store: ConversationStore | None = None,
+        optimizer: Optimizer | None = None,
     ) -> None:
 
         self._store = (
@@ -28,6 +41,25 @@ class ConversationProvider:
             else InMemConversationStore(
                 namespace=namespace,
             )
+        )
+
+        self._optimizer = (
+            optimizer
+            or DefaultConversationOptimizer(
+                provider=self,
+            )
+        )
+
+    async def optimize(
+        self,
+        *,
+        conversation: ConversationContext,
+        target_tokens: int,
+    ) -> OptimizationResult:
+
+        return await self._optimizer.optimize(
+            conversation=conversation,
+            target_tokens=target_tokens,
         )
 
     @property
@@ -39,9 +71,6 @@ class ConversationProvider:
     def middleware(
         self,
     ) -> list:
-        """
-        Return middleware instances contributed by this provider.
-        """
 
         from app.runtime.middlewares.conversation import (
             ConversationMiddleware,
@@ -57,32 +86,49 @@ class ConversationProvider:
         self,
         *,
         conversation_id: str,
+        message_limit: int | None = None,
     ) -> ConversationContext:
         """
-        Load a conversation or create an empty one.
+        Load a conversation.
+
+        Conversation metadata and messages are
+        loaded independently and combined into
+        a runtime ConversationContext.
         """
 
-        conversation = await self._store.load(
-            conversation_id=conversation_id,
+        conversation = (
+            await self._store.load_conversation(
+                conversation_id=conversation_id,
+            )
         )
 
         if conversation is None:
+
             conversation = ConversationContext(
                 conversation_id=conversation_id,
             )
 
+        conversation.messages = (
+            await self._store.load_messages(
+                conversation_id=conversation_id,
+                limit=message_limit,
+            )
+        )
+
         return conversation
 
-    async def save(
+    async def save_metadata(
         self,
         *,
         conversation: ConversationContext,
     ) -> None:
         """
-        Persist a conversation.
+        Persist conversation metadata.
+
+        This does not persist messages.
         """
 
-        await self._store.save(
+        await self._store.save_conversation(
             conversation=conversation,
         )
 
@@ -100,8 +146,10 @@ class ConversationProvider:
             message,
         )
 
-        await self.save(
-            conversation=conversation,
+        await self._store.append_messages(
+            conversation_id=conversation.conversation_id
+            or "",
+            messages=[message],
         )
 
     async def append_many(
@@ -121,7 +169,27 @@ class ConversationProvider:
             messages,
         )
 
-        await self.save(
+        await self._store.append_messages(
+            conversation_id=conversation.conversation_id
+            or "",
+            messages=messages,
+        )
+
+    async def update_summary(
+        self,
+        *,
+        conversation: ConversationContext,
+        summary: str,
+    ) -> None:
+        """
+        Update the persisted conversation summary.
+
+        Messages are not modified.
+        """
+
+        conversation.summary = summary
+
+        await self.save_metadata(
             conversation=conversation,
         )
 
@@ -131,13 +199,24 @@ class ConversationProvider:
         conversation: ConversationContext,
     ) -> None:
         """
-        Remove the conversation from storage and reset
-        the in-memory context.
+        Remove a conversation from storage and
+        reset the runtime context.
         """
 
-        await self._store.delete(
-            conversation_id=conversation.conversation_id,
+        conversation_id = (
+            conversation.conversation_id
         )
+
+        if conversation_id is not None:
+
+            await self._store.delete_messages(
+                conversation_id=conversation_id,
+            )
+
+            await self._store.delete_conversation(
+                conversation_id=conversation_id,
+            )
 
         conversation.messages.clear()
         conversation.summary = None
+        conversation.metadata.clear()
