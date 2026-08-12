@@ -12,9 +12,9 @@ from ..context import ContextBudget
 from ..exception import ContextOptimizationFailed
 from .strategy import ContextStrategy
 
-if TYPE_CHECKING:
-    from app.runtime.chat.message import ChatMessage
-    from app.runtime.prompts.builder import PromptBuilder
+
+from app.runtime.chat.message import ChatMessage
+from app.runtime.prompts.builder import PromptBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +129,7 @@ class DefaultContextStrategy(
             strategy="last",
             token_counter=count_tokens_approximately,
             start_on="human",
-            include_system=True,
+            include_system=False,
         )
 
         trimmed_tokens = await llm.token_counter.count(
@@ -144,11 +144,6 @@ class DefaultContextStrategy(
                 "applied."
             )
 
-            return ChatMessage.from_provider_messages(
-                trimmed,
-            )
-
-        raise ContextOptimizationFailed(
-            "Unable to reduce the prompt to fit "
-            "within the model context window."
+        return ChatMessage.from_provider_messages(
+            trimmed,
         )

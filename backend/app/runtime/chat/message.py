@@ -108,25 +108,34 @@ class ChatMessage:
     def from_provider_messages(
         cls,
         messages: list,
-    ) -> list[ChatMessage]:
+    ) -> list["ChatMessage"]:
         """
-        Convert a list of provider message
+        Convert a list of provider messages
         back to ChatMessage objects.
         """
-
         result = []
+
         for msg in messages:
 
-            role = msg["role"]
-            content = msg["content"]
-            metadata = msg.get("metadata", {})
+            role = msg.type
+            content = msg.content or ''
+
+            metadata = (
+                getattr(msg, 'response_metadata', None) or
+                getattr(msg, 'additional_kwargs', None) or
+                None
+            )
 
             if role == "system":
                 result.append(cls.system(content))
-            elif role == "user":
+
+            elif role == "human" or role == "user":
                 result.append(cls.user(content))
-            elif role == "assistant":
-                tool_calls = msg.get("tool_calls", [])
+
+            elif role == "ai" or role == "assistant":
+
+                tool_calls = getattr(msg, 'tool_calls', None)
+
                 result.append(
                     cls.assistant(
                         content,
@@ -134,13 +143,20 @@ class ChatMessage:
                         tool_calls=tool_calls
                     )
                 )
+
             elif role == "tool":
-                result.append(cls.tool(
-                    tool_call_id=msg.get("tool_call_id", ""),
-                    name=msg.get("name", ""),
-                    content=content,
-                    metadata=metadata
-                ))
+                tool_call_id = getattr(msg, 'tool_call_id', "")
+                name = getattr(msg, 'name', "")
+
+                result.append(
+                    cls.tool(
+                        tool_call_id=tool_call_id,
+                        name=name,
+                        content=content,
+                        metadata=metadata
+                    )
+                )
+
         return result
 
     @staticmethod
