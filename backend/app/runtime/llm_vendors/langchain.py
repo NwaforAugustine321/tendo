@@ -43,7 +43,7 @@ class LangChainLLM(LLM):
         model: BaseChatModel,
         *,
         supports_structured_output: bool = True,
-        max_context_tokens=10000,
+        max_context_tokens=128000,
         max_output_tokens=4096,
     ) -> None:
 
@@ -68,6 +68,8 @@ class LangChainLLM(LLM):
         """
 
         if self._model.max_tokens is not None:
+            print('max toke for this model >>>>>>>>><<<<<<',
+                  self._model.max_tokens)
             return self._model.max_tokens
 
         return self._max_output_tokens

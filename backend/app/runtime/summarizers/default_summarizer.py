@@ -5,6 +5,9 @@ from app.runtime.llm.llm import LLM
 from app.runtime.llm_vendors.langchain import LangChainLLM
 from .summarizer import Summarizer
 from app.llm.client import get_client
+import logging
+
+logger = logging.getLogger(__name__)
 
 _llm = get_client()
 
@@ -89,4 +92,4 @@ class DefaultSummarizer(
             return response.text.strip()
 
         except Exception as e:
-            print('summarizer error', e)
+            logger.info('Summarization failed:', e)

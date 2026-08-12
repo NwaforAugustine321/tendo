@@ -5,6 +5,7 @@ from app.runtime.chat.message import ChatMessage
 from .context import ConversationContext
 from .in_memory_store import InMemConversationStore
 from .store import ConversationStore
+
 from app.runtime.context_manager.optimizers.optimizer import (
     ContextOptimizer as Optimizer,
     OptimizationResult,
@@ -20,11 +21,14 @@ class ConversationProvider:
 
     Responsibilities
     ----------------
-    - Load conversation metadata and messages.
-    - Persist conversation metadata.
-    - Append conversation messages.
-    - Update conversation summaries.
-    - Clear conversations.
+    - Load conversation metadata.
+    - Load conversation messages.
+    - Assemble the runtime conversation.
+    - Persist summaries.
+    - Append messages.
+    - Delete messages.
+    - Reload runtime state.
+    - Delegate conversation optimization.
     """
 
     def __init__(
@@ -50,23 +54,29 @@ class ConversationProvider:
             )
         )
 
-    async def optimize(
-        self,
-        *,
-        conversation: ConversationContext,
-        target_tokens: int,
-    ) -> OptimizationResult:
-
-        return await self._optimizer.optimize(
-            conversation=conversation,
-            target_tokens=target_tokens,
-        )
-
     @property
     def store(
         self,
     ) -> ConversationStore:
         return self._store
+
+    async def optimize(
+        self,
+        *,
+        conversation: ConversationContext,
+        current_tokens: int,
+        target_tokens: int,
+    ) -> OptimizationResult:
+        """
+        Attempt to reduce the conversation's
+        contribution to the prompt.
+        """
+
+        return await self._optimizer.optimize(
+            conversation=conversation,
+            current_tokens=current_tokens,
+            target_tokens=target_tokens,
+        )
 
     def middleware(
         self,
@@ -91,9 +101,9 @@ class ConversationProvider:
         """
         Load a conversation.
 
-        Conversation metadata and messages are
-        loaded independently and combined into
-        a runtime ConversationContext.
+        Metadata and persisted messages are loaded
+        independently and assembled into the runtime
+        ConversationContext.
         """
 
         conversation = (
@@ -108,14 +118,52 @@ class ConversationProvider:
                 conversation_id=conversation_id,
             )
 
-        conversation.messages = (
-            await self._store.load_messages(
-                conversation_id=conversation_id,
-                limit=message_limit,
-            )
+        messages = await self._store.load_messages(
+            conversation_id=conversation_id,
+            limit=message_limit,
         )
 
+        #
+        # Inject the persisted rolling summary
+        # as a runtime system message.
+        #
+        if conversation.summary:
+
+            conversation.messages = [
+                ChatMessage.summary(
+                    conversation.summary,
+                ),
+                *messages,
+            ]
+
+        else:
+
+            conversation.messages = messages
+
         return conversation
+
+    async def reload(
+        self,
+        *,
+        conversation: ConversationContext,
+        message_limit: int | None = None,
+    ) -> None:
+        """
+        Reload the runtime conversation from storage.
+        """
+
+        if conversation.conversation_id is None:
+            return
+
+        refreshed = await self.load(
+            conversation_id=conversation.conversation_id,
+            message_limit=message_limit,
+        )
+
+        conversation.summary = refreshed.summary
+        conversation.messages = refreshed.messages
+        conversation.metadata = refreshed.metadata
+        conversation.state = refreshed.state
 
     async def save_metadata(
         self,
@@ -124,8 +172,6 @@ class ConversationProvider:
     ) -> None:
         """
         Persist conversation metadata.
-
-        This does not persist messages.
         """
 
         await self._store.save_conversation(
@@ -175,6 +221,36 @@ class ConversationProvider:
             messages=messages,
         )
 
+    async def delete_messages(
+        self,
+        *,
+        conversation: ConversationContext,
+        messages: list[ChatMessage],
+    ) -> None:
+        """
+        Delete persisted messages.
+        """
+
+        if (
+            conversation.conversation_id is None
+            or not messages
+        ):
+            return
+
+        message_ids = [
+            message.message_id
+            for message in messages
+            if message.message_id is not None
+        ]
+
+        if not message_ids:
+            return
+
+        await self._store.delete_messages(
+            conversation_id=conversation.conversation_id,
+            message_ids=message_ids,
+        )
+
     async def update_summary(
         self,
         *,
@@ -182,9 +258,7 @@ class ConversationProvider:
         summary: str,
     ) -> None:
         """
-        Update the persisted conversation summary.
-
-        Messages are not modified.
+        Persist the rolling conversation summary.
         """
 
         conversation.summary = summary
@@ -199,22 +273,17 @@ class ConversationProvider:
         conversation: ConversationContext,
     ) -> None:
         """
-        Remove a conversation from storage and
-        reset the runtime context.
+        Delete an entire conversation.
         """
 
-        conversation_id = (
-            conversation.conversation_id
-        )
-
-        if conversation_id is not None:
+        if conversation.conversation_id is not None:
 
             await self._store.delete_messages(
-                conversation_id=conversation_id,
+                conversation_id=conversation.conversation_id,
             )
 
             await self._store.delete_conversation(
-                conversation_id=conversation_id,
+                conversation_id=conversation.conversation_id,
             )
 
         conversation.messages.clear()

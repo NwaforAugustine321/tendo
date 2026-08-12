@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
 
 import lancedb
 from lancedb.pydantic import LanceModel
@@ -138,7 +137,9 @@ class InMemConversationStore(
                 ),
                 values={
                     "summary": conversation.summary,
-                    "metadata": json.dumps(conversation.metadata),
+                    "metadata": json.dumps(
+                        conversation.metadata,
+                    ),
                     "updated_at": now,
                 },
             )
@@ -150,7 +151,9 @@ class InMemConversationStore(
                 ConversationRecord(
                     conversation_id=conversation_id,
                     summary=conversation.summary,
-                    metadata=json.dumps(conversation.metadata),
+                    metadata=json.dumps(
+                        conversation.metadata,
+                    ),
                     created_at=now,
                     updated_at=now,
                 )
@@ -185,7 +188,10 @@ class InMemConversationStore(
                 "summary",
             ),
             metadata=json.loads(
-                row.get("metadata", "{}"),
+                row.get(
+                    "metadata",
+                    "{}",
+                )
             ),
         )
 
@@ -207,7 +213,10 @@ class InMemConversationStore(
                     "summary",
                 ),
                 metadata=json.loads(
-                    row.get("metadata", "{}"),
+                    row.get(
+                        "metadata",
+                        "{}",
+                    )
                 ),
             )
             for row in rows
@@ -246,12 +255,12 @@ class InMemConversationStore(
 
         rows = [
             MessageRecord(
-                message_id=str(
-                    uuid4(),
-                ),
+                message_id=message.message_id,
                 conversation_id=conversation_id,
                 role=message.role,
-                content=message.content,
+                content=str(
+                    message.content,
+                ),
                 created_at=now,
             )
             for message in messages
@@ -265,6 +274,7 @@ class InMemConversationStore(
         self,
         *,
         conversation_id: str,
+        summary: str | None = None,
         limit: int | None = None,
     ) -> list[ChatMessage]:
 
@@ -288,38 +298,69 @@ class InMemConversationStore(
             ],
         )
 
-        return [
+        messages: list[
+            ChatMessage
+        ] = []
+
+        if summary:
+
+            messages.append(
+                ChatMessage.summary(
+                    summary,
+                )
+            )
+
+        messages.extend(
             ChatMessage(
-                role=row["role"],
-                content=row["content"],
+                message_id=row[
+                    "message_id"
+                ],
+                role=row[
+                    "role"
+                ],
+                content=row[
+                    "content"
+                ],
             )
             for row in rows
-        ]
+        )
+
+        return messages
 
     async def delete_messages(
         self,
         *,
         conversation_id: str,
-        before_message_id: str | None = None,
+        message_ids: list[str] | None = None,
     ) -> None:
 
         #
-        # Future:
+        # Delete the entire conversation.
         #
-        # Once MessageRecord stores an ordering key
-        # (or uses message_id as a sortable cursor),
-        # support deleting only summarized messages.
-        #
-        if before_message_id is not None:
-            raise NotImplementedError(
-                "Deleting messages before a "
-                "specific message is not yet "
-                "implemented."
+        if message_ids is None:
+
+            self._message_table.delete(
+                (
+                    f"conversation_id = "
+                    f"'{conversation_id}'"
+                )
             )
 
-        self._message_table.delete(
-            (
-                f"conversation_id = "
-                f"'{conversation_id}'"
+            return
+
+        if not message_ids:
+            return
+
+        #
+        # Delete summarized messages only.
+        #
+        for message_id in message_ids:
+
+            self._message_table.delete(
+                (
+                    f"conversation_id = "
+                    f"'{conversation_id}' "
+                    f"AND message_id = "
+                    f"'{message_id}'"
+                )
             )
-        )

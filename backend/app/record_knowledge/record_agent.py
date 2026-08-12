@@ -45,7 +45,6 @@ async def process_record_content(record_content: RecordContentInput) -> Processi
         if not raw_content and not file_url:
             return ProcessingResult(success=False, error="No content to process")
 
-        # Use runtime ingestion pipeline with business_id namespace.
         store = LanceRAGStore(namespace=business_id)
 
         pipeline = DocumentIngestionPipeline(

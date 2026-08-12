@@ -23,7 +23,7 @@ class ConversationContext:
     """
     Conversation history available to the current inference.
 
-    This is a runtime object assembled by the
+    This runtime object is assembled by the
     ConversationProvider from the persisted
     conversation record and conversation messages.
 
@@ -47,6 +47,20 @@ class ConversationContext:
     metadata: dict[str, object] = field(
         default_factory=dict,
     )
+
+    @property
+    def total_tokens(
+        self,
+    ) -> int:
+        """
+        Total token footprint of the loaded
+        conversation.
+        """
+
+        return (
+            self.summary_tokens
+            + self.message_tokens
+        )
 
     @property
     def empty(
@@ -73,4 +87,17 @@ class ConversationContext:
 
         return bool(
             self.summary,
+        )
+
+    @property
+    def has_messages(
+        self,
+    ) -> bool:
+        """
+        Whether persisted conversation messages
+        are currently loaded.
+        """
+
+        return bool(
+            self.messages,
         )

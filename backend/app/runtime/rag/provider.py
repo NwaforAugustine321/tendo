@@ -89,11 +89,13 @@ class RAGProvider:
         self,
         *,
         conversation: ConversationContext,
+        current_tokens: int,
         target_tokens: int,
     ) -> OptimizationResult:
 
         return await self._optimizer.optimize(
             conversation=conversation,
+            current_tokens=current_tokens,
             target_tokens=target_tokens,
         )
 

@@ -24,7 +24,7 @@ modes_setting = ['testing']
 
 async def _download_media_as_data_url(media_url: str, phone_number_id: str, mime_type: str | None) -> tuple[str, str]:
     """Download media from WhatsApp URL, return as base64 data URL.
-    
+
     File storage is handled by the record content processing pipeline which
     uploads to records_files/{record_id}/ path.
     """
@@ -76,11 +76,10 @@ def handle_whatsapp_verification(
 
 
 async def handle_whatsapp_webhook(raw_body: bytes, signature: str | None, payload: dict) -> tuple[int, NormalizedMessage | None]:
-    if not settings.whatsapp_app_secret:
-        return 503, None
 
     try:
-        valid = validate_signature(raw_body, signature, settings.whatsapp_app_secret)
+        valid = validate_signature(
+            raw_body, signature, settings.whatsapp_app_secret)
     except ConfigurationError:
         return 503, None
 
@@ -103,7 +102,8 @@ async def handle_whatsapp_webhook(raw_body: bytes, signature: str | None, payloa
             value = change["value"]
             phone_number_id = value.get("metadata", {}).get("phone_number_id")
 
-            business_id = get_business_id_by_phone_number(phone_number_id) if phone_number_id else None
+            business_id = get_business_id_by_phone_number(
+                phone_number_id) if phone_number_id else None
 
             if business_id:
                 content_type = message.message_type if message.message_type != "document" else "pdf"
@@ -115,10 +115,12 @@ async def handle_whatsapp_webhook(raw_body: bytes, signature: str | None, payloa
                     data_url, file_url = await _download_media_as_data_url(message.media_url, phone_number_id, message.mime_type)
                     content = data_url
                     if not content:
-                        logger.warning("Media download failed for message %s", message.message_id)
+                        logger.warning(
+                            "Media download failed for message %s", message.message_id)
 
                 if content:
-                    logger.info("Processing %s content for business %s", content_type, business_id)
+                    logger.info("Processing %s content for business %s",
+                                content_type, business_id)
                     await process_record_content(RecordContentInput(
                         business_id=business_id,
                         record_id=None,
@@ -126,12 +128,14 @@ async def handle_whatsapp_webhook(raw_body: bytes, signature: str | None, payloa
                         content=content,
                         metadata={"source": "whatsapp", "file_url": file_url},
                     ))
-                else:
-                    logger.warning("No content to process for message %s", message.message_id)
+
             else:
-                logger.warning("No business_id found for phone_number_id %s", phone_number_id)
+                logger.warning(
+                    "No business_id found for phone_number_id %s", phone_number_id)
+
         except Exception as e:
-            logger.error("Failed to process WhatsApp message: %s", e, exc_info=True)
+            logger.error("Failed to process WhatsApp message: %s",
+                         e, exc_info=True)
 
     return 200, message
 
@@ -154,7 +158,7 @@ async def connect_data_source(business_id: str, source_type: str, payload: dict)
         "source_type": source_type,
         "status": "active",
         "data": payload,
-        
+
     }
     result = (
         client.table("data_sources")
@@ -166,13 +170,14 @@ async def connect_data_source(business_id: str, source_type: str, payload: dict)
 
 async def disconnect_data_source(business_id: str, source_type: str) -> dict:
     client = get_client()
-    client.table("data_sources").delete().eq("business_id", business_id).eq("source_type", source_type).execute()
+    client.table("data_sources").delete().eq(
+        "business_id", business_id).eq("source_type", source_type).execute()
     return {"status": "deleted"}
 
 
 async def exchange_code_for_token(code: str) -> dict:
     async with httpx.AsyncClient() as client:
-        
+
         resp = await client.get(
             f"{GRAPH_API_BASE}/{settings.whatsapp_api_version}/oauth/access_token",
             params={
@@ -195,7 +200,7 @@ async def subscribe_to_waba(waba_id: str, access_token: str) -> bool:
         )
         resp.raise_for_status()
         data = resp.json()
-       
+
         return data.get("success", False)
 
 
@@ -208,10 +213,10 @@ async def onboard_whatsapp_business(
 
     if mode in modes_setting:
         await subscribe_to_waba(test_wesa_id, test_access_token)
-        payload =  {
+        payload = {
             "waba_id": test_wesa_id,
             "access_token": test_access_token,
-            "phone_number_id":test_phone_number
+            "phone_number_id": test_phone_number
         }
         return await connect_data_source(business_id, "whatsapp", payload)
 
@@ -228,7 +233,7 @@ async def onboard_whatsapp_business(
     payload = {
         "waba_id": waba_id,
         "access_token": access_token,
-        "phone_number_id":phone_number_id
+        "phone_number_id": phone_number_id
     }
 
     return await connect_data_source(business_id, "whatsapp", payload)

@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 from langchain_core.messages import trim_messages
 from langchain_core.messages.utils import (
     count_tokens_approximately,
 )
 
-from ..context import ContextBudget
-from ..exception import ContextOptimizationFailed
-from .strategy import ContextStrategy
-
-
 from app.runtime.chat.message import ChatMessage
 from app.runtime.prompts.builder import PromptBuilder
+
+from ..context import ContextBudget
+from .strategy import ContextStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +25,14 @@ class DefaultContextStrategy(
     Strategy
     --------
     1. Build the prompt.
-    2. Check the prompt budget.
+    2. Count prompt tokens.
     3. If it fits, return it.
-    4. Otherwise attempt conversation optimization.
-    5. Rebuild and repeat until the conversation
-       optimizer is exhausted.
-    6. As a final fallback, trim the prompt.
+    4. Otherwise optimize the conversation.
+    5. If optimization succeeds, rebuild the prompt.
+    6. Repeat until either:
+       - the prompt fits, or
+       - conversation optimization is exhausted.
+    7. Perform one emergency trim as a last resort.
     """
 
     async def build(
@@ -54,6 +53,9 @@ class DefaultContextStrategy(
             builder.context.agent.conversation
         )
 
+        provider_messages = []
+        current_tokens = 0
+
         while True:
 
             #
@@ -67,62 +69,42 @@ class DefaultContextStrategy(
                 )
             )
 
-            tokens = await llm.token_counter.count(
-                provider_messages,
+            current_tokens = (
+                await llm.token_counter.count(
+                    provider_messages,
+                )
+            )
+
+            logger.debug(
+                "Prompt tokens: %s / %s",
+                current_tokens,
+                budget.max_prompt_tokens,
             )
 
             #
-            # Prompt already fits.
+            # Prompt fits.
             #
-            if tokens <= budget.max_prompt_tokens:
+            if (
+                current_tokens
+                <= budget.max_prompt_tokens
+            ):
                 return messages
 
-            #
-            # No conversation provider.
-            #
             if conversation is None:
                 break
 
-            #
-            # Give the conversation provider one
-            # opportunity to reduce the prompt.
-            #
             result = await conversation.optimize(
                 conversation=builder.context.conversation_context,
+                current_tokens=current_tokens,
                 target_tokens=budget.max_prompt_tokens,
             )
 
-            #
-            # Conversation changed.
-            #
             if result.optimized:
-                logger.info(
-                    "Conversation optimized "
-                    "(saved ≈ %s tokens).",
-                    result.estimated_tokens_saved,
-                )
                 continue
 
-            #
-            # Provider has more strategies.
-            #
-            if not result.exhausted:
-                continue
+            if result.exhausted:
+                break
 
-            #
-            # Conversation optimization is exhausted.
-            #
-            logger.info(
-                "Conversation optimization exhausted. "
-                "Falling back to emergency trimming."
-            )
-
-            break
-
-        #
-        # Last resort:
-        # trim the prompt.
-        #
         trimmed = trim_messages(
             provider_messages,
             max_tokens=budget.max_prompt_tokens,
@@ -132,17 +114,18 @@ class DefaultContextStrategy(
             include_system=False,
         )
 
-        trimmed_tokens = await llm.token_counter.count(
-            trimmed,
+        trimmed_tokens = (
+            await llm.token_counter.count(
+                trimmed,
+            )
         )
 
-        if trimmed_tokens <= budget.max_prompt_tokens:
-
-            logger.warning(
-                "Prompt exceeded the model context "
-                "window. Emergency trimming was "
-                "applied."
-            )
+        logger.warning(
+            "Emergency trimming reduced "
+            "prompt from %s to %s tokens.",
+            current_tokens,
+            trimmed_tokens,
+        )
 
         return ChatMessage.from_provider_messages(
             trimmed,

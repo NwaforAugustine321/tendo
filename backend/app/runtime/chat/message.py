@@ -3,8 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from app.runtime.llm.response import LLMResponse, ToolCall
+
+
+def _generate_id() -> str:
+    return str(uuid4())
 
 
 @dataclass(slots=True, frozen=True)
@@ -16,6 +21,10 @@ class ChatMessage:
     role: str
 
     content: str | list[Any]
+
+    message_id: str = field(
+        default_factory=_generate_id,
+    )
 
     name: str | None = None
 
@@ -53,6 +62,17 @@ class ChatMessage:
         return cls(
             role="user",
             content=content,
+        )
+
+    @classmethod
+    def summary(
+        cls,
+        content: str,
+    ) -> ChatMessage:
+
+        return cls(
+            role="system",
+            content=f"[Summary of previous conversation]\n{content}",
         )
 
     @classmethod
