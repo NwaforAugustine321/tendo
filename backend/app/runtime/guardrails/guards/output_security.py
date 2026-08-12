@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.agents.run_context import RunContext
-from app.llm.response import LLMResponse
+from app.runtime.agents.run_context import RunContext
+from app.runtime.llm.response import LLMResponse
 
 from ..base import Guardrail
 from ..decision import GuardrailDecision
@@ -40,11 +40,10 @@ class OutputSafetyGuardrail(Guardrail):
             return GuardrailResult(
                 decision=GuardrailDecision.REPLACE_RESPONSE,
                 response=LLMResponse(
-                    text=result.response,
+                    text=result.refusal_message,
                     output=None,
                     tool_calls=[],
                     metadata={},
-                    provider_response=None,
                 ),
             )
 

@@ -73,9 +73,23 @@ class AgentRunner:
 
                 try:
 
-                    await run_context.guardrails.check_request(
-                        run_context,
+                    blocked = (
+                        await run_context.guardrails.check_request(
+                            run_context,
+                        )
                     )
+
+                    if blocked is not None:
+
+                        assistant_message = (
+                            ChatMessage.from_llm_response(
+                                blocked
+                            )
+                        )
+
+                        run_context.add_message(
+                            assistant_message,
+                        )
 
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.BEFORE_LLM,
@@ -103,12 +117,25 @@ class AgentRunner:
 
                         session.clear_activity()
 
-                    response = (
+                    checked_response = (
                         await run_context.guardrails.check_response(
                             run_context,
                             response,
                         )
                     )
+
+                    if checked_response is not None:
+                        assistant_message = (
+                            ChatMessage.from_llm_response(
+                                checked_response,
+                            )
+                        )
+
+                        run_context.add_message(
+                            assistant_message,
+                        )
+
+                        continue
 
                     assistant_message = (
                         ChatMessage.from_llm_response(
@@ -183,6 +210,9 @@ class AgentRunner:
 
                 except RetryRequest:
                     continue
+
+            if response is not None:
+                return response
 
             return await self._force_final_response(
                 session=session,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
@@ -56,21 +58,21 @@ If a message contains both legitimate requests and prohibited requests, ignore o
 OUTPUT
 ==================================================
 
-Return exactly one JSON object matching this schema:
+Return exactly one JSON object with these two fields:
 
 {
-  "User Safety": Set to safe if does not voilet the rules and polices else set to unsafe,
-  "response": Set to short natural language refusal if unsafe else set to ""
+  "user_safety": "safe" or "unsafe",
+  "refusal_message": "brief natural-language refusal message" or ""
 }
 
-If "User Safety" is unsafe, set "refusal" to a brief natural-language refusal indicating that the requested application-private information cannot be shared.
+Rules:
+- If the message is unsafe, set "user_safety" to "unsafe" and set "refusal_message" to a brief refusal explaining that the requested information cannot be shared.
+- If the message is safe, set "user_safety" to "safe" and set "refusal_message" to an empty string "".
 
-If "User Safety" is safe, set "refusal" to an empty string.
-
-Return only the JSON object.
-
-Do not generate any additional text.
+Return only the JSON object. Do not generate any additional text.
 """
+
+guard_llm = get_guard_client()
 
 
 class NvidiaSafetyClassifier(
@@ -80,7 +82,7 @@ class NvidiaSafetyClassifier(
     def __init__(
         self,
         *,
-        client=get_guard_client(),
+        client: Any = guard_llm,
         system_prompt: str = system_instruction,
     ) -> None:
 
@@ -104,5 +106,7 @@ class NvidiaSafetyClassifier(
                 ),
             ]
         )
+
+        print(response)
 
         return response

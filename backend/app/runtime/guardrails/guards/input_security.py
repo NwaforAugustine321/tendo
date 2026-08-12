@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.agents.run_context import RunContext
+from app.runtime.agents.run_context import RunContext
 
 from ..base import Guardrail
 from ..decision import GuardrailDecision
@@ -26,23 +26,31 @@ class InputSafetyGuardrail(Guardrail):
         ctx: RunContext,
     ) -> GuardrailResult:
 
-        if not ctx.chat_context.messages:
+        message = ctx.current_user_message
+
+        if message is None:
             return GuardrailResult()
 
-        message = ctx.chat_context.messages[-1]
+        content = (
+            message.content
+            if isinstance(message.content, str)
+            else str(message.content)
+        )
 
-        if message.role != "user":
+        if not content:
             return GuardrailResult()
 
         result = await self._classifier.classify(
-            message.content,
+            content,
         )
+
+        print('guard input', result)
 
         if result.user_safety == "unsafe":
 
             return GuardrailResult(
                 decision=GuardrailDecision.STOP,
-                message=result.response,
+                message=result.refusal_message,
             )
 
         return GuardrailResult()

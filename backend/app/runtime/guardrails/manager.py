@@ -5,16 +5,18 @@ from app.runtime.llm.response import LLMResponse
 
 from .base import Guardrail
 from .decision import GuardrailDecision
-from .exceptions import GuardrailViolation, RetryRequest
+
+from app.runtime.guardrails.guards.input_security import InputSafetyGuardrail
+from app.runtime.guardrails.classifiers.nvidia import NvidiaSafetyClassifier
 
 
 class GuardrailManager:
     """
     Coordinates all guardrails.
 
-    The runner should never inspect GuardrailDecision
-    directly. This manager is responsible for applying
-    the guardrail policy.
+    Returns LLMResponse | None from check methods.
+    None means continue normally.
+    An LLMResponse means stop and return that response.
     """
 
     def __init__(
@@ -22,7 +24,9 @@ class GuardrailManager:
         guardrails: list[Guardrail] | None = None,
     ) -> None:
 
-        self._guardrails = guardrails or []
+        classifier = NvidiaSafetyClassifier()
+        self._input_guard = InputSafetyGuardrail(classifier=classifier)
+        self._guardrails = guardrails or [self._input_guard]
 
     @property
     def guardrails(
@@ -43,12 +47,13 @@ class GuardrailManager:
     async def check_request(
         self,
         ctx: RunContext,
-    ) -> None:
+    ) -> LLMResponse | None:
         """
         Execute request guardrails.
 
-        Raises GuardrailViolation if the request
-        should not continue.
+        Returns None if the request should proceed.
+        Returns an LLMResponse if the request is blocked.
+        Raises RetryRequest if the request should retry.
         """
 
         for guardrail in self._guardrails:
@@ -63,37 +68,36 @@ class GuardrailManager:
                     continue
 
                 case GuardrailDecision.STOP:
-                    raise GuardrailViolation(
-                        result.message
-                        or "Request blocked by guardrail."
+                    return LLMResponse(
+                        text=f"This request is blocked\n Response message:\n{result.message}"
+                        or f"This request is blocked"
                     )
 
                 case GuardrailDecision.RETRY:
-                    raise RetryRequest()
-
-                case GuardrailDecision.REPLACE_RESPONSE:
-                    raise RuntimeError(
-                        "Request guardrails cannot replace responses."
+                    return LLMResponse(
+                        text=result.message
+                        or "Please try again.",
                     )
+
+        return None
 
     async def check_response(
         self,
         ctx: RunContext,
         response: LLMResponse,
-    ) -> LLMResponse:
+    ) -> LLMResponse | None:
         """
         Execute response guardrails.
 
-        Returns the final approved response.
+        Returns None if the response should proceed.
+        Returns an LLMResponse if the response is blocked.
         """
-
-        current = response
 
         for guardrail in self._guardrails:
 
             result = await guardrail.on_response(
                 ctx,
-                current,
+                response,
             )
 
             match result.decision:
@@ -102,23 +106,19 @@ class GuardrailManager:
                     continue
 
                 case GuardrailDecision.STOP:
-                    raise GuardrailViolation(
-                        result.message
-                        or "Response blocked by guardrail."
+                    return LLMResponse(
+                        text=f"This request is blocked\n Response message:\n{result.message}"
+                        or "This request is blocked",
                     )
 
                 case GuardrailDecision.REPLACE_RESPONSE:
-
-                    if result.response is None:
-                        raise RuntimeError(
-                            "Guardrail requested "
-                            "REPLACE_RESPONSE but "
-                            "returned no response."
-                        )
-
-                    current = result.response
+                    if result.response is not None:
+                        return result.response
 
                 case GuardrailDecision.RETRY:
-                    raise RetryRequest()
+                    return LLMResponse(
+                        text=result.message
+                        or "Please try again.",
+                    )
 
-        return current
+        return None

@@ -20,7 +20,7 @@ class SafetyResult(BaseModel):
         "unsafe",
     ]
 
-    response: str = ""
+    refusal_message: str = ""
 
 
 @dataclass(slots=True)

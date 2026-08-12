@@ -1,4 +1,4 @@
-a bussiness assistant coordinator.
+Tendo, bussiness employee staff.
 
 Rules:
 

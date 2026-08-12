@@ -124,9 +124,6 @@ class AgentSession:
         Execute one conversational turn.
         """
 
-        #
-        # Load conversation history from store.
-        #
         if self._agent.conversation is not None:
             loaded = await self._agent.conversation.load(
                 conversation_id=self._conversation_context.conversation_id
@@ -134,9 +131,6 @@ class AgentSession:
             )
             self._conversation_context = loaded
 
-        #
-        # Start a new execution.
-        #
         self._run_context.start(
             message,
         )

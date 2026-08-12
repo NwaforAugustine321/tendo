@@ -68,8 +68,7 @@ class LangChainLLM(LLM):
         """
 
         if self._model.max_tokens is not None:
-            print('max toke for this model >>>>>>>>><<<<<<',
-                  self._model.max_tokens)
+
             return self._model.max_tokens
 
         return self._max_output_tokens
