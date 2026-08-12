@@ -34,15 +34,11 @@ def _get_insight_agent():
 
 async def process_record_content(record_content: RecordContentInput) -> ProcessingResult:
     try:
-        raw_content = record_content.content or ""
-        content_type = record_content.content_type
-        content_id = record_content.metadata.get(
-            "content_id", "") if record_content.metadata else ""
-        record_id = record_content.record_id
+        content = record_content.content or ""
         business_id = record_content.business_id
         file_url = record_content.file_url or ""
 
-        if not raw_content and not file_url:
+        if not content and not file_url:
             return ProcessingResult(success=False, error="No content to process")
 
         store = LanceRAGStore(namespace=business_id)
@@ -53,53 +49,16 @@ async def process_record_content(record_content: RecordContentInput) -> Processi
             store=store,
         )
 
-        # Determine source:
-        # - file_url for media files (audio, images, PDFs)
-        # - raw_content if it looks like a path/URL with extension
-        # - Otherwise write plain text to a temp .txt file
-        import tempfile
-        import os
-        from pathlib import Path
-
-        source = file_url or raw_content
-        logger.info(f"Ingestion source: {source[:100]}")
-        source_path = Path(source)
-        has_extension = bool(source_path.suffix)
-        logger.info(
-            f"Ingestion extension detected: '{source_path.suffix}', has_extension={has_extension}")
-        temp_file = None
-
-        if not has_extension and raw_content.strip():
-            # Plain text content — write to temp .txt file
-            tmp = tempfile.NamedTemporaryFile(
-                mode="w",
-                suffix=".txt",
-                delete=False,
-                encoding="utf-8",
-            )
-            tmp.write(raw_content)
-            tmp.close()
-            source = tmp.name
-            temp_file = tmp.name
+        source = content
 
         result = await pipeline.ingest(
             source=source,
+            content_type=record_content.content_type,
         )
 
         logger.info(
             f"Ingestion complete: {result.documents} docs, {result.chunks} chunks"
         )
-
-        logger.info(
-            f"Ingestion entries preview: {[e.content[:50] for e in result.entries[:3]]}"
-        )
-
-        # Cleanup temp file if created
-        if temp_file:
-            try:
-                os.unlink(temp_file)
-            except Exception:
-                pass
 
         if result.chunks == 0:
             return ProcessingResult(success=False, error="No chunks produced from content")

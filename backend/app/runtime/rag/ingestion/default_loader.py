@@ -8,12 +8,21 @@ from app.runtime.rag.models import RAGDocument
 from .loader import DocumentLoader
 
 
+CONTENT_TYPE_EXTENSIONS: dict[str, list[str]] = {
+    "text": [".txt"],
+    "markdown": [".md"],
+    "pdf": [".pdf"],
+    "image": [".png", ".jpg", ".jpeg", ".webp"],
+    "audio": [".mp3", ".wav", ".m4a", ".flac", ".mpeg", ".ogg", ".aac", ".wma"],
+}
+
+
 class DefaultDocumentLoader(
     DocumentLoader,
 ):
     """
     Routes document loading to the appropriate
-    loader based on the input source.
+    loader based on content_type or file extension.
     """
 
     def __init__(
@@ -51,120 +60,34 @@ class DefaultDocumentLoader(
         self,
     ) -> None:
         """
-        Register the default document loaders.
+        Register the default document loaders
+
         """
 
-        from .loaders.audio import (
-            AudioLoader,
-        )
-        from .loaders.image import (
-            ImageLoader,
-        )
-        from .loaders.markdown import (
-            MarkdownLoader,
-        )
-        from .loaders.pdf import (
-            PDFLoader,
-        )
-        from .loaders.text import (
-            TextLoader,
-        )
+        from .loaders.audio import AudioLoader
+        from .loaders.image import ImageLoader
+        from .loaders.markdown import MarkdownLoader
+        from .loaders.pdf import PDFLoader
+        from .loaders.text import TextLoader
 
-        #
-        # Text
-        #
-        self.register(
-            ".txt",
-            TextLoader(),
-        )
+        loader_map = {
+            "text": TextLoader(),
+            "markdown": MarkdownLoader(),
+            "pdf": PDFLoader(),
+            "image": ImageLoader(),
+            "audio": AudioLoader(),
+        }
 
-        self.register(
-            ".md",
-            MarkdownLoader(),
-        )
-
-        #
-        # PDF
-        #
-        self.register(
-            ".pdf",
-            PDFLoader(),
-        )
-
-        #
-        # Images
-        #
-        image_loader = ImageLoader()
-
-        self.register(
-            ".png",
-            image_loader,
-        )
-
-        self.register(
-            ".jpg",
-            image_loader,
-        )
-
-        self.register(
-            ".jpeg",
-            image_loader,
-        )
-
-        self.register(
-            ".webp",
-            image_loader,
-        )
-
-        #
-        # Audio
-        #
-        audio_loader = AudioLoader()
-
-        self.register(
-            ".wav",
-            audio_loader,
-        )
-
-        self.register(
-            ".mp3",
-            audio_loader,
-        )
-
-        self.register(
-            ".m4a",
-            audio_loader,
-        )
-
-        self.register(
-            ".flac",
-            audio_loader,
-        )
-
-        self.register(
-            ".mpeg",
-            audio_loader,
-        )
-
-        self.register(
-            ".ogg",
-            audio_loader,
-        )
-
-        self.register(
-            ".aac",
-            audio_loader,
-        )
-
-        self.register(
-            ".wma",
-            audio_loader,
-        )
+        for content_type, extensions in CONTENT_TYPE_EXTENSIONS.items():
+            loader = loader_map[content_type]
+            for ext in extensions:
+                self.register(ext, loader)
 
     async def load(
         self,
         *,
         source: str | Path | Any,
+        content_type: str | None = None,
     ) -> list[RAGDocument]:
 
         if not isinstance(
@@ -176,30 +99,35 @@ class DefaultDocumentLoader(
                 f"'{type(source).__name__}'."
             )
 
-        source_str = str(source)
+        all_extensions = {
+            ext
+            for extensions in CONTENT_TYPE_EXTENSIONS.values()
+            for ext in extensions
+        }
 
-        # For URLs, extract extension from the URL path
-        # but keep the original string (don't convert to Path).
-        if source_str.startswith("http://") or source_str.startswith("https://"):
-            from urllib.parse import urlparse
-            url_path = urlparse(source_str).path
-            extension = Path(url_path).suffix.lower()
+        # If content_type is a group key (e.g. "image", "audio", "text"),
+        # resolve to the first extension in that group.
+        if content_type in CONTENT_TYPE_EXTENSIONS:
+            extension = CONTENT_TYPE_EXTENSIONS[content_type][0]
         else:
-            path = Path(source)
-            extension = path.suffix.lower()
-            source_str = str(path)
+            extension = f".{content_type}"
+
+        if extension not in all_extensions:
+            raise ValueError(
+                f"Unsupported content type "
+                f"'{content_type}'."
+            )
 
         loader = self._loaders.get(
             extension,
         )
 
         if loader is None:
-
             raise ValueError(
                 f"No document loader registered "
                 f"for '{extension}'."
             )
 
         return await loader.load(
-            source=source_str,
+            source=source,
         )

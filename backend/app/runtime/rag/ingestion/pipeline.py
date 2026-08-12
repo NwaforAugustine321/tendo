@@ -97,13 +97,20 @@ class DocumentIngestionPipeline:
         self,
         *,
         source: str | Path | Any,
+        content_type: str | None = None,
     ) -> IngestionResult:
         """
         Load, split and optionally index a document.
+
+        If content_type is provided, it is used to
+        select the loader directly (e.g. "text", "pdf",
+        "image", "audio"). Otherwise the loader is
+        determined from the source file extension.
         """
 
         documents = await self._loader.load(
             source=source,
+            content_type=content_type,
         )
 
         document_count = len(

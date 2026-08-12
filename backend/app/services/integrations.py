@@ -1,15 +1,16 @@
 import logging
 import base64
 import httpx
+from uuid import uuid4
 from urllib.parse import urlencode
+from fastapi import BackgroundTasks
 from app.config.settings import settings
 from app.db.client import get_client
 from app.db.tools.data_sources import get_business_id_by_phone_number, get_whatsapp_data_sources
 from app.integrations.whatsapp.meta import verify_challenge, validate_signature
 from app.integrations.whatsapp.normalizer import normalize
 from app.integrations.whatsapp.models import ConfigurationError, NormalizedMessage
-from app.record_knowledge.record_agent import process_record_content
-from app.record_knowledge.models import RecordContentInput
+from app.services.records import add_record_content, create_record, process_content_background
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +23,8 @@ mode = "testing"
 modes_setting = ['testing']
 
 
-async def _download_media_as_data_url(media_url: str, phone_number_id: str, mime_type: str | None) -> tuple[str, str]:
+async def _download_media_as_data_url(media_url: str, phone_number_id: str, mime_type: str | None) -> str:
     """Download media from WhatsApp URL, return as base64 data URL.
-
-    File storage is handled by the record content processing pipeline which
-    uploads to records_files/{record_id}/ path.
     """
     try:
         sources = get_whatsapp_data_sources()
@@ -56,10 +54,10 @@ async def _download_media_as_data_url(media_url: str, phone_number_id: str, mime
         b64 = base64.b64encode(file_bytes).decode("utf-8")
         data_url = f"data:{mime};base64,{b64}"
 
-        return data_url, ""
+        return data_url
     except Exception as e:
         logger.error(f"Failed to download media: {e}")
-        return "", ""
+        return ""
 
 
 def handle_whatsapp_verification(
@@ -75,7 +73,7 @@ def handle_whatsapp_verification(
     )
 
 
-async def handle_whatsapp_webhook(raw_body: bytes, signature: str | None, payload: dict) -> tuple[int, NormalizedMessage | None]:
+async def handle_whatsapp_webhook(raw_body: bytes, signature: str | None, payload: dict, background_tasks: BackgroundTasks) -> tuple[int, NormalizedMessage | None]:
 
     try:
         valid = validate_signature(
@@ -95,7 +93,6 @@ async def handle_whatsapp_webhook(raw_body: bytes, signature: str | None, payloa
     if message:
         logger.info("WhatsApp message received: %s", message.message_id)
 
-        # Resolve business_id from webhook payload
         try:
             entry = payload["entry"][0]
             change = entry["changes"][0]
@@ -108,12 +105,13 @@ async def handle_whatsapp_webhook(raw_body: bytes, signature: str | None, payloa
             if business_id:
                 content_type = message.message_type if message.message_type != "document" else "pdf"
                 content = message.body or ""
-                file_url = ""
 
-                # For media messages, download bytes and convert to base64 data URL
                 if message.media_url and content_type != "text":
-                    data_url, file_url = await _download_media_as_data_url(message.media_url, phone_number_id, message.mime_type)
-                    content = data_url
+                    # Extract actual extension from mime_type (e.g. "image/jpeg" -> "jpeg")
+                    if message.mime_type:
+                        content_type = message.mime_type.split(
+                            "/")[-1].split(";")[0].strip()
+                    content = await _download_media_as_data_url(message.media_url, phone_number_id, message.mime_type)
                     if not content:
                         logger.warning(
                             "Media download failed for message %s", message.message_id)
@@ -121,13 +119,37 @@ async def handle_whatsapp_webhook(raw_body: bytes, signature: str | None, payloa
                 if content:
                     logger.info("Processing %s content for business %s",
                                 content_type, business_id)
-                    await process_record_content(RecordContentInput(
-                        business_id=business_id,
-                        record_id=None,
-                        content_type=content_type,
-                        content=content,
-                        metadata={"source": "whatsapp", "file_url": file_url},
-                    ))
+
+                    hash_id = uuid4().hex[:6]
+                    title = f"#{hash_id}"
+
+                    record = await create_record(
+                        business_id, title
+                    )
+                    record_id = record.get("id", "")
+
+                    entry = await add_record_content(
+                        business_id, record_id, content_type, content
+                    )
+
+                    content_id = entry.get("id", "")
+                    file_url = entry.get("file_url", "")
+                    metadata = {
+                        "source": "whatsapp",
+                        "file_url": file_url,
+                        "content_id": content_id,
+                    }
+
+                    background_tasks.add_task(
+                        process_content_background,
+                        business_id,
+                        record_id,
+                        content_id,
+                        content_type,
+                        content,
+                        metadata,
+                        file_url,
+                    )
 
             else:
                 logger.warning(

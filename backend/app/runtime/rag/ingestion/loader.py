@@ -20,8 +20,13 @@ class DocumentLoader(ABC):
         self,
         *,
         source: str | Path | Any,
+        content_type: str | None = None,
     ) -> list[RAGDocument]:
         """
         Load one source into RAG documents.
+
+        If content_type is provided, it can be used
+        to determine how to process the source without
+        relying on file extension detection.
         """
         ...

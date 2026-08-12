@@ -29,7 +29,8 @@ class ImageLoader(
     async def load(
         self,
         *,
-        source,
+        source: str | Path | Any,
+        content_type: str | None = None,
     ) -> list[RAGDocument]:
 
         if not source:

@@ -26,6 +26,7 @@ class MarkdownLoader(
         self,
         *,
         source: str | Path | Any,
+        content_type: str | None = None,
     ) -> list[RAGDocument]:
 
         markdown = str(source).strip()

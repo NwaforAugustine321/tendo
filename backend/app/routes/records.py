@@ -13,8 +13,6 @@ from app.db.tools.records import mark_record_read, get_unread_count
 router = APIRouter(tags=["records"])
 
 
-# --- Folder endpoints ---
-
 @router.get("/folders")
 async def list_folders(business_id: str = Query(...), user=Depends(get_current_user)):
     import logging
@@ -97,8 +95,14 @@ async def add_content_endpoint(record_id: str, body: AddContentRequest, backgrou
     content_id = entry.get("id", "")
     file_url = entry.get("file_url", "")
     metadata = {**body.metadata, "content_id": content_id}
+
+    processing_content_type = body.content_type
+    if body.content.startswith("data:") and "/" in body.content.split(",")[0]:
+        mime = body.content.split(",")[0].split(":")[1].split(";")[0]
+        processing_content_type = mime.split("/")[-1]
+
     background_tasks.add_task(process_content_background, body.business_id,
-                              record_id, content_id, body.content_type, body.content, metadata, file_url)
+                              record_id, content_id, processing_content_type, body.content, metadata, file_url)
     return {"content": entry, "processing": True}
 
 

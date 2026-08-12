@@ -1,13 +1,5 @@
 
 
-from fastapi import APIRouter, Depends, Query, Request, Response
-from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
-import logging
-
-logger = logging.getLogger(__name__)
-
-from app.lib.auth_dependency import get_current_user
 from app.services.integrations import (
     handle_whatsapp_verification,
     handle_whatsapp_webhook,
@@ -16,6 +8,14 @@ from app.services.integrations import (
     disconnect_data_source as svc_disconnect_data_source,
     onboard_whatsapp_business,
 )
+from app.lib.auth_dependency import get_current_user
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, Response
+from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -40,12 +40,13 @@ async def whatsapp_verify(
     hub_challenge: str = Query(None, alias="hub.challenge"),
     hub_verify_token: str = Query(None, alias="hub.verify_token"),
 ):
-    status_code, body = handle_whatsapp_verification(hub_mode, hub_challenge, hub_verify_token)
+    status_code, body = handle_whatsapp_verification(
+        hub_mode, hub_challenge, hub_verify_token)
     return PlainTextResponse(content=body, status_code=status_code)
 
 
 @router.post("/webhook/whatsapp")
-async def whatsapp_receive(request: Request):
+async def whatsapp_receive(request: Request, background_tasks: BackgroundTasks):
     raw_body = await request.body()
     signature = request.headers.get("X-Hub-Signature-256")
 
@@ -54,8 +55,9 @@ async def whatsapp_receive(request: Request):
     except Exception:
         payload = {}
     print(payload)
-    status_code, _ = await handle_whatsapp_webhook(raw_body, signature, payload)
+    status_code, _ = await handle_whatsapp_webhook(raw_body, signature, payload, background_tasks)
     return Response(status_code=status_code)
+
 
 @router.post("/whatsapp/onboard")
 async def whatsapp_onboard(

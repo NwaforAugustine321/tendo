@@ -23,6 +23,7 @@ class TextLoader(
         self,
         *,
         source: str | Path | Any,
+        content_type: str | None = None,
     ) -> list[RAGDocument]:
 
         path = Path(source)

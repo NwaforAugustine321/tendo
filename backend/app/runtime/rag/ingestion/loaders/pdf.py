@@ -42,6 +42,7 @@ class PDFLoader(
         self,
         *,
         source: str | Path | Any,
+        content_type: str | None = None,
     ) -> list[RAGDocument]:
 
         if not source:
