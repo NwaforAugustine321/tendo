@@ -3,15 +3,29 @@ from __future__ import annotations
 from uuid import uuid4
 
 from app.runtime.chat.message import ChatMessage
+from app.runtime.context_manager.default_monitor import (
+    DefaultContextMonitor,
+)
+from app.runtime.context_manager.monitor import (
+    ContextMonitor,
+)
 from app.runtime.conversation.context import (
     ConversationContext,
 )
+from app.runtime.events.default_emitter import (
+    DefaultEmitter,
+)
+from app.runtime.events.emitter import (
+    Emitter,
+)
 from app.runtime.llm.response import LLMResponse
+from app.runtime.prompts.context import (
+    PromptState,
+)
 
 from .activity import AgentActivity
 from .agent import Agent
 from .run_context import RunContext
-from app.runtime.events.default_emitter import DefaultEmitter
 
 
 class AgentSession:
@@ -23,7 +37,9 @@ class AgentSession:
     Responsibilities
     ----------------
     - Own the ConversationContext
+    - Own the PromptState
     - Own the RunContext
+    - Own the ContextMonitor
     - Track the active AgentActivity
     - Execute conversations
     - Manage the lifetime of a conversation
@@ -35,10 +51,14 @@ class AgentSession:
         agent: Agent,
         session_id: str | None = None,
         conversation_context: ConversationContext | None = None,
-        emitter: Emitter | None = None
+        emitter: Emitter | None = None,
+        context_monitor: ContextMonitor | None = None,
     ) -> None:
 
-        self._id = session_id or str(uuid4())
+        self._id = (
+            session_id
+            or str(uuid4())
+        )
 
         self._agent = agent
 
@@ -50,9 +70,48 @@ class AgentSession:
             )
         )
 
+        #
+        # Session-level emitter.
+        #
+        # The same emitter is reused for the entire
+        # lifetime of this session.
+        #
+        self._emitter = (
+            emitter
+            if emitter is not None
+            else DefaultEmitter()
+        )
+
+        #
+        # Session-level context monitor.
+        #
+        # The monitor is reused for every execution.
+        #
+        self._context_monitor = (
+            context_monitor
+            if context_monitor is not None
+            else DefaultContextMonitor(
+                threshold=10_500,
+            )
+        )
+
+        #
+        # Session-level prompt state.
+        #
+        # This survives across inference calls.
+        #
+        # It allows the runtime to reuse stable prompt
+        # components instead of rebuilding them on every
+        # LLM/tool iteration.
+        #
+        self._prompt_state = PromptState()
+
+        #
+        # Per-execution runtime state.
+        #
         self._run_context = RunContext(
             session=self,
-            emitter=emitter or DefaultEmitter(),
+            emitter=self.emitter,
         )
 
         self._current_activity: AgentActivity | None = None
@@ -90,6 +149,34 @@ class AgentSession:
         return self._run_context
 
     @property
+    def emitter(
+        self,
+    ) -> Emitter:
+        return self._emitter
+
+    @property
+    def context_monitor(
+        self,
+    ) -> ContextMonitor:
+        """
+        Monitors the approximate context size and
+        determines when optimization is required.
+        """
+
+        return self._context_monitor
+
+    @property
+    def prompt_state(
+        self,
+    ) -> PromptState:
+        """
+        Runtime state used to reuse stable prompt
+        components across inference calls.
+        """
+
+        return self._prompt_state
+
+    @property
     def current_activity(
         self,
     ) -> AgentActivity | None:
@@ -116,7 +203,7 @@ class AgentSession:
         return await self.run_message(
             ChatMessage.user(
                 message,
-            )
+            ),
         )
 
     async def run_message(
@@ -125,15 +212,35 @@ class AgentSession:
     ) -> LLMResponse:
         """
         Execute one conversational turn.
+
+        The persisted conversation is loaded before the
+        execution starts.
+
+        PromptState is intentionally preserved because it
+        belongs to the session rather than to one execution.
         """
 
         if self._agent.conversation is not None:
-            loaded = await self._agent.conversation.load(
-                conversation_id=self._conversation_context.conversation_id
-                or self._id,
+
+            loaded = await (
+                self._agent.conversation.load(
+                    conversation_id=(
+                        self._conversation_context.conversation_id
+                        or self._id
+                    ),
+                )
             )
+
             self._conversation_context = loaded
 
+        #
+        # Start a fresh execution while preserving:
+        #
+        # - ConversationContext
+        # - PromptState
+        # - Emitter
+        # - ContextMonitor
+        #
         self._run_context.start(
             message,
         )
@@ -159,16 +266,31 @@ class AgentSession:
         self,
     ) -> None:
         """
-        Reset the session while preserving
-        the session identity.
+        Reset the session while preserving:
+
+        - session identity
+        - emitter
+        - context monitor
+
+        Conversation and prompt runtime state are reset
+        for a completely fresh session state.
         """
 
-        self._conversation_context = ConversationContext(
-            conversation_id=self.id,
+        self._conversation_context = (
+            ConversationContext(
+                conversation_id=self.id,
+            )
         )
+
+        #
+        # A full session reset means the previously
+        # prepared prompt state is no longer valid.
+        #
+        self._prompt_state = PromptState()
 
         self._run_context = RunContext(
             session=self,
+            emitter=self.emitter,
         )
 
         self._current_activity = None

@@ -30,6 +30,7 @@ class ConversationContext:
     It contains only the information required to
     build the prompt. It does not include messages
     generated during the current execution.
+
     """
 
     conversation_id: str | None = None
@@ -47,20 +48,6 @@ class ConversationContext:
     metadata: dict[str, object] = field(
         default_factory=dict,
     )
-
-    @property
-    def total_tokens(
-        self,
-    ) -> int:
-        """
-        Total token footprint of the loaded
-        conversation.
-        """
-
-        return (
-            self.summary_tokens
-            + self.message_tokens
-        )
 
     @property
     def empty(

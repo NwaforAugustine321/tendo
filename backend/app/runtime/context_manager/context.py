@@ -10,8 +10,15 @@ if TYPE_CHECKING:
 @dataclass(slots=True)
 class ContextBudget:
     """
-    Represents the available token budget for one
+    Represents the token budget available for one
     model inference.
+
+    ContextBudget describes the LLM's hard context
+    constraints.
+
+    It does not decide when conversation optimization
+    should happen. That responsibility belongs to
+    ContextMonitor.
     """
 
     max_context_tokens: int | None
@@ -24,7 +31,9 @@ class ContextBudget:
     ) -> int | None:
         """
         Maximum number of tokens available for the
-        input prompt.
+        input prompt after reserving output tokens.
+
+        This represents the model's hard prompt limit.
         """
 
         if self.max_context_tokens is None:
@@ -42,11 +51,14 @@ class ContextBudget:
         llm: LLM,
     ) -> ContextBudget:
         """
-        Create a ContextBudget from an LLM
-        configuration.
+        Create a ContextBudget from the LLM configuration.
         """
 
         return cls(
-            max_context_tokens=llm.max_context_tokens,
-            reserved_output_tokens=llm.max_output_tokens,
+            max_context_tokens=(
+                llm.max_context_tokens
+            ),
+            reserved_output_tokens=(
+                llm.max_output_tokens
+            ),
         )

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from app.runtime.chat.message import ChatMessage
 from app.runtime.memory.builder import MemoryPromptBuilder
-from app.runtime.structured_output.formatter import OutputFormatter
 from app.runtime.prompts.sections.conversation import (
     ConversationPromptBuilder,
 )
@@ -10,13 +9,28 @@ from app.runtime.prompts.sections.user_task import (
     UserTaskPromptBuilder,
 )
 from app.runtime.rag.builder import RAGPromptBuilder
+from app.runtime.structured_output.formatter import OutputFormatter
 
 from .context import PromptContext
 
 
 class PromptBuilder:
     """
-    Builds the complete prompt for an inference.
+    Builds the prompt for an AgentSession.
+
+    Prompt construction is divided into two parts:
+
+    Stable
+    ------
+    Built once and stored in PromptState.
+
+    Dynamic
+    -------
+    Current execution messages are appended at inference
+    time.
+
+    The stable prompt is rebuilt only when PromptState is
+    invalidated, for example after conversation optimization.
     """
 
     def __init__(
@@ -27,11 +41,21 @@ class PromptBuilder:
 
         self._context = context
 
-        self._task_builder = UserTaskPromptBuilder()
-        self._conversation_builder = ConversationPromptBuilder()
-        self._memory_builder = MemoryPromptBuilder()
-        self._rag_builder = RAGPromptBuilder()
-        self._output_formatter = OutputFormatter()
+        self._conversation_builder = (
+            ConversationPromptBuilder()
+        )
+
+        self._memory_builder = (
+            MemoryPromptBuilder()
+        )
+
+        self._rag_builder = (
+            RAGPromptBuilder()
+        )
+
+        self._output_formatter = (
+            OutputFormatter()
+        )
 
     @property
     def context(
@@ -40,37 +64,43 @@ class PromptBuilder:
 
         return self._context
 
-    async def build(
+    async def prepare(
         self,
-    ) -> list[ChatMessage]:
+    ) -> None:
         """
-        Build the complete prompt.
+        Build and cache the stable prompt.
 
-        Returns
-        -------
-        list[ChatMessage]
-            Messages sent to the LLM.
+        This is intentionally called only when the prompt
+        state has not already been prepared.
+
+        Stable content includes:
+
+        - agent instructions
+        - conversation context
+        - memory
+        - retrieved knowledge
+        - structured output instructions
+        - template-contributed messages
+
+        Current execution messages are intentionally excluded.
         """
+
+        state = (
+            self._context.prompt_state
+        )
+
+        if state.prepared:
+            return
 
         parts: list[str] = []
 
         #
-        # User task
-        #
-        prompt = self._task_builder.build(
-            self._context.run_context,
-        )
-
-        if prompt:
-            parts.append(
-                prompt,
-            )
-
-        #
         # Conversation history
         #
-        prompt = self._conversation_builder.build(
-            self._context.conversation_context,
+        prompt = (
+            self._conversation_builder.build(
+                self._context.conversation_context,
+            )
         )
 
         if prompt:
@@ -81,7 +111,9 @@ class PromptBuilder:
         #
         # Memory
         #
-        prompt = await self._build_memory_prompt()
+        prompt = await (
+            self._build_memory_prompt()
+        )
 
         if prompt:
             parts.append(
@@ -91,7 +123,9 @@ class PromptBuilder:
         #
         # Retrieved knowledge
         #
-        prompt = await self._build_rag_prompt()
+        prompt = await (
+            self._build_rag_prompt()
+        )
 
         if prompt:
             parts.append(
@@ -99,17 +133,24 @@ class PromptBuilder:
             )
 
         #
-        # Agent instructions
+        # Agent instructions.
         #
-        template_messages = self._context.agent.prompt_template.build(
-            self._context,
+        instructions = (
+            self._context.agent.instructions.strip()
         )
+
+        if instructions:
+            parts.append(
+                instructions,
+            )
 
         #
         # Structured output
         #
-        prompt = self._output_formatter.build(
-            self._context.agent.output_type,
+        prompt = (
+            self._output_formatter.build(
+                self._context.agent.output_type,
+            )
         )
 
         if prompt:
@@ -119,30 +160,56 @@ class PromptBuilder:
 
         messages: list[ChatMessage] = []
 
+        #
+        # Stable system prompt.
+        #
         if parts:
 
             messages.append(
                 ChatMessage.system(
                     "\n\n".join(parts),
-                )
+                ),
             )
 
         #
-        # Template-contributed messages.
+        # Stable template messages.
         #
+        template_messages = (
+            self._context.agent.prompt_template.build(
+                self._context,
+            )
+        )
+
         if template_messages:
+
             messages.extend(
                 template_messages,
             )
 
         #
-        # Current inference messages.
+        # Store the complete stable prompt.
         #
-        messages.extend(
-            self._context.run_context.messages,
-        )
+        state.stable_messages = messages
 
-        return messages
+        state.prepared = True
+
+    async def build(
+        self,
+    ) -> list[ChatMessage]:
+        """
+        Return the prompt for the current LLM inference.
+
+        The stable prompt is reused when already prepared.
+
+        Only current execution messages are appended here.
+        """
+
+        await self.prepare()
+
+        return [
+            *self._context.prompt_state.stable_messages,
+            *self._context.run_context.messages,
+        ]
 
     async def _build_memory_prompt(
         self,

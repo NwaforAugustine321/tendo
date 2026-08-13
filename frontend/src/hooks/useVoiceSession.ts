@@ -348,14 +348,6 @@ export function useVoiceSession() {
       recordId?: string,
       sessionId?: string,
     ) => {
-      if (clientRef.current?.isConnected()) {
-        const sent = clientRef.current.sendText(text, {
-          record_id: recordId || "",
-          session_id: sessionId || "",
-        });
-        if (sent) return;
-      }
-
       const socket = ensureSocket();
       const storeBusinessId =
         businessId || useBusinessStore.getState().currentProfile?.id || "";

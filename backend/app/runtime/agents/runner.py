@@ -1,7 +1,18 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
+from app.runtime.chat.message import ChatMessage
+from app.runtime.events.events import (
+    EventType,
+    Status,
+    StatusEvent,
+)
+from app.runtime.guardrails.exceptions import (
+    RetryRequest,
+)
+from app.runtime.llm.response import LLMResponse
 from app.runtime.middlewares.middleware import (
     AfterLLMEvent,
     AfterRunEvent,
@@ -10,19 +21,16 @@ from app.runtime.middlewares.middleware import (
     ErrorEvent,
     MiddlewareEvent,
 )
-from app.runtime.chat.message import ChatMessage
-from app.runtime.guardrails.exceptions import (
-    RetryRequest,
-)
-from app.runtime.llm.response import LLMResponse
+from app.runtime.prompts.builder import PromptBuilder
+from app.runtime.prompts.context import PromptContext
 from app.runtime.toolsets.executor import ToolExecutor
-from app.runtime.events.events import (
-    StatusEvent,
-    EventType,
-    Status
-)
+
 from .activity import AgentActivity
 from .session import AgentSession
+
+if TYPE_CHECKING:
+    from app.runtime.agents.run_context import RunContext
+
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +43,22 @@ class AgentRunner:
     ----------------
     - Coordinate middleware
     - Coordinate guardrails
+    - Coordinate context optimization
     - Coordinate LLM execution
     - Coordinate tool execution
+
+    The runner does NOT:
+
+    - build prompts to measure their size
+    - count tokens
+    - decide the context threshold
+    - perform conversation optimization itself
+
+    Context monitoring is performed by RunContext through
+    the session's ContextMonitor.
+
+    Conversation optimization is delegated to
+    ContextManager.
     """
 
     def __init__(
@@ -63,7 +85,7 @@ class AgentRunner:
             await run_context.emitter.emit(
                 EventType.PROGRESS,
                 StatusEvent(
-                    status=Status.STARTING
+                    status=Status.STARTING,
                 ),
             )
 
@@ -78,6 +100,9 @@ class AgentRunner:
 
                 try:
 
+                    #
+                    # Request guardrails.
+                    #
                     blocked = (
                         await run_context.guardrails.check_request(
                             run_context,
@@ -89,13 +114,13 @@ class AgentRunner:
                         await run_context.emitter.emit(
                             EventType.PROGRESS,
                             StatusEvent(
-                                status=Status.FAILED
+                                status=Status.FAILED,
                             ),
                         )
 
                         assistant_message = (
                             ChatMessage.from_llm_response(
-                                blocked
+                                blocked,
                             )
                         )
 
@@ -103,28 +128,69 @@ class AgentRunner:
                             assistant_message,
                         )
 
+                        return blocked
+
+                    #
+                    # Context optimization.
+                    #
+                    # RunContext has already performed the
+                    # approximate token count when the latest
+                    # message was added.
+                    #
+                    # No prompt is built here.
+                    # No token counting is performed here.
+                    #
+                    if (
+                        run_context.context_threshold_reached
+                    ):
+
+                        await run_context.emitter.emit(
+                            EventType.PROGRESS,
+                            StatusEvent(
+                                status=Status.ANALYZING,
+                            ),
+                        )
+
+                        await self._optimize_context(
+                            session=session,
+                            run_context=run_context,
+                        )
+
+                    #
+                    # Prepare for LLM execution.
+                    #
                     await run_context.emitter.emit(
                         EventType.PROGRESS,
                         StatusEvent(
-                            status=Status.PLANNING
+                            status=Status.PLANNING,
                         ),
                     )
+
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.BEFORE_LLM,
                         run_context,
                     )
 
+                    #
+                    # InferenceStream is responsible for
+                    # constructing the actual prompt.
+                    #
+                    # The runner does not build the prompt.
+                    #
                     stream = session.agent.llm.chat(
-                        conversation_context=session.conversation_context,
+                        conversation_context=(
+                            session.conversation_context
+                        ),
                         run_context=run_context,
                     )
 
                     await run_context.emitter.emit(
                         EventType.PROGRESS,
                         StatusEvent(
-                            status=Status.REASONING
+                            status=Status.REASONING,
                         ),
                     )
+
                     activity = AgentActivity(
                         stream=stream,
                     )
@@ -141,6 +207,9 @@ class AgentRunner:
 
                         session.clear_activity()
 
+                    #
+                    # Response guardrails.
+                    #
                     checked_response = (
                         await run_context.guardrails.check_response(
                             run_context,
@@ -149,6 +218,7 @@ class AgentRunner:
                     )
 
                     if checked_response is not None:
+
                         assistant_message = (
                             ChatMessage.from_llm_response(
                                 checked_response,
@@ -162,9 +232,10 @@ class AgentRunner:
                         await run_context.emitter.emit(
                             EventType.PROGRESS,
                             StatusEvent(
-                                status=Status.CANCELLED
+                                status=Status.CANCELLED,
                             ),
                         )
+
                         continue
 
                     assistant_message = (
@@ -174,15 +245,18 @@ class AgentRunner:
                     )
 
                     #
-                    # Track current execution.
+                    # Track the assistant response.
+                    #
+                    # Adding the message performs the next
+                    # approximate context measurement.
                     #
                     run_context.add_message(
                         assistant_message,
                     )
 
                     #
-                    # ConversationMiddleware persists
-                    # the assistant message here.
+                    # Persist / process the assistant response
+                    # through middleware.
                     #
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.AFTER_LLM,
@@ -199,12 +273,16 @@ class AgentRunner:
                     if not response.has_tool_calls:
                         return response
 
+                    #
+                    # Tool execution.
+                    #
                     await run_context.emitter.emit(
                         EventType.PROGRESS,
                         StatusEvent(
-                            status=Status.USING_TOOL
+                            status=Status.USING_TOOL,
                         ),
                     )
+
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.BEFORE_TOOLS,
                         run_context,
@@ -213,16 +291,11 @@ class AgentRunner:
                         ),
                     )
 
-                    results = await self._tool_executor.execute(
-                        tool_calls=response.tool_calls,
-                        ctx=run_context,
-                    )
-
-                    await run_context.emitter.emit(
-                        EventType.PROGRESS,
-                        StatusEvent(
-                            status=Status.USING_TOOL
-                        ),
+                    results = (
+                        await self._tool_executor.execute(
+                            tool_calls=response.tool_calls,
+                            ctx=run_context,
+                        )
                     )
 
                     tool_messages = (
@@ -232,15 +305,19 @@ class AgentRunner:
                     )
 
                     #
-                    # Track current execution.
+                    # Track tool messages.
+                    #
+                    # add_messages() performs one approximate
+                    # context measurement after all tool
+                    # messages have been added.
                     #
                     run_context.add_messages(
                         tool_messages,
                     )
 
                     #
-                    # ConversationMiddleware persists
-                    # tool messages here.
+                    # Persist / process tool messages through
+                    # middleware.
                     #
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.AFTER_TOOLS,
@@ -252,34 +329,35 @@ class AgentRunner:
                     )
 
                 except RetryRequest:
+
                     await run_context.emitter.emit(
                         EventType.PROGRESS,
                         StatusEvent(
-                            status=Status.RETRYING
+                            status=Status.RETRYING,
                         ),
                     )
+
                     continue
 
+            #
+            # Maximum iterations reached.
+            #
             if response is not None:
                 return response
 
             await run_context.emitter.emit(
-                EventType.ANALYZING,
+                EventType.PROGRESS,
                 StatusEvent(
-                    status=Status.MAX_ITERATION
+                    status=Status.MAX_ITERATION,
                 ),
             )
+
             response = await self._force_final_response(
                 session=session,
                 run_context=run_context,
             )
 
-            await run_context.emitter.emit(
-                EventType.ANALYZING,
-                StatusEvent(
-                    status=Status.REASONING
-                ),
-            )
+            return response
 
         except Exception as error:
 
@@ -307,6 +385,7 @@ class AgentRunner:
                 response is not None
                 and session.agent.memory is not None
             ):
+
                 try:
 
                     await session.agent.memory.reflect(
@@ -319,50 +398,127 @@ class AgentRunner:
                         "Memory reflection failed.",
                     )
 
-    async def _force_final_response(
+    async def _optimize_context(
         self,
         *,
-        session,
-        run_context,
-    ) -> LLMResponse:
-        await run_context.emitter.emit(
-            EventType.ANALYZING,
-            StatusEvent(
-                status=Status.FINALIZING
+        session: AgentSession,
+        run_context: RunContext,
+    ) -> None:
+        """
+        Optimize the conversation after the ContextMonitor
+        has detected that the threshold was reached.
+
+        The token count was already calculated by RunContext.
+
+        This method does not:
+
+        - build a prompt for counting
+        - count tokens again
+        - perform optimization itself
+        """
+
+        builder = PromptBuilder(
+            context=PromptContext(
+                agent=session.agent,
+                run_context=run_context,
+                conversation_context=(
+                    session.conversation_context
+                ),
+                prompt_state=session.prompt_state,
             ),
         )
-        run_context.add_message(
-            ChatMessage.system(
-                "You have reached the maximum number of tool iterations. "
-                "Provide your best final response to the user now based on "
-                "the information gathered so far. Do not call any more tools."
+
+        optimized = await (
+            session.agent.context_manager.optimize(
+                builder,
             )
         )
 
+        #
+        # The threshold event has now been handled for
+        # this execution cycle.
+        #
+        # If additional messages are produced by the LLM
+        # or tools, RunContext can perform another context
+        # measurement and trigger optimization again.
+        #
+        run_context.reset_context_threshold()
+
+        if optimized:
+
+            logger.info(
+                "Conversation context optimized before "
+                "LLM inference.",
+            )
+
+        else:
+
+            logger.debug(
+                "Conversation context was not optimized.",
+            )
+
+    async def _force_final_response(
+        self,
+        *,
+        session: AgentSession,
+        run_context: RunContext,
+    ) -> LLMResponse:
+
+        await run_context.emitter.emit(
+            EventType.PROGRESS,
+            StatusEvent(
+                status=Status.FINALIZING,
+            ),
+        )
+
+        run_context.add_message(
+            ChatMessage.system(
+                "You have reached the maximum number of tool "
+                "iterations. Provide your best final response "
+                "to the user now based on the information "
+                "gathered so far. Do not call any more tools.",
+            ),
+        )
+
         stream = session.agent.llm.chat(
-            conversation_context=session.conversation_context,
+            conversation_context=(
+                session.conversation_context
+            ),
             run_context=run_context,
         )
 
         await run_context.emitter.emit(
-            EventType.ANALYZING,
+            EventType.PROGRESS,
             StatusEvent(
-                status=Status. REASONING
+                status=Status.REASONING,
             ),
         )
+
         activity = AgentActivity(
             stream=stream,
         )
 
-        session.set_current_activity(activity)
+        session.set_current_activity(
+            activity,
+        )
 
         try:
+
             response = await activity.wait()
+
         finally:
+
             session.clear_activity()
 
-        assistant_message = ChatMessage.from_llm_response(response)
-        run_context.add_message(assistant_message)
+        assistant_message = (
+            ChatMessage.from_llm_response(
+                response,
+            )
+        )
+
+        run_context.add_message(
+            assistant_message,
+        )
 
         await run_context.middleware.dispatch(
             MiddlewareEvent.AFTER_LLM,
