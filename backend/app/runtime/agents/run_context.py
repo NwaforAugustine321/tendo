@@ -43,6 +43,22 @@ class RunContext:
 
     _context_threshold_reached: bool = False
 
+    def update_context_tokens(
+        self,
+        tokens: int,
+    ) -> None:
+        """
+        Update the latest approximate context token count.
+
+        This is used after an optimization pass when the
+        ContextMonitor measures the modified conversation.
+        """
+
+        self._context_tokens = max(
+            0,
+            tokens,
+        )
+
     @property
     def messages(
         self,
@@ -62,9 +78,8 @@ class RunContext:
         """
         Most recent approximate context token count.
 
-        This value is calculated by ContextMonitor when
-        messages are added and is reused by the optimization
-        stage.
+        This value is calculated by ContextMonitor and reused
+        by the optimization stage.
         """
 
         return self._context_tokens
@@ -77,8 +92,11 @@ class RunContext:
         Whether the approximate context size has reached
         the configured optimization threshold.
 
-        This flag only indicates that optimization is needed.
-        The runner is responsible for triggering optimization.
+        This represents the current threshold-crossing state.
+
+        Once an optimization phase has completed, the state
+        is reset so a future message can trigger another
+        optimization phase.
         """
 
         return self._context_threshold_reached
@@ -253,14 +271,15 @@ class RunContext:
         self,
     ) -> None:
         """
-        Perform one fast approximate context measurement.
+        Perform one approximate context measurement.
 
         The resulting token count is stored and reused by
         the optimization stage.
 
         Once the threshold has been reached, additional
         messages do not trigger another measurement until
-        the threshold is explicitly reset.
+        the optimization phase explicitly resets the
+        threshold state.
         """
 
         if self._context_threshold_reached:
@@ -280,19 +299,52 @@ class RunContext:
             >= self.session.context_monitor.threshold
         )
 
+    def mark_context_optimized(
+        self,
+        tokens: int,
+    ) -> None:
+        """
+        Mark the current optimization phase as completed.
+
+        The latest measured token count is preserved.
+
+        Only the threshold trigger is reset. This allows the
+        next user message to perform a fresh threshold check
+        and trigger another optimization phase if necessary.
+
+        Example
+        -------
+        Before optimization:
+
+            context_tokens = 36000
+            threshold_reached = True
+
+        After optimization:
+
+            context_tokens = 3000
+            threshold_reached = False
+
+        The next message can therefore establish a new
+        threshold-crossing event.
+        """
+
+        self.update_context_tokens(
+            tokens,
+        )
+
+        self._context_threshold_reached = False
+
     def reset_context_threshold(
         self,
     ) -> None:
         """
-        Reset the context threshold state after an
-        optimization pass.
+        Reset only the threshold trigger.
 
-        The previous token count is cleared because the
-        conversation context has changed after optimization.
-        The next added message will perform a fresh measurement.
+        The latest context token measurement is preserved.
+
+        This method is kept as a lower-level reset for callers
+        that only need to clear the trigger state.
         """
-
-        self._context_tokens = 0
 
         self._context_threshold_reached = False
 

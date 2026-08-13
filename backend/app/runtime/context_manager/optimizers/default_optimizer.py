@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import TYPE_CHECKING
 
+from langchain_core.messages.utils import (
+    count_tokens_approximately,
+)
+
+from app.runtime.agents.run_context import RunContext
 from app.runtime.chat.message import ChatMessage
 from app.runtime.summarizers.default_summarizer import (
     DefaultSummarizer,
@@ -50,35 +56,46 @@ Return only the summary.
 """
 
 
+SELECTION_BUFFER_RATIO = 0.08
+
+
 class DefaultConversationOptimizer(
     ContextOptimizer,
 ):
     """
     Default conversation optimizer.
 
-    The optimizer receives the approximate context size
-    that was already calculated by ContextMonitor.
+    The optimizer receives the approximate full runtime
+    context size already calculated by ContextMonitor.
 
-    It does not perform token counting.
+    It does NOT optimize the current user message.
 
-    Optimization pipeline
-    ---------------------
-    1. Receive the existing context token count.
-    2. Determine how much context must be compressed.
-    3. Select the oldest messages while preserving
-       recent messages.
-    4. Merge selected messages with the existing summary.
-    5. Generate a new rolling summary.
-    6. Persist the summary.
-    7. Delete the summarized messages.
-    8. Reload the conversation.
+    Only persisted conversation messages are eligible
+    for summarization and deletion.
 
-    The next context measurement is performed by
-    ContextMonitor when another runtime message is added.
+    Responsibilities
+    ----------------
+    - Determine how many persisted conversation tokens
+      need to be recovered.
+    - Select the oldest eligible messages.
+    - Apply a 30% message-count selection buffer.
+    - Merge selected messages with the existing summary.
+    - Generate a rolling summary.
+    - Persist the summary.
+    - Delete summarized messages.
+    - Reload the conversation.
+
     """
 
+    #
+    # Always keep the most recent persisted messages
+    # verbatim.
+    #
     KEEP_RECENT_MESSAGES = 20
 
+    #
+    # Maximum size of the generated rolling summary.
+    #
     SUMMARY_TARGET_TOKENS = 400
 
     SUMMARY_INSTRUCTIONS = PROMPT
@@ -104,6 +121,7 @@ class DefaultConversationOptimizer(
         conversation: ConversationContext,
         current_tokens: int,
         target_tokens: int,
+        run_context: RunContext,
     ) -> OptimizationResult:
         """
         Perform one conversation optimization pass.
@@ -111,16 +129,21 @@ class DefaultConversationOptimizer(
         Parameters
         ----------
         conversation:
-            Conversation being optimized.
+            Persisted conversation being optimized.
 
         current_tokens:
-            Approximate context size already calculated
-            by ContextMonitor.
+            Approximate FULL runtime context size already
+            calculated by ContextMonitor.
+
+            This includes the current user message.
 
         target_tokens:
-            Desired context size after optimization.
+            Safe target calculated by ContextStrategy.
 
-        No token counting is performed here.
+        run_context:
+            Current agent execution context.
+
+
         """
 
         try:
@@ -154,9 +177,10 @@ class DefaultConversationOptimizer(
                 self._messages_to_summarize(
                     conversation=conversation,
                     tokens_to_recover=tokens_to_recover,
+                    run_context=run_context,
                 )
             )
-            print('message ', len(messages))
+
             if not messages:
 
                 return OptimizationResult(
@@ -168,10 +192,6 @@ class DefaultConversationOptimizer(
                     ),
                 )
 
-            #
-            # Include the previous summary so the new
-            # summary represents the accumulated history.
-            #
             summary_messages: list[
                 ChatMessage
             ] = []
@@ -190,8 +210,14 @@ class DefaultConversationOptimizer(
 
             logger.info(
                 "Summarizing conversation at approximately "
-                "%s tokens.",
+                "%s tokens. "
+                "Target: %s tokens. "
+                "Tokens to recover: %s. "
+                "Selected messages: %s.",
                 current_tokens,
+                target_tokens,
+                tokens_to_recover,
+                len(messages),
             )
 
             summary = (
@@ -207,48 +233,41 @@ class DefaultConversationOptimizer(
                 )
             )
 
-            #
-            # Persist the new rolling summary.
-            #
             await self._provider.update_summary(
                 conversation=conversation,
                 summary=summary,
             )
 
-            #
-            # Remove the messages represented by the
-            # new summary.
-            #
             await self._provider.delete_messages(
                 conversation=conversation,
                 messages=messages,
             )
 
-            #
-            # Reload the same ConversationContext so the
-            # in-memory context reflects the persisted state.
-            #
             await self._provider.reload(
                 conversation=conversation,
             )
 
-            logger.info(
-                "Conversation optimization completed. "
-                "Summarized %s messages.",
-                len(messages),
+            estimated_tokens_saved = (
+                self._count_message_tokens(
+                    messages=messages,
+                    run_context=run_context,
+                )
             )
 
-            #
-            # Do not claim an exact token saving.
-            #
-            # The actual post-optimization context size will
-            # be measured by ContextMonitor on the next
-            # runtime message.
-            #
+            logger.info(
+                "Conversation optimization completed. "
+                "Summarized %s messages. "
+                "Estimated removed message tokens: %s.",
+                len(messages),
+                estimated_tokens_saved,
+            )
+
             return OptimizationResult(
                 optimized=True,
                 exhausted=False,
-                estimated_tokens_saved=0,
+                estimated_tokens_saved=(
+                    estimated_tokens_saved
+                ),
                 reason=(
                     "Conversation summarized."
                 ),
@@ -274,24 +293,47 @@ class DefaultConversationOptimizer(
         *,
         conversation: ConversationContext,
         tokens_to_recover: int,
+        run_context: RunContext,
     ) -> list[ChatMessage]:
         """
-        Select enough oldest messages to recover the
-        requested approximate budget while keeping the
-        most recent messages verbatim.
+        Select persisted conversation messages for
+        summarization.
 
-        The lightweight character approximation here is
-        ONLY used to select which messages should be
-        summarized.
+        The current user message is NOT part of this
+        collection.
 
-        It does NOT determine whether optimization should
-        happen.
+        Selection rules
+        ---------------
+
+        1. Always preserve KEEP_RECENT_MESSAGES.
+
+        2. Calculate the real approximate token count
+           of all eligible candidates.
+
+        3. If all candidates fit within tokens_to_recover,
+           summarize all candidates.
+
+        4. Otherwise select the oldest messages until
+           tokens_to_recover is reached.
+
+        5. Add a 30% message-count buffer.
+
+        Example
+        -------
+        Required messages = 30
+        Buffer = 30%
+
+        30 + ceil(30 * 0.30)
+        = 40 messages
+
+        If there are 50 eligible messages:
+
+            40 messages -> summarized
+            10 messages -> retained
         """
 
-        messages = (
-            self._conversation_messages(
-                conversation,
-            )
+        messages = self._conversation_messages(
+            conversation,
         )
 
         if (
@@ -304,49 +346,127 @@ class DefaultConversationOptimizer(
             :-self.KEEP_RECENT_MESSAGES
         ]
 
-        recovered = 0
+        if not candidates:
+            return []
 
-        selected: list[ChatMessage] = []
+        candidate_tokens = (
+            self._count_message_tokens(
+                messages=candidates,
+                run_context=run_context,
+            )
+        )
+
+        if candidate_tokens <= tokens_to_recover:
+
+            logger.debug(
+                "All candidate messages fit within the "
+                "recovery budget. "
+                "Candidate tokens: %s. "
+                "Tokens to recover: %s. "
+                "Messages selected: %s.",
+                candidate_tokens,
+                tokens_to_recover,
+                len(candidates),
+            )
+
+            return candidates
+
+        recovered_tokens = 0
+
+        required_message_count = 0
 
         for message in candidates:
 
-            selected.append(
-                message,
-            )
-
-            content = (
-                message.content
-                if isinstance(
-                    message.content,
-                    str,
-                )
-                else str(
-                    message.content,
+            message_tokens = (
+                self._count_message_tokens(
+                    messages=[message],
+                    run_context=run_context,
                 )
             )
 
-            #
-            # Lightweight selection estimate.
-            #
-            recovered += (
-                len(content) // 4
-            )
+            recovered_tokens += message_tokens
 
-            if recovered >= tokens_to_recover:
+            required_message_count += 1
+
+            if recovered_tokens >= tokens_to_recover:
                 break
 
+        buffered_message_count = (
+            required_message_count
+            + math.ceil(
+                required_message_count
+                * SELECTION_BUFFER_RATIO,
+            )
+        )
+
+        buffered_message_count = min(
+            buffered_message_count,
+            len(candidates),
+        )
+
+        selected = candidates[
+            :buffered_message_count
+        ]
+
+        selected_tokens = (
+            self._count_message_tokens(
+                messages=selected,
+                run_context=run_context,
+            )
+        )
+
+        logger.debug(
+            "Conversation message selection completed. "
+            "Tokens to recover: %s. "
+            "Candidate tokens: %s. "
+            "Recovered before buffer: %s. "
+            "Required messages: %s. "
+            "Buffered messages: %s. "
+            "Selected messages: %s. "
+            "Selected tokens: %s.",
+            tokens_to_recover,
+            candidate_tokens,
+            recovered_tokens,
+            required_message_count,
+            buffered_message_count,
+            len(selected),
+            selected_tokens,
+        )
+
         return selected
+
+    def _count_message_tokens(
+        self,
+        *,
+        messages: list[ChatMessage],
+        run_context: RunContext,
+    ) -> int:
+        """
+        Count approximate tokens for persisted messages.
+        """
+
+        if not messages:
+            return 0
+
+        provider_messages = (
+            run_context.agent.llm.to_provider_messages(
+                messages,
+            )
+        )
+
+        return count_tokens_approximately(
+            provider_messages,
+        )
 
     def _conversation_messages(
         self,
         conversation: ConversationContext,
     ) -> list[ChatMessage]:
         """
-        Return persisted conversation messages.
+        Return persisted conversation messages eligible
+        for optimization.
 
-        Runtime system messages are excluded because they
-        are not part of the conversational history that
-        should be summarized.
+        Runtime system messages are excluded.
         """
 
         return [

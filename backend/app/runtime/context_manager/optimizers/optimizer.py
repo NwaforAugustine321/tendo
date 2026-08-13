@@ -9,6 +9,8 @@ if TYPE_CHECKING:
         ConversationContext,
     )
 
+from app.runtime.agents.run_context import RunContext
+
 
 @dataclass(slots=True)
 class OptimizationResult:
@@ -52,6 +54,7 @@ class ContextOptimizer(ABC):
         conversation: ConversationContext,
         current_tokens: int,
         target_tokens: int,
+        run_context: RunContext
     ) -> OptimizationResult:
         """
         Attempt one conversation optimization pass.

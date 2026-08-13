@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+
+from langchain_core.messages.utils import (
+    count_tokens_approximately,
+)
 
 from app.runtime.chat.message import ChatMessage
 from app.runtime.context_manager.optimizers.default_optimizer import (
@@ -11,7 +16,6 @@ from app.runtime.context_manager.optimizers.optimizer import (
 )
 from app.runtime.prompts.builder import PromptBuilder
 
-from ..context import ContextBudget
 from .strategy import ContextStrategy
 
 logger = logging.getLogger(__name__)
@@ -23,41 +27,22 @@ class DefaultContextStrategy(
     """
     Default conversation optimization strategy.
 
-    Responsibilities
-    ----------------
-    - Build the prompt when requested.
-    - Coordinate conversation optimization.
-    - Pass the already-measured context size to the optimizer.
+    The current user message is immutable and is never
+    summarized or deleted.
 
-    The ContextMonitor determines WHEN optimization is
-    required.
+    Optimization only affects persisted conversation
+    messages and retains a minimum amount of previous
+    conversation.
 
-    The ContextOptimizer performs the actual optimization.
-
-    PromptState contains only stable prompt components.
-    Conversation history remains dynamic and is rebuilt
-    from ConversationContext.
-
-    This strategy does not:
-
-    - build a prompt to calculate its size
-    - count tokens
-    - repeatedly rebuild prompts
-    - perform emergency trimming
+    A single optimization phase can contain multiple
+    optimizer passes. Once the phase finishes, the
+    threshold trigger is reset so a future message can
+    trigger a new optimization phase.
     """
 
-    #
-    # When the context reaches the monitor threshold,
-    # compress it to approximately 80% of that threshold.
-    #
-    # Example:
-    #
-    # threshold = 10,500
-    # target    = 8,400
-    #
-    # This creates headroom for the next messages.
-    #
-    OPTIMIZATION_TARGET_RATIO = 0.80
+    OPTIMIZATION_FLOOR_RATIO = 0.10
+
+    MIN_CONVERSATION_RETENTION_RATIO = 0.10
 
     def __init__(
         self,
@@ -71,12 +56,6 @@ class DefaultContextStrategy(
         self,
         builder: PromptBuilder,
     ) -> list[ChatMessage]:
-        """
-        Build the prompt for the actual LLM inference.
-
-        No token counting or conversation optimization
-        is performed here.
-        """
 
         return await builder.build()
 
@@ -84,15 +63,6 @@ class DefaultContextStrategy(
         self,
         builder: PromptBuilder,
     ) -> bool:
-        """
-        Optimize the conversation after the ContextMonitor
-        has determined that the configured threshold was reached.
-
-        The approximate context token count was already
-        calculated by RunContext.
-
-        No additional token counting is performed here.
-        """
 
         conversation_provider = (
             builder.context.agent.conversation
@@ -107,29 +77,10 @@ class DefaultContextStrategy(
 
             return False
 
-        llm = builder.context.agent.llm
-
-        budget = ContextBudget.from_llm(
-            llm,
-        )
-
-        if budget.max_prompt_tokens is None:
-
-            logger.debug(
-                "Conversation optimization skipped: "
-                "LLM does not expose a maximum prompt size.",
-            )
-
-            return False
-
         run_context = (
             builder.context.run_context
         )
 
-        #
-        # This value was already calculated by the
-        # ContextMonitor when the runtime message was added.
-        #
         current_tokens = (
             run_context.context_tokens
         )
@@ -143,114 +94,216 @@ class DefaultContextStrategy(
 
             return False
 
-        #
-        # The monitor owns the optimization trigger.
-        #
+        initial_tokens = current_tokens
+
         threshold = (
             run_context.session.context_monitor.threshold
         )
 
-        logger.debug(
-            "Context threshold reached at approximately "
-            "%s tokens. Threshold: %s.",
-            current_tokens,
-            threshold,
+        full_context_floor = max(
+            1,
+            int(
+                threshold
+                * self.OPTIMIZATION_FLOOR_RATIO
+            ),
         )
 
-        #
-        # Create headroom below the trigger threshold.
-        #
-        target_tokens = int(
-            threshold
-            * self.OPTIMIZATION_TARGET_RATIO
+        conversation_retention_floor = max(
+            1,
+            int(
+                threshold
+                * self.MIN_CONVERSATION_RETENTION_RATIO
+            ),
         )
 
-        #
-        # Never request a target larger than the model's
-        # available prompt budget.
-        #
-        target_tokens = min(
-            target_tokens,
-            budget.max_prompt_tokens,
+        current_user_message = (
+            run_context.current_user_message
         )
 
-        #
-        # Make sure the target is actually below the
-        # current context size.
-        #
-        if target_tokens >= current_tokens:
+        if current_user_message is None:
 
-            logger.debug(
+            logger.warning(
                 "Conversation optimization skipped: "
-                "target tokens (%s) are not below "
-                "current tokens (%s).",
-                target_tokens,
+                "current user message is unavailable.",
+            )
+
+            run_context.mark_context_optimized(
                 current_tokens,
             )
 
             return False
 
-        logger.debug(
-            "Optimizing conversation from approximately "
-            "%s tokens to approximately %s tokens.",
-            current_tokens,
-            target_tokens,
+        current_user_tokens = (
+            count_tokens_approximately(
+                builder.context.agent.llm.to_provider_messages(
+                    [current_user_message],
+                ),
+            )
         )
 
-        #
-        # Use the configured optimizer when supplied.
-        #
+        minimum_safe_context = (
+            current_user_tokens
+            + conversation_retention_floor
+        )
+
+        optimization_target = max(
+            full_context_floor,
+            minimum_safe_context,
+        )
+
+        logger.info(
+            "Context optimization started. "
+            "Current: %s. "
+            "Threshold: %s. "
+            "User message: %s. "
+            "Target: %s.",
+            current_tokens,
+            threshold,
+            current_user_tokens,
+            optimization_target,
+        )
+
+        if optimization_target >= current_tokens:
+
+            logger.info(
+                "Conversation optimization skipped. "
+                "Current context is already at or below "
+                "the minimum safe context. "
+                "Current: %s. "
+                "Target: %s.",
+                current_tokens,
+                optimization_target,
+            )
+
+            run_context.mark_context_optimized(
+                current_tokens,
+            )
+
+            return False
+
         optimizer = self._optimizer
 
-        #
-        # Otherwise create the default optimizer for
-        # the current conversation provider.
-        #
         if optimizer is None:
 
             optimizer = DefaultConversationOptimizer(
                 provider=conversation_provider,
             )
 
-        #
-        # IMPORTANT:
-        #
-        # current_tokens came from ContextMonitor.
-        #
-        # No second token count happens here.
-        #
-        result = await optimizer.optimize(
-            conversation=(
-                builder.context.conversation_context
-            ),
-            current_tokens=current_tokens,
-            target_tokens=target_tokens,
-        )
+        optimized = False
 
-        if result.optimized:
+        while current_tokens > optimization_target:
+
+            await asyncio.sleep(0)
+
+            tokens_before = current_tokens
+
+            logger.debug(
+                "Optimization pass started. "
+                "Current: %s. "
+                "Target: %s.",
+                tokens_before,
+                optimization_target,
+            )
+
+            result = await optimizer.optimize(
+                conversation=(
+                    builder.context.conversation_context
+                ),
+                current_tokens=tokens_before,
+                target_tokens=optimization_target,
+                run_context=run_context,
+            )
+
+            if not result.optimized:
+
+                if result.exhausted:
+
+                    logger.warning(
+                        "Conversation optimization exhausted. "
+                        "Current: %s. "
+                        "Target: %s. "
+                        "Reason: %s",
+                        tokens_before,
+                        optimization_target,
+                        result.reason,
+                    )
+
+                else:
+
+                    logger.debug(
+                        "Conversation optimization made no "
+                        "changes. Current: %s. Reason: %s",
+                        tokens_before,
+                        result.reason,
+                    )
+
+                break
+
+            optimized = True
+
+            current_tokens = (
+                run_context.session.context_monitor.count(
+                    conversation_context=(
+                        builder.context.conversation_context
+                    ),
+                    run_context=run_context,
+                )
+            )
+
+            run_context.update_context_tokens(
+                current_tokens,
+            )
+
+            tokens_saved = max(
+                0,
+                tokens_before - current_tokens,
+            )
 
             logger.info(
-                "Conversation optimized successfully. "
-                "Target: approximately %s tokens.",
-                target_tokens,
+                "Conversation optimization pass completed. "
+                "Tokens before: %s. "
+                "Tokens after: %s. "
+                "Tokens saved: %s.",
+                tokens_before,
+                current_tokens,
+                tokens_saved,
             )
 
-            return True
+            if tokens_saved <= 0:
 
-        if result.exhausted:
+                logger.warning(
+                    "Conversation optimization made no measurable "
+                    "progress. "
+                    "Tokens before: %s. "
+                    "Tokens after: %s. "
+                    "Stopping optimization loop.",
+                    tokens_before,
+                    current_tokens,
+                )
 
-            logger.warning(
-                "Conversation optimization exhausted. "
-                "Reason: %s",
-                result.reason,
-            )
+                break
 
-            return False
-
-        logger.debug(
-            "Conversation optimization made no changes. "
-            "Reason: %s",
-            result.reason,
+        total_tokens_saved = max(
+            0,
+            initial_tokens - current_tokens,
         )
 
-        return False
+        if optimized:
+
+            logger.info(
+                "Conversation optimization phase completed. "
+                "Initial tokens: %s. "
+                "Final tokens: %s. "
+                "Total tokens saved: %s. "
+                "Target: %s.",
+                initial_tokens,
+                current_tokens,
+                total_tokens_saved,
+                optimization_target,
+            )
+
+        run_context.mark_context_optimized(
+            current_tokens,
+        )
+
+        return optimized
