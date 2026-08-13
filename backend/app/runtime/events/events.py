@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any
 from abc import ABC
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
@@ -234,9 +235,9 @@ class Status(str, Enum):
         "I wasn't able to complete that successfully.",
     )
 
-    MAX_ITERATION = (
-        "max_iteration",
-        "I wasn't able to complete that successfully.",
+    MAX_ITERATIONS = (
+        "max_iterations",
+        "I've reached the processing limit, so I'm finishing with what I have...",
     )
 
     CANCELLED = (
@@ -263,7 +264,9 @@ class Status(str, Enum):
 
 @dataclass(slots=True)
 class StatusEvent:
+
     status: Status
+
     metadata: dict[str, Any] = field(
         default_factory=dict,
     )
@@ -274,9 +277,6 @@ class StatusEvent:
 
 
 class EventType(str, Enum):
-    """
-    Standard event categories emitted by the runtime.
-    """
 
     STATUS = "status"
 

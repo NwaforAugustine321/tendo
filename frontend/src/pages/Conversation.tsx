@@ -50,34 +50,16 @@ export function Conversation({
   const lastMsgId = useRef("");
   const currentBusinessId = useRef<string | null>(null);
 
-  // Voice connection disabled for now
-  // Connect/reconnect when profile or session changes
-  // useEffect(() => {
-  //   const businessId = currentProfile?.id || ''
-  //   if (!businessId) return
-  //   if (connected.current) {
-  //     voice.disconnect()
-  //     setThinking(false)
-  //     connected.current = false
-  //   }
-  //   currentBusinessId.current = businessId
-  //   if (sessionId) {
-  //     connected.current = true
-  //     voice.connect({ sessionId, businessId })
-  //   } else {
-  //     resumeSession(businessId).then(({ session_id }) => {
-  //       connected.current = true
-  //       voice.connect({ sessionId: session_id, businessId })
-  //     }).catch((err) => {
-  //       console.error('Failed to resume session:', err)
-  //       connected.current = true
-  //       voice.connect({ businessId })
-  //     })
-  //   }
-  //   navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {})
-  // }, [currentProfile?.id, sessionId])
+  useEffect(() => {
+    const bizId = currentProfile?.id;
+    if (bizId) {
+      voice.warmConnect({ sessionId, businessId: bizId });
+    }
+    return () => {
+      voice.disconnect();
+    };
+  }, [currentProfile?.id, sessionId]);
 
-  // Listen for voice toggle from the insights big mic circle
   useEffect(() => {
     const handleVoiceToggleEvent = async () => {
       if (voice.isListening) {
@@ -251,8 +233,8 @@ export function Conversation({
   };
 
   const handleVoiceToggle = async () => {
-    if (voice.isListening) {
-      voice.disconnect();
+    if (voice.isListening || voice.isSpeaking) {
+      voice.stopListening();
       setWakeActive(false);
     } else {
       const bizId = currentProfile?.id;
@@ -304,8 +286,8 @@ export function Conversation({
         onSendText={handleSendText}
         onVoiceRecorded={() => {}}
         onVoiceToggle={handleVoiceToggle}
-        isListening={voice.isListening}
-        voiceLoading={voice.state === "connecting"}
+        isListening={voice.isListening || voice.isSpeaking}
+        voiceLoading={voice.state === "connecting" || voice.state === "warming"}
         onOptionSelect={handleOptionSelect}
         onConfirm={() => handleOptionSelect("confirm")}
         onModify={() => {}}

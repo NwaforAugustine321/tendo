@@ -9,7 +9,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-_llm = get_client()
+_llm_instance = None
+
+
+def _get_llm():
+    global _llm_instance
+    if _llm_instance is None:
+        _llm_instance = get_client()
+    return _llm_instance
 
 
 class DefaultSummarizer(
@@ -33,7 +40,7 @@ class DefaultSummarizer(
         self._llm = (
             llm
             if llm is not None
-            else LangChainLLM(model=_llm)
+            else LangChainLLM(model=_get_llm())
         )
 
         self._instructions = (

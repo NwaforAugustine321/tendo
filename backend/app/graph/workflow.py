@@ -8,10 +8,9 @@ from langgraph.config import get_config
 from langgraph.config import get_stream_writer
 from langgraph.runtime import Runtime
 from langchain_core.runnables import RunnableConfig
-
+from app.runtime.events.events import (EventType, StatusEvent)
 
 logger = logging.getLogger(__name__)
-
 
 
 class State(TypedDict):
@@ -24,29 +23,34 @@ class State(TypedDict):
     record_id: str
 
 
-async def planner_node(state: State,config: RunnableConfig, runtime: Runtime):
+async def planner_node(state: State, config: RunnableConfig, runtime: Runtime):
     writer = get_stream_writer()
     # config = get_config()
     context = runtime.context
 
     session = {
-       "vc_session": context['vc_session'],
-       "business_id": context["business_id"],
-       "emit_event": context["emit_event"],
-       "session_id": context["session_id"],
-       "user_id": context['user_id'],
-       "record_id": context["record_id"]
+        "vc_session": context['vc_session'],
+        "business_id": context["business_id"],
+        "emit_event": context["emit_event"],
+        "session_id": context["session_id"],
+        "user_id": context['user_id'],
+        "record_id": context["record_id"]
     }
 
+    async def progress_callback(event: StatusEvent):
+        print('event >>>>>>>>>>>', event.message)
+        # handle = context['vc_session'].say(
+        #     event.message, allow_interruptions=True)
+        # await handle.wait_for_playout()
+
     emit_event = context.get("emit_event")
-    planner =  Planner(session=session)
+    planner = Planner(session=session, callbacks=[progress_callback])
     messages = state["messages"]
-    
 
     user_message = ""
     for msg in messages:
         if isinstance(msg, HumanMessage):
-           user_message = msg.content
+            user_message = msg.content
 
     if not user_message:
         writer("I didn't catch that. Could you repeat?")
@@ -58,7 +62,7 @@ async def planner_node(state: State,config: RunnableConfig, runtime: Runtime):
             "data": user_message,
         })
     response = await planner.run(user_message=user_message, messages=messages)
-    writer(response  or "")
+    writer(response or "")
     if emit_event and response:
         await emit_event("message", {
             "type": "message",

@@ -260,8 +260,6 @@ class LangChainLLM(LLM):
 
                 case _:
 
-                    raise ValueError(
-                        f"Unknown role '{message.role}'."
-                    )
+                    pass
 
         return result

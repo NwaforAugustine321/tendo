@@ -14,25 +14,47 @@ from livekit.agents import (
 )
 from livekit.plugins import langchain, nvidia
 from livekit.agents import ErrorEvent, llm, stt, tts
-import asyncio
 
 load_dotenv()
 
 if os.getenv("NVIDIA_API_KEY") is None and os.getenv("nvidia_api_key"):
     os.environ["NVIDIA_API_KEY"] = os.getenv("nvidia_api_key", "")
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logging.basicConfig(level=logging.INFO,
+                    format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("voice-worker")
+logging.getLogger("livekit.agents").setLevel(logging.WARNING)
+logging.getLogger("livekit").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-server = AgentServer()
+_warm_graph = None
+_warm_stt = None
+_warm_tts = None
+
+
+def _get_warm_resources():
+    global _warm_graph, _warm_stt, _warm_tts
+    if _warm_graph is None:
+        from app.graph.workflow import get_graph
+        _warm_graph = get_graph()
+    if _warm_stt is None:
+        _warm_stt = nvidia.STT(language_code="en-US")
+    if _warm_tts is None:
+        _warm_tts = nvidia.TTS(
+            voice="Magpie-Multilingual.EN-US.Jason",
+            language_code="en-US",
+        )
+    return _warm_graph, _warm_stt, _warm_tts
+
+
+server = AgentServer(num_idle_processes=2)
 
 
 @server.rtc_session(agent_name="tendo-voice")
 async def tendo_session(ctx: JobContext):
-
-    from app.graph.workflow import get_graph
+    graph, warm_stt, warm_tts = _get_warm_resources()
 
     metadata_str = ctx.job.metadata or ctx.room.metadata or "{}"
     try:
@@ -43,48 +65,39 @@ async def tendo_session(ctx: JobContext):
     business_id = meta.get("business_id", "")
     session_id = meta.get("session_id", "")
     record_id = meta.get("record_id", "")
-    thread_id = meta.get("thread_id", "")
     user_id = meta.get("user_id", "")
 
     if not business_id:
-        logger.error("[tendo_session] No business id ")
-        payload = {"type": "error", "data": "Unauthorized, no business id"}
-        data = json.dumps(payload).encode("utf-8")
-        await ctx.room.local_participant.publish_data(data, reliable=True)
+        logger.error("[tendo_session] No business id")
+        await ctx.shutdown()
         return
 
     if not session_id:
         logger.error("[tendo_session] No session id")
-        payload = {"type": "error", "data": "Unauthorized, no session id"}
-        data = json.dumps(payload).encode("utf-8")
-        await ctx.room.local_participant.publish_data(data, reliable=True)
+        await ctx.shutdown()
         return
 
     if not user_id:
         logger.error("[tendo_session] No user id")
-        payload = {"type": "error", "data": "Unauthorized, no user id"}
-        data = json.dumps(payload).encode("utf-8")
-        await ctx.room.local_participant.publish_data(data, reliable=True)
+        await ctx.shutdown()
         return
 
-    logger.info(f"[tendo_session] business_id={business_id} session_id={session_id}")
+    logger.info(
+        f"[tendo_session] business_id={business_id} session_id={session_id}")
     ctx.log_context_fields = {"room": ctx.room.name}
 
     session = AgentSession(
-        stt=nvidia.STT(language_code="en-US"),
-        tts=nvidia.TTS(
-            voice="Magpie-Multilingual.EN-US.Jason",
-            language_code="en-US",
-        ),
+        stt=warm_stt,
+        tts=warm_tts,
         turn_handling=TurnHandlingOptions(
             turn_detection=inference.TurnDetector(),
             interruption={
-               "mode": "adaptive",
-               "backchannel_boundary": (0.5, 2.0)
+                "mode": "adaptive",
+                "backchannel_boundary": (0.5, 2.0)
             },
             endpointing={
-               "mode": "dynamic"
-           },
+                "mode": "dynamic"
+            },
         ),
     )
 
@@ -104,7 +117,7 @@ async def tendo_session(ctx: JobContext):
     agent = Agent(
         instructions="",
         llm=langchain.LLMAdapter(
-            graph=get_graph(),
+            graph=graph,
             stream_mode="custom",
             context=context,
             config={"configurable": {"thread_id": session_id}}
@@ -135,9 +148,7 @@ async def tendo_session(ctx: JobContext):
         logger.info("[tendo_session] Session closed")
 
     async def _shutdown():
-        logger.info("[tendo_session] Shutting down...")
         await session.aclose()
-        logger.info("[tendo_session] Shutdown complete")
 
     ctx.add_shutdown_callback(_shutdown)
 

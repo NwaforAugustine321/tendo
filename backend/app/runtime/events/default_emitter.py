@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from .emitter import (
@@ -12,7 +13,14 @@ class DefaultEmitter(
     Emitter,
 ):
     """
-    Default  event emitter.
+    Default in-process event emitter.
+
+    Supports:
+    - Multiple callbacks per event.
+    - Synchronous callbacks.
+    - Asynchronous callbacks.
+    - Event-specific subscriptions.
+    - Duplicate callback protection.
     """
 
     def __init__(self) -> None:
@@ -22,6 +30,23 @@ class DefaultEmitter(
             list[Callback],
         ] = {}
 
+    @staticmethod
+    def _event_key(
+        event: str,
+    ) -> str:
+        """
+        Normalize an event into a string key.
+
+        Supports both plain string events and
+        Enum-based events such as EventType.STATUS.
+        """
+
+        return (
+            event.value
+            if hasattr(event, "value")
+            else event
+        )
+
     def on(
         self,
         event: str,
@@ -30,19 +55,26 @@ class DefaultEmitter(
         """
         Register callbacks for a specific event.
 
+        The same callback will only be registered
+        once for the same event.
         """
 
         if not callbacks:
             return
 
-        registered = self._callbacks.setdefault(
+        event_key = self._event_key(
             event,
+        )
+
+        registered = self._callbacks.setdefault(
+            event_key,
             [],
         )
 
         for callback in callbacks:
 
             if callback not in registered:
+
                 registered.append(
                     callback,
                 )
@@ -54,10 +86,19 @@ class DefaultEmitter(
     ) -> None:
         """
         Remove callbacks from a specific event.
+
+        Missing callbacks are ignored.
         """
 
-        registered = self._callbacks.get(
+        if not callbacks:
+            return
+
+        event_key = self._event_key(
             event,
+        )
+
+        registered = self._callbacks.get(
+            event_key,
         )
 
         if not registered:
@@ -73,8 +114,9 @@ class DefaultEmitter(
                 continue
 
         if not registered:
+
             self._callbacks.pop(
-                event,
+                event_key,
                 None,
             )
 
@@ -88,18 +130,29 @@ class DefaultEmitter(
         for that specific event.
         """
 
-        callbacks = self._callbacks.get(
+        event_key = self._event_key(
             event,
+        )
+
+        callbacks = self._callbacks.get(
+            event_key,
         )
 
         if not callbacks:
             return
 
+        #
+        # Use a snapshot so callbacks can safely
+        # register or unregister callbacks while
+        # an event is being emitted.
+        #
         for callback in tuple(callbacks):
 
             result = callback(
                 payload,
             )
 
-            if result is not None:
+            if inspect.isawaitable(
+                result,
+            ):
                 await result

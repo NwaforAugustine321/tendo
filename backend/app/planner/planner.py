@@ -36,19 +36,17 @@ planner_specialist_spec = LoaderAgentSpec.from_spec(
 prompt = f"Role:\n{planner_specialist_spec.role}\n\nBackstory:\n{planner_specialist_spec.backstory}\n\nGoal:\n{planner_specialist_spec.goal}\n"
 
 
-def progress_callback(event: StatusEvent):
-    print('event >>>>>>>>>>>', event.message)
-
-
 emitter = DefaultEmitter()
 
-emitter.on(EventType.PROGRESS, [progress_callback])
+_llm_instance = None
 
-_llm = get_client()
 
-llm = LangChainLLM(
-    model=_llm
-)
+def _get_llm():
+    global _llm_instance
+    if _llm_instance is None:
+        _llm_instance = LangChainLLM(model=get_client())
+    return _llm_instance
+
 
 logger = logging.getLogger(__name__)
 
@@ -253,7 +251,7 @@ async def _run_sequential(agents: list[dict], shared_constraints: str, session: 
 
 class Planner:
 
-    def __init__(self, session: dict = {}) -> None:
+    def __init__(self, session: dict = {}, callbacks: list[Any] | None = []) -> None:
         self._session = session
         self._session_id = self._session.get("session_id", "")
         self._business_id = self._session.get("business_id", "")
@@ -265,6 +263,8 @@ class Planner:
             table_name="conversations",
         )
         manifests = self._load_manifests()
+
+        emitter.on(EventType.PROGRESS, callbacks)
 
         system_context = (
             f"{manifests['agents']}\n\n"
@@ -284,7 +284,7 @@ class Planner:
         agent = Agent(
             name="Assistant",
 
-            llm=llm,
+            llm=_get_llm(),
             memory=create_memory_provider(namespace=self._business_id),
             rag=create_rag_provider(namespace=self._business_id),
             conversation=create_conversation_provider(

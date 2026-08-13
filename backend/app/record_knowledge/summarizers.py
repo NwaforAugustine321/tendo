@@ -10,11 +10,15 @@ logger = logging.getLogger(__name__)
 MAX_RETRIES = 5
 MAX_LENGTH = 500
 
-_llm = get_client()
+_llm_instance = None
 
-llm = LangChainLLM(
-    model=_llm
-)
+
+def _get_llm():
+    global _llm_instance
+    if _llm_instance is None:
+        _llm_instance = LangChainLLM(model=get_client())
+    return _llm_instance
+
 
 system_prompt = (
     "You summarize content naturally, as if explaining it to someone who hasn't seen it.\n\n"
@@ -44,11 +48,18 @@ user_prompt = (
 record_system_prompt = ()
 record_user_prompt = ()
 
-agent = Agent(
-    name="Summarizer Specialist",
-    llm=llm,
-    instructions=system_prompt,
-)
+_agent_instance = None
+
+
+def _get_agent():
+    global _agent_instance
+    if _agent_instance is None:
+        _agent_instance = Agent(
+            name="Summarizer Specialist",
+            llm=_get_llm(),
+            instructions=system_prompt,
+        )
+    return _agent_instance
 
 
 def _parse_tagged_response(text: str) -> tuple[str, str, list[str]]:
@@ -78,7 +89,7 @@ async def generate_record_summary(content: str, max_length: int = MAX_LENGTH) ->
 
     for attempt in range(MAX_RETRIES):
         try:
-            _session = agent.create_session()
+            _session = _get_agent().create_session()
             response = await _session.run(user_prompt.replace("{content}",  str(content)))
             response_text = response.text if hasattr(
                 response, "text") else str(response)
@@ -106,7 +117,7 @@ async def generate_record_overview(business_id: str, record_id: str):
 
         agent = Agent(
             name="Insight Specialist",
-            llm=llm,
+            llm=_get_llm(),
             memory=create_memory_provider(
                 namespace=business_id, scopes=scopes),
             rag=create_rag_provider(namespace=business_id, scopes=scopes),

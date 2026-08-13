@@ -219,7 +219,7 @@ class AgentRunner:
                     )
 
                     await run_context.emitter.emit(
-                        EventType.ANALYZING,
+                        EventType.PROGRESS,
                         StatusEvent(
                             status=Status.USING_TOOL
                         ),

@@ -27,11 +27,14 @@ insight_specialist_spec = LoaderAgentSpec.from_spec(
 
 prompt = f"Role:\n{insight_specialist_spec.role}\n\nBackstory:\n{insight_specialist_spec.backstory}\n\nGoal:\n{insight_specialist_spec.goal}\n"
 
-_llm = get_client()
+_llm_instance = None
 
-llm = LangChainLLM(
-    model=_llm
-)
+
+def _get_llm():
+    global _llm_instance
+    if _llm_instance is None:
+        _llm_instance = LangChainLLM(model=get_client())
+    return _llm_instance
 
 
 async def process_record_content(record_content: RecordContentInput) -> ProcessingResult:

@@ -81,6 +81,11 @@ class DefaultContextStrategy(
                 budget.max_prompt_tokens,
             )
 
+            if current_tokens <= budget.max_prompt_tokens:
+                print('Not summarizing >>>>>>')
+            else:
+                print('Summarizing now >>>>>>')
+
             #
             # Prompt fits.
             #

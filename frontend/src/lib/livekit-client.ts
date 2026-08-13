@@ -1,4 +1,3 @@
-
 import {
   Room,
   RoomEvent,
@@ -10,52 +9,34 @@ import {
   LocalAudioTrack,
   createLocalAudioTrack,
   ConnectionState,
-} from 'livekit-client'
+} from "livekit-client";
 
 export type VoiceCallbacks = {
-  onConnected: () => void
-  onDisconnected: () => void
-  onAgentReady: () => void
-  onUserSpeakingChange: (speaking: boolean) => void
-  onAgentSpeakingChange: (speaking: boolean) => void
-  onMessage: (data: any) => void
-  onThinking: (text: string) => void
-  onTranscript: (text: string) => void
-  onTurnComplete: () => void
-  onError: (error: string) => void
-}
+  onConnected: () => void;
+  onDisconnected: () => void;
+  onAgentReady: () => void;
+  onAgentLeft: () => void;
+  onUserSpeakingChange: (speaking: boolean) => void;
+  onAgentSpeakingChange: (speaking: boolean) => void;
+  onMessage: (data: any) => void;
+  onThinking: (text: string) => void;
+  onTranscript: (text: string) => void;
+  onTurnComplete: () => void;
+  onError: (error: string) => void;
+};
 
 export class LiveKitVoiceClient {
-  private room: Room | null = null
-  private localTrack: LocalAudioTrack | null = null
-  private callbacks: VoiceCallbacks
-  private audioElement: HTMLAudioElement | null = null
-
-  private reconnectAttempts = 0
-  private maxReconnectAttempts = 3
-  private reconnectDelay = 5000
-  private reconnectTimer: ReturnType<typeof setInterval> | null = null
-  private lastUrl = ''
-  private lastToken = ''
-  private onReconnectNeeded: (() => void) | null = null
-  private isReconnecting = false
-  private agentReady = false
+  private room: Room | null = null;
+  private localTrack: LocalAudioTrack | null = null;
+  private callbacks: VoiceCallbacks;
+  private audioElement: HTMLAudioElement | null = null;
+  private agentReady = false;
 
   constructor(callbacks: VoiceCallbacks) {
-    this.callbacks = callbacks
-  }
-
-  setReconnectHandler(handler: () => void) {
-    this.onReconnectNeeded = handler
+    this.callbacks = callbacks;
   }
 
   async connect(url: string, token: string) {
-    this.lastUrl = url
-    this.lastToken = token
-    this.reconnectAttempts = 0
-    this.isReconnecting = false
-    this.stopReconnectTimer()
-
     this.room = new Room({
       adaptiveStream: true,
       dynacast: true,
@@ -64,218 +45,195 @@ export class LiveKitVoiceClient {
         noiseSuppression: true,
         autoGainControl: true,
       },
-    })
+    });
 
     this.room.on(RoomEvent.Connected, () => {
-      this.reconnectAttempts = 0
-      this.stopReconnectTimer()
-      this.callbacks.onConnected()
-    })
+      this.callbacks.onConnected();
+    });
 
     this.room.on(RoomEvent.Disconnected, () => {
-      this.agentReady = false
-      this.detachAudio()
-      this.callbacks.onAgentSpeakingChange(false)
-      this.callbacks.onDisconnected()
-      if (!this.isReconnecting) {
-        this.isReconnecting = true
-        this.attemptReconnect()
-      }
-    })
+      this.agentReady = false;
+      this.detachAudio();
+      this.callbacks.onAgentSpeakingChange(false);
+      this.callbacks.onDisconnected();
+    });
 
-    this.room.on(RoomEvent.ParticipantDisconnected, (_participant: RemoteParticipant) => {
-      this.detachAudio()
-      this.callbacks.onAgentSpeakingChange(false)
-      if (!this.isReconnecting) {
-        this.isReconnecting = true
-        this.room?.disconnect()
-        this.room = null
-        if (this.onReconnectNeeded && this.reconnectAttempts < this.maxReconnectAttempts) {
-          this.reconnectAttempts++
-          setTimeout(() => {
-            if (this.onReconnectNeeded) this.onReconnectNeeded()
-          }, this.reconnectDelay)
+    this.room.on(
+      RoomEvent.ParticipantDisconnected,
+      (_participant: RemoteParticipant) => {
+        this.agentReady = false;
+        this.detachAudio();
+        this.callbacks.onAgentSpeakingChange(false);
+        this.callbacks.onAgentLeft();
+      },
+    );
+
+    this.room.on(
+      RoomEvent.TrackSubscribed,
+      (
+        track: RemoteTrack,
+        _pub: RemoteTrackPublication,
+        _participant: RemoteParticipant,
+      ) => {
+        if (track.kind === Track.Kind.Audio) {
+          if (!this.agentReady) {
+            this.agentReady = true;
+            this.callbacks.onAgentReady();
+          }
+          this.attachAudio(track);
+          track.on(TrackEvent.Ended, () =>
+            this.callbacks.onAgentSpeakingChange(false),
+          );
         }
-      }
-    })
+      },
+    );
 
-    // Agent publishes audio track — attach it for playback
-    this.room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub: RemoteTrackPublication, _participant: RemoteParticipant) => {
-      if (track.kind === Track.Kind.Audio) {
-        if (!this.agentReady) {
-          this.agentReady = true
-          this.callbacks.onAgentReady()
+    this.room.on(
+      RoomEvent.ParticipantAttributesChanged,
+      (
+        changedAttributes: Record<string, string>,
+        _participant: RemoteParticipant,
+      ) => {
+        const agentState = changedAttributes["lk.agent.state"];
+        if (!agentState) return;
+
+        if (agentState === "listening" && !this.agentReady) {
+          this.agentReady = true;
+          this.callbacks.onAgentReady();
         }
-        this.attachAudio(track)
-        track.on(TrackEvent.Ended, () => this.callbacks.onAgentSpeakingChange(false))
-      }
-    })
 
-    // Agent participant joins — not yet ready, wait for agent state
-    this.room.on(RoomEvent.ParticipantConnected, () => {})
+        if (agentState === "speaking") {
+          this.callbacks.onAgentSpeakingChange(true);
+        } else if (agentState === "listening" || agentState === "thinking") {
+          this.callbacks.onAgentSpeakingChange(false);
+        }
+      },
+    );
 
-    // Agent state changes — controls ready state and speaking
-    this.room.on(RoomEvent.ParticipantAttributeChanged, (changedAttributes: Record<string, string>, participant: RemoteParticipant) => {
-      const agentState = changedAttributes['lk.agent.state']
-      if (!agentState) return
-
-      if (agentState === 'listening' && !this.agentReady) {
-        this.agentReady = true
-        this.callbacks.onAgentReady()
-      }
-
-      if (agentState === 'speaking') {
-        this.callbacks.onAgentSpeakingChange(true)
-      } else if (agentState === 'listening' || agentState === 'thinking') {
-        this.callbacks.onAgentSpeakingChange(false)
-      }
-    })
-
-    // Check if agent is already in listening state
     for (const [, p] of this.room.remoteParticipants) {
-      if (p.attributes?.['lk.agent.state'] === 'listening' && !this.agentReady) {
-        this.agentReady = true
-        this.callbacks.onAgentReady()
-        break
+      if (
+        p.attributes?.["lk.agent.state"] === "listening" &&
+        !this.agentReady
+      ) {
+        this.agentReady = true;
+        this.callbacks.onAgentReady();
+        break;
       }
     }
 
     this.room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
       if (track.kind === Track.Kind.Audio) {
-        this.detachAudio()
-        this.callbacks.onAgentSpeakingChange(false)
+        this.detachAudio();
+        this.callbacks.onAgentSpeakingChange(false);
       }
-    })
+    });
 
-    // Agent sends data messages (transcripts, responses, thinking)
     this.room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
       try {
-        const text = new TextDecoder().decode(payload)
-        const data = JSON.parse(text)
+        const text = new TextDecoder().decode(payload);
+        const data = JSON.parse(text);
 
         switch (data.type) {
-          case 'transcript':
-            this.callbacks.onTranscript(data.data || '')
-            break
-          case 'message':
-            this.callbacks.onMessage(data.data)
-            break
-          case 'thinking':
-            this.callbacks.onThinking(data.data || '')
-            break
-          case 'turn_complete':
-            this.callbacks.onTurnComplete()
-            break
-          case 'error':
-            this.callbacks.onError(data.data || 'Unknown error')
-            break
+          case "transcript":
+            this.callbacks.onTranscript(data.data || "");
+            break;
+          case "message":
+            this.callbacks.onMessage(data.data);
+            break;
+          case "thinking":
+            this.callbacks.onThinking(data.data || "");
+            break;
+          case "turn_complete":
+            this.callbacks.onTurnComplete();
+            break;
+          case "error":
+            this.callbacks.onError(data.data || "Unknown error");
+            break;
         }
-      } catch {
-        // ignore non-JSON
-      }
-    })
+      } catch {}
+    });
 
-    // Track when the local user is speaking (via active speakers)
     this.room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
-      const local = this.room?.localParticipant
-      if (!local) return
-      const speaking = speakers.some(s => s.sid === local.sid)
-      this.callbacks.onUserSpeakingChange(speaking)
-    })
+      const local = this.room?.localParticipant;
+      if (!local) return;
+      const speaking = speakers.some((s) => s.sid === local.sid);
+      this.callbacks.onUserSpeakingChange(speaking);
+    });
 
-    await this.room.connect(url, token)
+    await this.room.connect(url, token);
   }
 
   async startMic() {
-    if (!this.room) throw new Error('Not connected')
+    if (!this.room) throw new Error("Not connected");
 
-    this.localTrack = await createLocalAudioTrack({
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    })
+    if (!this.localTrack) {
+      this.localTrack = await createLocalAudioTrack({
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      });
+    }
 
-    await this.room.localParticipant.publishTrack(this.localTrack)
+    await this.room.localParticipant.publishTrack(this.localTrack);
   }
 
   stopMic() {
     if (this.localTrack) {
-      this.room?.localParticipant.unpublishTrack(this.localTrack)
-      this.localTrack.stop()
-      this.localTrack = null
+      this.room?.localParticipant.unpublishTrack(this.localTrack);
+      this.localTrack.stop();
+      this.localTrack = null;
     }
   }
 
   sendText(text: string, metadata?: Record<string, string>) {
-    if (!this.room || this.room.state !== ConnectionState.Connected) return false
+    if (!this.room || this.room.state !== ConnectionState.Connected)
+      return false;
 
-    const payload = JSON.stringify({ type: 'text', data: text, ...metadata })
-    this.room.localParticipant.publishData(
-      new TextEncoder().encode(payload),
-      { reliable: true }
-    )
-    return true
+    const payload = JSON.stringify({ type: "text", data: text, ...metadata });
+    this.room.localParticipant.publishData(new TextEncoder().encode(payload), {
+      reliable: true,
+    });
+    return true;
   }
 
   private attachAudio(track: RemoteTrack) {
     if (!this.audioElement) {
-      this.audioElement = document.createElement('audio')
-      this.audioElement.autoplay = true
-      document.body.appendChild(this.audioElement)
+      this.audioElement = document.createElement("audio");
+      this.audioElement.autoplay = true;
+      (this.audioElement as any).playsInline = true;
+      document.body.appendChild(this.audioElement);
     }
-    track.attach(this.audioElement)
+    track.attach(this.audioElement);
+    this.audioElement.play().catch(() => {});
   }
 
   private detachAudio() {
     if (this.audioElement) {
-      this.audioElement.pause()
-      this.audioElement.srcObject = null
+      this.audioElement.pause();
+      this.audioElement.srcObject = null;
     }
   }
 
   isConnected(): boolean {
-    return this.room?.state === ConnectionState.Connected
+    return this.room?.state === ConnectionState.Connected;
   }
 
   isAgentReady(): boolean {
-    return this.agentReady
+    return this.agentReady;
   }
 
-  private async attemptReconnect() {
-    if (this.isReconnecting) return
-
-    this.isReconnecting = true
-    this.room?.disconnect()
-    this.room = null
-
-    this.reconnectTimer = setInterval(() => {
-      if (this.room?.state === ConnectionState.Connected) {
-        this.stopReconnectTimer()
-        return
-      }
-      if (this.onReconnectNeeded) {
-        this.onReconnectNeeded()
-      }
-    }, this.reconnectDelay)
-  }
-
-  private stopReconnectTimer() {
-    if (this.reconnectTimer) {
-      clearInterval(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
-    this.isReconnecting = false
+  resetAgentReady() {
+    this.agentReady = false;
   }
 
   disconnect() {
-    this.stopReconnectTimer()
-    this.maxReconnectAttempts = 0
-    this.stopMic()
+    this.stopMic();
     if (this.audioElement) {
-      this.audioElement.remove()
-      this.audioElement = null
+      this.audioElement.remove();
+      this.audioElement = null;
     }
-    this.room?.disconnect()
-    this.room = null
+    this.room?.disconnect();
+    this.room = null;
+    this.agentReady = false;
   }
 }

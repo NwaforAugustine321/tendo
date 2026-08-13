@@ -63,12 +63,9 @@ def _create_client(config: dict | None = {}, callbacks=None, provider=None):
             timeout=None,
             max_tokens=max_token,
             temperature=0.6,
-            model_kwargs={
-                "extra_body": {
-                    "max_soft_tokens": 1120,
-                    # "temperature": 0.6,
-                    "top_p": 0.95,
-                }
+            extra_body={
+                "max_soft_tokens": 1120,
+                "top_p": 0.95,
             }
         )
 
