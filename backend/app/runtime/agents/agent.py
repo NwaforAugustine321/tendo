@@ -33,7 +33,7 @@ from app.runtime.rag.provider import (
 from app.runtime.toolsets.tool_context import (
     ToolContext,
 )
-
+from app.runtime.events.emitter import Emitter
 if TYPE_CHECKING:
     from .runner import AgentRunner
     from .session import AgentSession
@@ -247,6 +247,7 @@ class Agent:
     def create_session(
         self,
         session_id: str | None = None,
+        emitter: Emitter | None = None,
     ) -> AgentSession:
         """
         Create a new conversation session.
@@ -257,4 +258,5 @@ class Agent:
         return AgentSession(
             agent=self,
             session_id=session_id,
+            emitter=emitter
         )

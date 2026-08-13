@@ -16,7 +16,11 @@ from app.runtime.guardrails.exceptions import (
 )
 from app.runtime.llm.response import LLMResponse
 from app.runtime.toolsets.executor import ToolExecutor
-
+from app.runtime.events.events import (
+    StatusEvent,
+    EventType,
+    Status
+)
 from .activity import AgentActivity
 from .session import AgentSession
 
@@ -56,12 +60,13 @@ class AgentRunner:
 
         try:
 
-            #
-            # BEFORE_RUN
-            #
-            # ConversationMiddleware persists the
-            # current user message here.
-            #
+            await run_context.emitter.emit(
+                EventType.PROGRESS,
+                StatusEvent(
+                    status=Status.STARTING
+                ),
+            )
+
             await run_context.middleware.dispatch(
                 MiddlewareEvent.BEFORE_RUN,
                 run_context,
@@ -81,6 +86,13 @@ class AgentRunner:
 
                     if blocked is not None:
 
+                        await run_context.emitter.emit(
+                            EventType.PROGRESS,
+                            StatusEvent(
+                                status=Status.FAILED
+                            ),
+                        )
+
                         assistant_message = (
                             ChatMessage.from_llm_response(
                                 blocked
@@ -91,6 +103,12 @@ class AgentRunner:
                             assistant_message,
                         )
 
+                    await run_context.emitter.emit(
+                        EventType.PROGRESS,
+                        StatusEvent(
+                            status=Status.PLANNING
+                        ),
+                    )
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.BEFORE_LLM,
                         run_context,
@@ -101,6 +119,12 @@ class AgentRunner:
                         run_context=run_context,
                     )
 
+                    await run_context.emitter.emit(
+                        EventType.PROGRESS,
+                        StatusEvent(
+                            status=Status.REASONING
+                        ),
+                    )
                     activity = AgentActivity(
                         stream=stream,
                     )
@@ -135,6 +159,12 @@ class AgentRunner:
                             assistant_message,
                         )
 
+                        await run_context.emitter.emit(
+                            EventType.PROGRESS,
+                            StatusEvent(
+                                status=Status.CANCELLED
+                            ),
+                        )
                         continue
 
                     assistant_message = (
@@ -169,6 +199,12 @@ class AgentRunner:
                     if not response.has_tool_calls:
                         return response
 
+                    await run_context.emitter.emit(
+                        EventType.PROGRESS,
+                        StatusEvent(
+                            status=Status.USING_TOOL
+                        ),
+                    )
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.BEFORE_TOOLS,
                         run_context,
@@ -180,6 +216,13 @@ class AgentRunner:
                     results = await self._tool_executor.execute(
                         tool_calls=response.tool_calls,
                         ctx=run_context,
+                    )
+
+                    await run_context.emitter.emit(
+                        EventType.ANALYZING,
+                        StatusEvent(
+                            status=Status.USING_TOOL
+                        ),
                     )
 
                     tool_messages = (
@@ -209,14 +252,33 @@ class AgentRunner:
                     )
 
                 except RetryRequest:
+                    await run_context.emitter.emit(
+                        EventType.PROGRESS,
+                        StatusEvent(
+                            status=Status.RETRYING
+                        ),
+                    )
                     continue
 
             if response is not None:
                 return response
 
-            return await self._force_final_response(
+            await run_context.emitter.emit(
+                EventType.ANALYZING,
+                StatusEvent(
+                    status=Status.MAX_ITERATION
+                ),
+            )
+            response = await self._force_final_response(
                 session=session,
                 run_context=run_context,
+            )
+
+            await run_context.emitter.emit(
+                EventType.ANALYZING,
+                StatusEvent(
+                    status=Status.REASONING
+                ),
             )
 
         except Exception as error:
@@ -263,7 +325,12 @@ class AgentRunner:
         session,
         run_context,
     ) -> LLMResponse:
-
+        await run_context.emitter.emit(
+            EventType.ANALYZING,
+            StatusEvent(
+                status=Status.FINALIZING
+            ),
+        )
         run_context.add_message(
             ChatMessage.system(
                 "You have reached the maximum number of tool iterations. "
@@ -277,6 +344,12 @@ class AgentRunner:
             run_context=run_context,
         )
 
+        await run_context.emitter.emit(
+            EventType.ANALYZING,
+            StatusEvent(
+                status=Status. REASONING
+            ),
+        )
         activity = AgentActivity(
             stream=stream,
         )

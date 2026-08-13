@@ -71,12 +71,6 @@ class DefaultSummarizer(
                     )
                 )
 
-            #
-            # Normalize the conversation before
-            # sending it to the LLM. This removes
-            # tool messages and unsupported content
-            # while preserving roles.
-            #
             prompt.extend(
                 ChatMessage.from_dicts(
                     ChatMessage.to_dicts(

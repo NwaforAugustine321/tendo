@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS record_content (
     record_id UUID NOT NULL REFERENCES records(id) ON DELETE CASCADE,
     content_type TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
     file_url TEXT DEFAULT '',
     status TEXT NOT NULL DEFAULT 'processing',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

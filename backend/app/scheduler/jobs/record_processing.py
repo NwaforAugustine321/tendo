@@ -30,7 +30,9 @@ async def _run_extraction(
     chunks = []
     try:
         if not record_id:
-            short_id = '#' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))
+            short_id = '#' + \
+                ''.join(random.choices(
+                    string.ascii_lowercase + string.digits, k=5))
             title = (metadata or {}).get("title", short_id)
             record = await create_record(business_id=business_id, title=title)
             record_id = record.get("id", "")
@@ -41,24 +43,9 @@ async def _run_extraction(
                     future.set_result("")
                 return
 
-            # Emit new record event to frontend
-            try:
-                from app.ws.socketio_server import sio
-                await sio.emit("new_record", {
-                    "id": record_id,
-                    "business_id": business_id,
-                    "title": title,
-                    "is_read": False,
-                    "content_type": content_type,
-                    "first_content": "",
-                    "created_at": record.get("created_at", ""),
-                })
-            except Exception:
-                pass
-
         chunks = await extract_and_chunk(content_type, content)
 
-        # Summarize extracted text for title and record content 
+        # Summarize extracted text for title and record content
         summary_text = ""
         title_from_summary = ""
         if chunks:
@@ -88,10 +75,13 @@ async def _run_extraction(
                     from app.db.client import get_client as _get_client
                     db = _get_client()
                     bucket_name = settings.bucket_name
-                    db.storage.from_(bucket_name).upload(file_name, file_bytes, {"content-type": mime_type})
-                    file_url = db.storage.from_(bucket_name).get_public_url(file_name)
+                    db.storage.from_(bucket_name).upload(
+                        file_name, file_bytes, {"content-type": mime_type})
+                    file_url = db.storage.from_(
+                        bucket_name).get_public_url(file_name)
                 except Exception as e:
-                    logger.warning(f"File upload failed in record processing: {e}")
+                    logger.warning(
+                        f"File upload failed in record processing: {e}")
 
             if not content_id:
                 from app.db.client import get_client as _get_client
@@ -104,10 +94,12 @@ async def _run_extraction(
                     "file_url": file_url,
                     "status": "completed",
                 }
-                result = db.table("record_content").insert(entry_data).execute()
+                result = db.table("record_content").insert(
+                    entry_data).execute()
                 content_id = result.data[0]["id"] if result.data else ""
             else:
-                update_record_content_status(content_id, business_id, "completed", content=summary_text)
+                update_record_content_status(
+                    content_id, business_id, "completed", content=summary_text)
 
             # Update record title from summary title
             if title_from_summary and record_id:
@@ -143,13 +135,15 @@ async def _run_extraction(
                     clean_metadata[key] = value
 
             memory = Memory(
-                scopes=[f"/{business_id}/record/{record_id}", f"/business/{business_id}"],
+                scopes=[f"/{business_id}/record/{record_id}",
+                        f"/business/{business_id}"],
                 business_id=business_id,
             )
 
             await memory.remember_many(
                 contents=chunks,
-                scope=[f"/{business_id}/record/{record_id}", f"/business/{business_id}"],
+                scope=[f"/{business_id}/record/{record_id}",
+                       f"/business/{business_id}"],
                 metadata={**clean_metadata, "record_id": record_id},
                 images=images,
                 audio=audio,
@@ -189,7 +183,8 @@ async def _run_extraction(
             from app.record_knowledge.understanding_agent import run_understanding_agent
             understanding = await run_understanding_agent(business_id, record_id)
             insight = understanding.get("insight", "") if understanding else ""
-            suggestions = understanding.get("suggestions", []) if understanding else []
+            suggestions = understanding.get(
+                "suggestions", []) if understanding else []
             if insight:
                 from app.ws.socketio_server import sio
                 await sio.emit("record_understanding", {
@@ -198,12 +193,15 @@ async def _run_extraction(
                     "suggestions": suggestions,
                 })
         except Exception as e:
-            logger.warning(f"Understanding generation failed for record {record_id}: {e}")
+            logger.warning(
+                f"Understanding generation failed for record {record_id}: {e}")
 
-        logger.info(f"Processed {content_type} content for record {record_id} ({len(chunks)} chunks)")
+        logger.info(
+            f"Processed {content_type} content for record {record_id} ({len(chunks)} chunks)")
 
     except Exception as e:
-        logger.error(f"Extraction failed for record {record_id}: {e}", exc_info=True)
+        logger.error(
+            f"Extraction failed for record {record_id}: {e}", exc_info=True)
         if content_id:
             try:
                 update_record_content_status(content_id, business_id, "failed")
@@ -235,13 +233,15 @@ async def schedule_extraction(
         if scheduler and scheduler.running:
             scheduler.add_job(
                 _run_extraction,
-                args=[job_id, business_id, record_id, content_type, content, content_id, metadata],
+                args=[job_id, business_id, record_id,
+                      content_type, content, content_id, metadata],
                 id=job_id,
                 max_instances=1,
                 replace_existing=True,
             )
         else:
-            logger.warning("Scheduler not running, executing extraction inline")
+            logger.warning(
+                "Scheduler not running, executing extraction inline")
             await _run_extraction(job_id, business_id, record_id, content_type, content, content_id, metadata)
 
         return await future

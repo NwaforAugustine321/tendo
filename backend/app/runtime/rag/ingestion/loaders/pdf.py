@@ -175,6 +175,14 @@ class PDFLoader(
 
                 page_json: dict[str, Any] | None = None
 
+                if os.path.exists(md_path):
+                    with open(
+                        md_path,
+                        "r",
+                        encoding="utf-8",
+                    ) as file:
+                        markdown = file.read().strip()
+
                 if os.path.exists(json_path):
 
                     with open(

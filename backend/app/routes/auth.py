@@ -2,11 +2,13 @@
 
 from fastapi import APIRouter, Depends, Response
 
-from app.models.auth import RegisterRequest, LoginRequest, AuthResponse
+from app.models.auth import RegisterRequest, LoginRequest, AuthResponse, ForgotPasswordRequest, ResetPasswordRequest
 from app.lib.auth_dependency import get_current_user
 from app.services.auth import (
     handle_register,
     handle_login,
+    handle_forgot_password,
+    handle_reset_password,
     COOKIE_NAME,
     COOKIE_MAX_AGE,
 )
@@ -57,3 +59,24 @@ async def logout(response: Response):
 @router.get("/me", response_model=AuthResponse)
 async def me(user: dict = Depends(get_current_user)):
     return AuthResponse(user_id=user["user_id"], email=user["email"], name=user["name"])
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotPasswordRequest):
+    result = await handle_forgot_password(body.email, body.redirect_to)
+    return result
+
+
+@router.post("/reset-password")
+async def reset_password(body: ResetPasswordRequest):
+    result = await handle_reset_password(body.access_token, body.new_password)
+    return result
+
+
+@router.get("/profile")
+async def get_profile(user: dict = Depends(get_current_user)):
+    return {
+        "user_id": user["user_id"],
+        "email": user["email"],
+        "name": user["name"],
+    }

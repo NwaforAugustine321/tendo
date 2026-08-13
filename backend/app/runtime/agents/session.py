@@ -11,6 +11,7 @@ from app.runtime.llm.response import LLMResponse
 from .activity import AgentActivity
 from .agent import Agent
 from .run_context import RunContext
+from app.runtime.events.default_emitter import DefaultEmitter
 
 
 class AgentSession:
@@ -34,6 +35,7 @@ class AgentSession:
         agent: Agent,
         session_id: str | None = None,
         conversation_context: ConversationContext | None = None,
+        emitter: Emitter | None = None
     ) -> None:
 
         self._id = session_id or str(uuid4())
@@ -50,6 +52,7 @@ class AgentSession:
 
         self._run_context = RunContext(
             session=self,
+            emitter=emitter or DefaultEmitter(),
         )
 
         self._current_activity: AgentActivity | None = None

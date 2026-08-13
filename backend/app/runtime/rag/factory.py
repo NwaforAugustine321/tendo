@@ -22,7 +22,7 @@ from .provider import (
 _provider: RAGProvider | None = None
 
 
-def create_rag_provider(namespace: str) -> RAGProvider:
+def create_rag_provider(namespace: str, scopes: list[str] | None = None) -> RAGProvider:
     """
     Create the default RAG provider.
 
@@ -34,7 +34,7 @@ def create_rag_provider(namespace: str) -> RAGProvider:
     - DefaultDocumentSplitter for chunking
     """
 
-    store = LanceRAGStore(namespace=namespace)
+    store = LanceRAGStore(namespace=namespace, scopes=scopes)
 
     ingestion = DocumentIngestionPipeline(
         loader=DefaultDocumentLoader(),

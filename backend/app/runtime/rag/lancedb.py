@@ -43,6 +43,8 @@ def create_rag_schema(
 
         source: str = ""
 
+        scopes: list[str] = Field(default_factory=list)
+
         metadata: str = Field(
             default="{}",
         )
@@ -71,12 +73,15 @@ class LanceRAGStore(
         table_name: str = "knowledge",
         uri: str | Path = "./data/rag",
         embeddings: EmbeddingProvider | None = None,
+        scopes: list[str] | None = None,
     ) -> None:
 
         self._embeddings = (
             embeddings
             or get_embedding_client()
         )
+
+        self._scopes = scopes or []
 
         self._db = (
             db
@@ -117,6 +122,7 @@ class LanceRAGStore(
         query: str,
         limit: int = 5,
         distance_threshold: float = 0.75,
+        scopes: list[str] | None = None,
     ) -> RAGContext:
 
         if not query.strip():
@@ -126,12 +132,19 @@ class LanceRAGStore(
             query,
         )
 
+        merged_scopes = list(set(self._scopes + (scopes or [])))
+
         rows = (
             self._table.search(vector)
             .metric("cosine")
             .limit(limit)
-            .to_list()
         )
+
+        if merged_scopes:
+            escaped = ", ".join(f"'{s}'" for s in merged_scopes)
+            rows = rows.where(f"array_has_any(scopes, [{escaped}])")
+
+        rows = rows.to_list()
 
         # Filter out results that are too far from the query
         # Cosine distance: 0 = identical, ~0.6-0.7 = somewhat related, >1.0 = unrelated
@@ -169,10 +182,13 @@ class LanceRAGStore(
         self,
         *,
         documents: list[RAGDocument],
+        scopes: list[str] | None = None,
     ) -> None:
 
         if not documents:
             return
+
+        merged_scopes = list(set(self._scopes + (scopes or [])))
 
         vectors = await self._embed_documents(
             [
@@ -198,6 +214,7 @@ class LanceRAGStore(
                     title=document.title,
                     content=document.content,
                     source=document.source,
+                    scopes=merged_scopes,
                     metadata=json.dumps(
                         document.metadata,
                     ),

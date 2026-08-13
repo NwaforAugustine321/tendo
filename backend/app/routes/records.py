@@ -6,10 +6,10 @@ from app.services.records import (
     create_folder, get_folders, get_folder, update_folder, delete_folder,
     create_record, get_records, get_all_records, get_record, update_record, delete_record,
     add_record_content, get_record_contents, delete_record_content,
-    get_record_understanding, process_content_background,
+    process_content_background,
 )
-from app.db.tools.records import mark_record_read, get_unread_count
-
+from app.db.tools.records import mark_record_read, get_unread_count, get_recent_records
+from app.record_knowledge.record_agent import get_record_understanding
 router = APIRouter(tags=["records"])
 
 
@@ -51,12 +51,10 @@ async def list_all_records(business_id: str = Query(...), user=Depends(get_curre
     return await get_all_records(business_id)
 
 
-# --- Record endpoints ---
-
-@router.get("/records/unread-count")
-async def unread_count_endpoint(business_id: str = Query(...), user=Depends(get_current_user)):
-    count = await get_unread_count(business_id)
-    return {"unread_count": count}
+@router.get("/records/recent")
+async def recent_records_endpoint(business_id: str = Query(...), limit: int = Query(20), offset: int = Query(0), user=Depends(get_current_user)):
+    records, unread_count, total = await get_recent_records(business_id, limit=limit, offset=offset)
+    return {"records": records, "count": unread_count, "total": total}
 
 
 @router.post("/records")

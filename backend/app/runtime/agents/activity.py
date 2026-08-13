@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-from app.runtime.llm.events import LLMEvent
+from app.runtime.events.events import LLMEvent
 from app.runtime.llm.inference_stream import InferenceStream
 from app.runtime.llm.response import LLMResponse
 

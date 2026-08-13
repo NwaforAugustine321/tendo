@@ -1,185 +1,217 @@
-import { useState, useEffect, useRef } from 'react'
-import { Plus, History, X, Sparkles, Lightbulb } from 'lucide-react'
-import clsx from 'clsx'
-import { io, type Socket } from 'socket.io-client'
-import { Conversation } from '../../pages/Conversation'
-import { useBusinessStore } from '../../store/business'
-import { useWorkspaceStore } from '../../store/workspace'
-import { listSessions, createSession, getSessionMessages, deleteSession, type ChatSession, type ChatMessage } from '../../lib/services/conversations'
-import * as recordsApi from '../../lib/services/records'
-import type { MessageItem } from './ConversationPage'
+import { useState, useEffect, useRef } from "react";
+import { Plus, History, X, Sparkles, Lightbulb } from "lucide-react";
+import clsx from "clsx";
+import { io, type Socket } from "socket.io-client";
+import { Conversation } from "../../pages/Conversation";
+import { useBusinessStore } from "../../store/business";
+import { useWorkspaceStore } from "../../store/workspace";
+import {
+  listSessions,
+  createSession,
+  getSessionMessages,
+  deleteSession,
+  type ChatSession,
+  type ChatMessage,
+} from "../../lib/services/conversations";
+import * as recordsApi from "../../lib/services/records";
+import type { MessageItem } from "./ConversationPage";
 
 export function ChatPanel({ recordId }: { recordId?: string }) {
-  const [sessions, setSessions] = useState<ChatSession[]>([])
-  const [activeSessionId, setActiveSessionId] = useState<string>('')
-  const [initialMessages, setInitialMessages] = useState<MessageItem[]>([])
-  const [showHistory, setShowHistory] = useState(false)
-  const [collapsed, setCollapsed] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [loadingMessages, setLoadingMessages] = useState(false)
-  const { currentProfile } = useBusinessStore()
-  const businessId = currentProfile?.id || ''
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string>("");
+  const [initialMessages, setInitialMessages] = useState<MessageItem[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const { currentProfile } = useBusinessStore();
+  const businessId = currentProfile?.id || "";
 
   // Connect to Socket.IO for real-time processing events
-  const socketRef = useRef<Socket | null>(null)
+  const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    if (!recordId) return
+    if (!recordId) return;
 
-    const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:8000'
-    const baseUrl = wsUrl.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://').replace(/\/ws\/session$/, '')
+    const wsUrl = import.meta.env.VITE_WS_URL || "http://localhost:8000";
+    const baseUrl = wsUrl
+      .replace(/^ws:\/\//, "http://")
+      .replace(/^wss:\/\//, "https://")
+      .replace(/\/ws\/session$/, "");
 
     const socket = io(baseUrl, {
-      path: '/ws/session',
-      transports: ['websocket'],
+      path: "/ws/session",
+      transports: ["websocket"],
       reconnection: true,
       reconnectionAttempts: 5,
       withCredentials: true,
-    })
+    });
 
-    socket.on('record_processing_status', (data: any) => {
+    socket.on("record_processing_status", (data: any) => {
       // Processing events handled by RecordFloatingPanel
-    })
+    });
 
-    socketRef.current = socket
+    socketRef.current = socket;
     return () => {
-      socket.disconnect()
-      socketRef.current = null
-    }
-  }, [recordId])
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [recordId]);
 
   // Load sessions and messages on mount or business/record change
   useEffect(() => {
-    if (!businessId) return
+    if (!businessId) return;
 
-    let cancelled = false
-    setLoading(true)
-    setInitialMessages([])
+    let cancelled = false;
+    setLoading(true);
+    setInitialMessages([]);
 
     async function loadSessionAndMessages() {
       try {
-        const data = await listSessions(businessId, recordId)
-        if (cancelled) return
-        setSessions(data)
+        const data = await listSessions(businessId, recordId);
+        if (cancelled) return;
+        setSessions(data);
 
         if (data.length > 0) {
-          const lastSession = data[0]
-          setActiveSessionId(lastSession.id)
+          const lastSession = data[0];
+          setActiveSessionId(lastSession.id);
 
           // Fetch messages for the last session
-          setLoadingMessages(true)
-          const PAGE_SIZE = 20
-          let offset = 0
-          let allMessages: MessageItem[] = []
+          setLoadingMessages(true);
+          const PAGE_SIZE = 20;
+          let offset = 0;
+          let allMessages: MessageItem[] = [];
 
           while (true) {
-            const batch = await getSessionMessages(lastSession.id, businessId, PAGE_SIZE, offset)
-            if (cancelled) return
-            if (batch.length === 0) break
+            const batch = await getSessionMessages(
+              lastSession.id,
+              businessId,
+              PAGE_SIZE,
+              offset,
+            );
+            if (cancelled) return;
+            if (batch.length === 0) break;
 
             const mapped = batch.map((m, i) => ({
               id: `msg-${offset + i}`,
-              role: m.role as 'user' | 'assistant',
+              role: m.role as "user" | "assistant",
               content: m.content,
-              type: 'text' as const,
-            }))
+              type: "text" as const,
+            }));
 
-            allMessages = [...allMessages, ...mapped]
-            if (batch.length < PAGE_SIZE) break
-            offset += PAGE_SIZE
+            allMessages = [...allMessages, ...mapped];
+            if (batch.length < PAGE_SIZE) break;
+            offset += PAGE_SIZE;
           }
 
-          if (!cancelled) setInitialMessages(allMessages)
+          if (!cancelled) setInitialMessages(allMessages);
         } else {
           // No sessions — create a default one
           try {
-            const session = await createSession(businessId, 'New Session', recordId)
-            if (cancelled) return
-            setSessions([session])
-            setActiveSessionId(session.id)
+            const session = await createSession(
+              businessId,
+              "New Session",
+              recordId,
+            );
+            if (cancelled) return;
+            setSessions([session]);
+            setActiveSessionId(session.id);
           } catch {
-            setActiveSessionId('')
+            setActiveSessionId("");
           }
         }
       } catch {
-        setSessions([])
-        setActiveSessionId('')
+        setSessions([]);
+        setActiveSessionId("");
       } finally {
         if (!cancelled) {
-          setLoading(false)
-          setLoadingMessages(false)
+          setLoading(false);
+          setLoadingMessages(false);
         }
       }
     }
 
-    loadSessionAndMessages()
-    return () => { cancelled = true }
-  }, [businessId, recordId])
+    loadSessionAndMessages();
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId, recordId]);
 
   // Load messages when user switches session tab
   const loadMessagesForSession = async (sessionId: string) => {
-    if (!sessionId || !businessId) return
-    setLoadingMessages(true)
-    setInitialMessages([])
+    if (!sessionId || !businessId) return;
+    setLoadingMessages(true);
+    setInitialMessages([]);
 
-    const PAGE_SIZE = 20
-    let offset = 0
-    let allMessages: MessageItem[] = []
+    const PAGE_SIZE = 20;
+    let offset = 0;
+    let allMessages: MessageItem[] = [];
 
     try {
       while (true) {
-        const batch = await getSessionMessages(sessionId, businessId, PAGE_SIZE, offset)
-        if (batch.length === 0) break
+        const batch = await getSessionMessages(
+          sessionId,
+          businessId,
+          PAGE_SIZE,
+          offset,
+        );
+        if (batch.length === 0) break;
 
         const mapped = batch.map((m, i) => ({
           id: `msg-${offset + i}`,
-          role: m.role as 'user' | 'assistant',
+          role: m.role as "user" | "assistant",
           content: m.content,
-          type: 'text' as const,
-        }))
+          type: "text" as const,
+        }));
 
-        allMessages = [...allMessages, ...mapped]
-        if (batch.length < PAGE_SIZE) break
-        offset += PAGE_SIZE
+        allMessages = [...allMessages, ...mapped];
+        if (batch.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
       }
-      setInitialMessages(allMessages)
+      setInitialMessages(allMessages);
     } finally {
-      setLoadingMessages(false)
+      setLoadingMessages(false);
     }
-  }
+  };
 
   const handleNewSession = async () => {
-    if (!businessId) return
+    if (!businessId) return;
     try {
-      const session = await createSession(businessId, 'New Session', recordId)
-      setSessions((prev) => [session, ...prev])
-      setActiveSessionId(session.id)
-      setInitialMessages([])
+      const session = await createSession(businessId, "New Session", recordId);
+      setSessions((prev) => [session, ...prev]);
+      setActiveSessionId(session.id);
+      setInitialMessages([]);
     } catch {
       // Error handled by http service
     }
-  }
+  };
 
   // Auto-create session when pending message arrives with no active session
-  const pendingMsg = useWorkspaceStore((s) => s.pendingChatMessage)
+  const pendingMsg = useWorkspaceStore((s) => s.pendingChatMessage);
   useEffect(() => {
-    if (pendingMsg && !activeSessionId && businessId && !loading) {
-      createSession(businessId, 'New Session', recordId).then((session) => {
-        setSessions((prev) => [session, ...prev])
-        setActiveSessionId(session.id)
-        setInitialMessages([])
-      }).catch(() => {})
-    }
-  }, [pendingMsg, activeSessionId, businessId, loading])
+    if (!pendingMsg || !businessId || loading) return;
+
+    // If there's already an active session, Conversation will handle it
+    if (activeSessionId) return;
+
+    // No session — create one. Keep pendingChatMessage so Conversation sends it on mount.
+    createSession(businessId, "New Session", recordId)
+      .then((session) => {
+        setSessions((prev) => [session, ...prev]);
+        setActiveSessionId(session.id);
+        setInitialMessages([]);
+      })
+      .catch(() => {});
+  }, [pendingMsg, activeSessionId, businessId, loading]);
 
   const handleCloseSession = (id: string) => {
-    deleteSession(id, businessId).catch(() => {})
-    setSessions((prev) => prev.filter((s) => s.id !== id))
+    deleteSession(id, businessId).catch(() => {});
+    setSessions((prev) => prev.filter((s) => s.id !== id));
     if (activeSessionId === id) {
-      const remaining = sessions.filter((s) => s.id !== id)
-      setActiveSessionId(remaining.length > 0 ? remaining[0].id : '')
+      const remaining = sessions.filter((s) => s.id !== id);
+      setActiveSessionId(remaining.length > 0 ? remaining[0].id : "");
     }
-  }
+  };
 
   if (collapsed) {
     return (
@@ -188,9 +220,11 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
         className="flex h-full w-10 items-center justify-center border-l border-zinc-800/60 bg-[#0f0f0f] text-zinc-400 hover:text-zinc-300"
         title="Open chat"
       >
-        <span className="rotate-90 whitespace-nowrap text-[10px] font-medium tracking-wide">Chat</span>
+        <span className="rotate-90 whitespace-nowrap text-[10px] font-medium tracking-wide">
+          Chat
+        </span>
       </button>
-    )
+    );
   }
 
   return (
@@ -200,18 +234,21 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
         {sessions.slice(0, 5).map((session) => (
           <div
             key={session.id}
-            onClick={() => { setActiveSessionId(session.id); loadMessagesForSession(session.id) }}
+            onClick={() => {
+              setActiveSessionId(session.id);
+              loadMessagesForSession(session.id);
+            }}
             className={`flex cursor-pointer items-center gap-1 rounded-t-md px-2.5 py-1.5 text-[11px] transition-colors ${
               activeSessionId === session.id
-                ? 'bg-[#0f0f0f] text-zinc-200 border border-zinc-800/60 border-b-transparent'
-                : 'text-zinc-400 hover:text-zinc-300'
+                ? "bg-[#0f0f0f] text-zinc-200 border border-zinc-800/60 border-b-transparent"
+                : "text-zinc-400 hover:text-zinc-300"
             }`}
           >
             <span className="max-w-[100px] truncate">{session.title}</span>
             <button
               onClick={(e) => {
-                e.stopPropagation()
-                handleCloseSession(session.id)
+                e.stopPropagation();
+                handleCloseSession(session.id);
               }}
               className="ml-0.5 rounded p-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
             >
@@ -232,7 +269,7 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
 
         <button
           onClick={() => setShowHistory(!showHistory)}
-          className={`rounded p-1 transition-colors ${showHistory ? 'bg-zinc-800 text-zinc-200' : 'text-zinc-400 hover:text-zinc-300'}`}
+          className={`rounded p-1 transition-colors ${showHistory ? "bg-zinc-800 text-zinc-200" : "text-zinc-400 hover:text-zinc-300"}`}
           title="Session history"
         >
           <History size={14} />
@@ -242,18 +279,28 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
       {/* History dropdown */}
       {showHistory && (
         <div className="border-b border-zinc-800/60 bg-[#141414] px-3 py-2 max-h-[200px] overflow-y-auto">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 mb-1.5">All sessions</p>
+          <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 mb-1.5">
+            All sessions
+          </p>
           {sessions.length > 0 ? (
             sessions.map((s) => (
               <button
                 key={s.id}
-                onClick={() => { setActiveSessionId(s.id); loadMessagesForSession(s.id); setShowHistory(false) }}
+                onClick={() => {
+                  setActiveSessionId(s.id);
+                  loadMessagesForSession(s.id);
+                  setShowHistory(false);
+                }}
                 className={`flex w-full cursor-pointer items-center rounded px-2 py-1 text-[11px] transition-colors hover:bg-zinc-800 ${
-                  s.id === activeSessionId ? 'text-emerald-400' : 'text-zinc-400'
+                  s.id === activeSessionId
+                    ? "text-emerald-400"
+                    : "text-zinc-400"
                 }`}
               >
                 <span className="truncate">{s.title}</span>
-                <span className="ml-auto text-[9px] text-zinc-600">{new Date(s.created_at).toLocaleDateString()}</span>
+                <span className="ml-auto text-[9px] text-zinc-600">
+                  {new Date(s.created_at).toLocaleDateString()}
+                </span>
               </button>
             ))
           ) : (
@@ -302,7 +349,9 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
                 key={activeSessionId}
                 initialMessages={initialMessages}
                 sessionId={activeSessionId}
-                sessionTitle={sessions.find(s => s.id === activeSessionId)?.title}
+                sessionTitle={
+                  sessions.find((s) => s.id === activeSessionId)?.title
+                }
                 fullScreen={false}
                 showHeader={false}
                 characterRightOffset={290}
@@ -312,12 +361,15 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
           </div>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-4">
-            <button onClick={handleNewSession} className="text-xs text-zinc-400 hover:text-zinc-300">
+            <button
+              onClick={handleNewSession}
+              className="text-xs text-zinc-400 hover:text-zinc-300"
+            >
               Start a conversation
             </button>
           </div>
         )}
       </div>
     </div>
-  )
+  );
 }

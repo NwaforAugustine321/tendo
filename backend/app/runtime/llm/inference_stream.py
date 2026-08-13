@@ -12,7 +12,7 @@ from app.runtime.chat.message import ChatMessage
 from app.runtime.conversation.context import (
     ConversationContext,
 )
-from app.runtime.llm.events import (
+from app.runtime.events.events import (
     ErrorEvent,
     GenerationFinishedEvent,
     LLMEvent,

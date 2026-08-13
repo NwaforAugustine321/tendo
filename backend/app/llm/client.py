@@ -1,10 +1,8 @@
 from langchain_openai import ChatOpenAI
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
-from langchain_xai import ChatXAI
-from langchain_groq import ChatGroq
 from app.config.settings import settings
+from langchain_anthropic import ChatAnthropic
 
 _client = None
 
@@ -74,35 +72,6 @@ def _create_client(config: dict | None = {}, callbacks=None, provider=None):
             }
         )
 
-    elif _provider == "huggingface":
-
-        llm = HuggingFaceEndpoint(
-            repo_id=settings.hf_model,
-            huggingfacehub_api_token=settings.hf_token,
-            task="text-generation",
-        )
-        return ChatHuggingFace(llm=llm, callbacks=cb)
-
-    elif _provider == "grok":
-
-        return ChatXAI(
-            model=settings.xai_model,
-            xai_api_key=settings.xai_api_key,
-            streaming=True,
-            callbacks=cb,
-            timeout=None,
-        )
-
-    elif _provider == "groq":
-
-        return ChatGroq(
-            model=settings.groq_model,
-            api_key=settings.groq_api_key,
-            streaming=True,
-            callbacks=cb,
-            timeout=None,
-        )
-
     elif _provider == "msty":
 
         return ChatOpenAI(
@@ -149,8 +118,7 @@ def _create_client(config: dict | None = {}, callbacks=None, provider=None):
         )
 
     else:
-        # Default: Anthropic
-        from langchain_anthropic import ChatAnthropic
+
         return ChatAnthropic(
             model=settings.anthropic_model,
             api_key=settings.anthropic_api_key,

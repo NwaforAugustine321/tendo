@@ -29,6 +29,8 @@ class ProcessingResult(BaseModel):
     success: bool
     entry: KnowledgeEntry | None = None
     error: str | None = None
+    title: str = ""
+    summary: str = ""
     suggested_questions: list[str] = Field(default_factory=list)
 
 

@@ -27,12 +27,22 @@ from app.runtime.conversation.factory import (
     create_conversation_provider
 )
 from app.runtime.utils.spec_loader import LoaderAgentSpec
+from app.runtime.events.default_emitter import DefaultEmitter
+from app.runtime.events.events import (EventType, StatusEvent)
 
-planner_agent_spec = LoaderAgentSpec.from_spec(
-    name='planner_agent', path='planner')
+planner_specialist_spec = LoaderAgentSpec.from_spec(
+    name='Planner Specialist', path='planner')
 
-prompt = f"Role:\n{planner_agent_spec.role}\n\nBackstory:\n{planner_agent_spec.backstory}"
+prompt = f"Role:\n{planner_specialist_spec.role}\n\nBackstory:\n{planner_specialist_spec.backstory}\n\nGoal:\n{planner_specialist_spec.goal}\n"
 
+
+def progress_callback(event: StatusEvent):
+    print('event >>>>>>>>>>>', event.message)
+
+
+emitter = DefaultEmitter()
+
+emitter.on(EventType.PROGRESS, [progress_callback])
 
 _llm = get_client()
 
@@ -293,6 +303,7 @@ class Planner:
         )
         self._session = agent.create_session(
             session_id=self._session_id,
+            emitter=emitter,
         )
 
     async def _save_msg(self, messages: list[dict]):

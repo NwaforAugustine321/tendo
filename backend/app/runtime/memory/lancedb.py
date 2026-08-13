@@ -41,6 +41,8 @@ def _create_memory_schema(
 
         category: str = "general"
 
+        scopes: list[str] = Field(default_factory=list)
+
         metadata: str = Field(
             default="{}",
         )
@@ -67,12 +69,15 @@ class LanceMemoryStore(
         table_name: str = "memory",
         uri: str | Path = "./data/memory",
         embeddings: EmbeddingProvider | None = None,
+        scopes: list[str] | None = None,
     ) -> None:
 
         self._embeddings = (
             embeddings
             or get_embedding_client()
         )
+
+        self._scopes = scopes or []
 
         self._db = (
             db
@@ -113,6 +118,7 @@ class LanceMemoryStore(
         query: str,
         limit: int = 5,
         distance_threshold: float = 0.75,
+        scopes: list[str] | None = None,
     ) -> MemoryContext:
 
         if not query.strip():
@@ -122,12 +128,19 @@ class LanceMemoryStore(
             query,
         )
 
+        merged_scopes = list(set(self._scopes + (scopes or [])))
+
         rows = (
             self._table.search(vector)
             .metric("cosine")
             .limit(limit)
-            .to_list()
         )
+
+        if merged_scopes:
+            escaped = ", ".join(f"'{s}'" for s in merged_scopes)
+            rows = rows.where(f"array_has_any(scopes, [{escaped}])")
+
+        rows = rows.to_list()
 
         # Filter out results that are too far from the query
         # Cosine distance: 0 = identical, ~0.6-0.7 = somewhat related, >1.0 = unrelated
@@ -159,6 +172,7 @@ class LanceMemoryStore(
         self,
         *,
         reflection: MemoryReflection,
+        scopes: list[str] | None = None,
     ) -> None:
 
         if reflection.empty:
@@ -166,6 +180,7 @@ class LanceMemoryStore(
 
         await self._insert(
             reflection.entries,
+            scopes=scopes,
         )
 
     async def delete(
@@ -181,7 +196,10 @@ class LanceMemoryStore(
     async def _insert(
         self,
         entries: list[MemoryEntry],
+        scopes: list[str] | None = None,
     ) -> None:
+
+        merged_scopes = list(set(self._scopes + (scopes or [])))
 
         # Dedup: only insert entries that don't already
         # have a semantically similar match in the store.
@@ -211,6 +229,7 @@ class LanceMemoryStore(
                 id=entry.id or str(uuid4()),
                 text=entry.text,
                 category=entry.category,
+                scopes=merged_scopes,
                 metadata=json.dumps(entry.metadata),
                 created_at=datetime.now(UTC),
                 vector=vector,

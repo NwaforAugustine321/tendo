@@ -11,6 +11,9 @@ from app.runtime.conversation.context import (
 if TYPE_CHECKING:
     from .agent import Agent
     from .session import AgentSession
+from app.runtime.events.emitter import Emitter
+from app.runtime.events.default_emitter import DefaultEmitter
+from app.runtime.events.default_emitter import DefaultEmitter
 
 
 @dataclass(slots=True)
@@ -30,6 +33,12 @@ class RunContext:
     _messages: list[ChatMessage] = field(
         default_factory=list,
     )
+
+    emitter: Emitter
+
+    @property
+    def emitter(self) -> Emitter:
+        return self.emitter
 
     @property
     def messages(

@@ -20,6 +20,8 @@ cp .env.example .env
 
 # Run the server
 uvicorn app.main:asgi_app --reload
+python -m uvicorn app.main:asgi_app --reload
+
 
 # kill running app
 kill -9 $(lsof -t -i:8000)
