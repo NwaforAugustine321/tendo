@@ -1,16 +1,20 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import clsx from "clsx";
-import { useAuth } from "../../context/auth";
-import { logout } from "../../lib/services/auth";
+import { toast } from "sonner";
+import { logout, forgotPassword } from "../../lib/services/auth";
 import { useAuthStore } from "../../store/auth";
 import { useNavigate } from "react-router-dom";
 
 type Tab = "profile" | "settings";
 
 export function Profile() {
-  const { user } = useAuth();
+  const { user, fetchProfile } = useAuthStore();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>("profile");
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
 
   const handleLogout = async () => {
     await logout();
@@ -26,7 +30,6 @@ export function Profile() {
   return (
     <div className="flex h-full w-full items-start justify-center overflow-y-auto py-10 px-6">
       <div className="w-full max-w-[720px]">
-        {/* Header: name + email */}
         <div className="mb-10">
           <h1 className="text-xl font-semibold text-white">
             {user?.name || "User"}
@@ -34,9 +37,7 @@ export function Profile() {
           <p className="mt-0.5 text-sm text-zinc-500">{user?.email || ""}</p>
         </div>
 
-        {/* Body: left nav + right content */}
         <div className="flex gap-12">
-          {/* Left nav links */}
           <nav className="flex w-[120px] shrink-0 flex-col gap-3">
             {tabs.map((tab) => (
               <button
@@ -62,18 +63,17 @@ export function Profile() {
             </button>
           </nav>
 
-          {/* Right content */}
           <div className="flex-1 min-w-0">
             {activeTab === "profile" && <ProfileContent user={user} />}
-            {activeTab === "settings" && <SettingsContent />}
+            {activeTab === "settings" && (
+              <SettingsContent userEmail={user?.email || ""} />
+            )}
           </div>
         </div>
       </div>
     </div>
   );
 }
-
-/* ─────────────── Profile Tab ─────────────── */
 
 function ProfileContent({
   user,
@@ -94,7 +94,6 @@ function ProfileContent({
         </p>
       </div>
 
-      {/* Fields */}
       <div className="space-y-4 pt-2">
         <div>
           <label className="block text-xs font-medium text-zinc-500 mb-1">
@@ -113,16 +112,23 @@ function ProfileContent({
   );
 }
 
-/* ─────────────── Settings Tab ─────────────── */
+function SettingsContent({ userEmail }: { userEmail: string }) {
+  const [loading, setLoading] = useState(false);
 
-function SettingsContent() {
-  const [resetEmail, setResetEmail] = useState("");
-
-  const handleSendReset = () => {
-    if (!resetEmail) return;
-    // TODO: call password reset API
-    alert(`Password reset link sent to ${resetEmail}`);
-    setResetEmail("");
+  const handleSendReset = async () => {
+    if (!userEmail) {
+      toast.error("No email associated with this account.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await forgotPassword(userEmail);
+      toast.success("Password reset link sent to your email.");
+    } catch {
+      // error toast handled by http layer
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -134,34 +140,24 @@ function SettingsContent() {
         </p>
       </div>
 
-      {/* Reset password */}
       <div className="pt-2">
         <label className="block text-xs font-medium text-zinc-500 mb-1.5">
           Reset password
         </label>
         <p className="text-sm text-zinc-500 mb-3">
-          Enter your email to receive a password reset link.
+          We'll send a password reset link to{" "}
+          <span className="text-zinc-300">{userEmail}</span>.
         </p>
-        <div className="flex flex-col gap-2">
-          <input
-            type="email"
-            value={resetEmail}
-            onChange={(e) => setResetEmail(e.target.value)}
-            placeholder="you@example.com"
-            className="av-input max-w-[280px]"
-          />
-          <button
-            type="button"
-            onClick={handleSendReset}
-            disabled={!resetEmail}
-            className="av-btn-primary h-[34px] w-fit px-3 text-xs"
-          >
-            Send email
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={handleSendReset}
+          disabled={loading}
+          className="av-btn-primary h-[28px] w-fit px-3 text-xs"
+        >
+          {loading ? "Sending…" : "Send reset link"}
+        </button>
       </div>
 
-      {/* Danger zone */}
       <div className="border-t border-zinc-800/60 pt-6 mt-8">
         <h3 className="text-sm font-medium text-red-400 mb-3">Danger zone</h3>
         <div className="flex items-center justify-between">

@@ -5,9 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Star,
-  Archive,
   Trash2,
-  Mail,
   Clock,
   ArrowLeft,
   Search,
@@ -123,9 +121,17 @@ function CollapsibleSection({
 function MessageDetail({
   message,
   onBack,
+  currentIndex,
+  totalMessages,
+  onPrev,
+  onNext,
 }: {
   message: InboxMessage;
   onBack: () => void;
+  currentIndex: number;
+  totalMessages: number;
+  onPrev: () => void;
+  onNext: () => void;
 }) {
   const [contents, setContents] = useState<
     {
@@ -525,43 +531,28 @@ function MessageDetail({
           <button
             type="button"
             className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-            aria-label="Archive"
-          >
-            <Archive size={16} />
-          </button>
-          <button
-            type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
             aria-label="Delete"
           >
             <Trash2 size={16} />
           </button>
-          <button
-            type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-            aria-label="Mark as unread"
-          >
-            <Mail size={16} />
-          </button>
-          <button
-            type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-            aria-label="More"
-          >
-            <MoreVertical size={16} />
-          </button>
           <div className="flex-1" />
-          <span className="text-[12px] text-zinc-500">1 of 14</span>
+          <span className="text-[12px] text-zinc-500">
+            {currentIndex + 1} of {totalMessages}
+          </span>
           <button
             type="button"
-            className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+            onClick={onPrev}
+            disabled={currentIndex <= 0}
+            className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed"
             aria-label="Previous"
           >
             <ChevronLeft size={16} />
           </button>
           <button
             type="button"
-            className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+            onClick={onNext}
+            disabled={currentIndex >= totalMessages - 1}
+            className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed"
             aria-label="Next"
           >
             <ChevronRight size={16} />
@@ -1003,16 +994,70 @@ export function Inbox() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [deleting, setDeleting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [recordsOffset, setRecordsOffset] = useState(0);
+  const [recordsTotal, setRecordsTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const { currentProfile } = useBusinessStore();
 
-  // Poll recent records
+  const PAGE_SIZE = 20;
+
+  // Load more records (for pagination when user navigates beyond loaded set)
+  const loadMoreRecords = useCallback(async () => {
+    if (loadingMore) return;
+    if (recordsOffset >= recordsTotal && recordsTotal > 0) return;
+    setLoadingMore(true);
+    try {
+      const { records, count, total } = await recordsApi.getRecentRecords(
+        PAGE_SIZE,
+        recordsOffset,
+      );
+      setRecordsTotal(total);
+      setUnreadCount(count);
+      const newMsgs: InboxMessage[] = records.map((rec: any) => {
+        const content = rec.content || "";
+        const title = rec.content_title || "";
+        const sender =
+          title || content.slice(0, 60) || rec.title || "No content";
+        const preview = content ? content.slice(0, 100) : "...";
+        return {
+          id: `record-${rec.record_id}`,
+          sender,
+          senderEmail: "",
+          recipient: "",
+          subject: "",
+          preview,
+          body: content,
+          date: formatDate(rec.created_at),
+          fullDate: new Date(rec.created_at).toLocaleString(),
+          read: rec.is_read ?? true,
+          starred: false,
+          tab: "primary" as InboxTab,
+          avatarColor: "bg-zinc-600",
+        };
+      });
+      setLiveInsights((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id));
+        const unique = newMsgs.filter((m) => !existingIds.has(m.id));
+        return [...prev, ...unique];
+      });
+      setRecordsOffset((prev) => prev + records.length);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, recordsOffset, recordsTotal]);
+
+  // Initial fetch of records (first page)
   useEffect(() => {
     if (!currentProfile?.id) return;
     const fetchRecent = () => {
       recordsApi
-        .getAllRecentRecords()
+        .getRecentRecords(PAGE_SIZE, 0)
         .then((r) => {
           setUnreadCount(r.count);
+          setRecordsTotal(r.total);
+          setRecordsOffset(r.records.length);
           // Merge recent record content into the engagement list
           const recentMsgs: InboxMessage[] = r.records.map((rec: any) => {
             const content = rec.content || "";
@@ -1319,10 +1364,30 @@ export function Inbox() {
 
   // If a message is open, show detail view
   if (openMessage) {
+    const currentIndex = filteredMessages.findIndex(
+      (m) => m.id === openMessage.id,
+    );
+    const totalMessages = filteredMessages.length;
+    const hasMoreToLoad = recordsOffset < recordsTotal;
+
     return (
       <MessageDetail
         message={openMessage}
         onBack={() => setOpenMessage(null)}
+        currentIndex={currentIndex >= 0 ? currentIndex : 0}
+        totalMessages={hasMoreToLoad ? recordsTotal : totalMessages}
+        onPrev={() => {
+          if (currentIndex > 0) {
+            setOpenMessage(filteredMessages[currentIndex - 1]);
+          }
+        }}
+        onNext={async () => {
+          if (currentIndex < totalMessages - 1) {
+            setOpenMessage(filteredMessages[currentIndex + 1]);
+          } else if (hasMoreToLoad) {
+            await loadMoreRecords();
+          }
+        }}
       />
     );
   }

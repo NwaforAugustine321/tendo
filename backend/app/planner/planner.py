@@ -99,8 +99,8 @@ class ToolLoggingMiddleware(AgentMiddleware):
     async def before_tools(self, ctx, event) -> None:
 
         logger.info("[middleware] Tool execution starting...")
-        # print(event.tool_calls)
-        # print('\n\n')
+        print(event.tool_calls)
+        print('\n\n')
 
     async def after_tools(self, ctx, event) -> None:
         for r in event.results:

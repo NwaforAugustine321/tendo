@@ -1,22 +1,32 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 import { authInputClass } from "./AuthCard";
+import { forgotPassword } from "../../lib/services/auth";
 
 export function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSend = (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
-    // TODO: call forgot password API
-    setSent(true);
+    setLoading(true);
+    try {
+      await forgotPassword(email);
+      setSent(true);
+      toast.success("Reset link sent! Check your inbox.");
+    } catch {
+      // error toast handled by http layer
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-[#0a0a0a] px-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="mb-8 flex flex-col items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white border-2 border-zinc-900">
             <span className="flex items-center gap-[3px]">
@@ -67,10 +77,10 @@ export function ForgotPassword() {
               <div className="pt-2">
                 <button
                   type="submit"
-                  disabled={!email}
+                  disabled={!email || loading}
                   className="flex w-full items-center justify-center gap-2 rounded-md bg-[#3ecf8e] px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-[#5ee9b0] disabled:opacity-50"
                 >
-                  Send reset link
+                  {loading ? "Sending…" : "Send reset link"}
                 </button>
               </div>
             </form>

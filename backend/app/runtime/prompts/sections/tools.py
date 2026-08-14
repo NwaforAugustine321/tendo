@@ -13,8 +13,10 @@ class ToolPromptBuilder:
 
     HEADER = (
         "## Available Tools:\n"
-        "Use these tools to complete the task. Select and execute the appropriate tool(s) when needed.\n"
-        "{{tools}}"
+        "Use these tools to complete the task. Select and execute the appropriate tools when needed.\n"
+        "{{tools}}\n\n"
+        "When tool_search returns tool schemas, you MUST use call_tool to execute "
+        "the required discovered tools. Do not execute undiscovered tools."
     )
 
     def build(

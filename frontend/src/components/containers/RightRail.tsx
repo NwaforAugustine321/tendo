@@ -1,21 +1,16 @@
-import { Calendar, StickyNote, Plus } from 'lucide-react'
-import clsx from 'clsx'
+import { Calendar, StickyNote, Mic } from "lucide-react";
 
 /**
- * Gmail-style right sidebar rail — thin vertical strip with icon buttons.
- * The "+" icon triggers the chat panel.
+ * Right sidebar rail — thin vertical strip with icon buttons.
+ * The mic icon starts voice communication with Tendo.
  */
 
-type RightRailProps = {
-  onPlusClick: () => void
-}
-
 const RAIL_ITEMS = [
-  { id: 'calendar', icon: <Calendar size={18} />, label: 'Calendar' },
-  { id: 'notes', icon: <StickyNote size={18} />, label: 'Notes' },
-]
+  { id: "calendar", icon: <Calendar size={18} />, label: "Calendar" },
+  { id: "notes", icon: <StickyNote size={18} />, label: "Notes" },
+];
 
-export function RightRail({ onPlusClick }: RightRailProps) {
+export function RightRail() {
   return (
     <aside
       className="hidden md:flex h-full w-[52px] flex-col items-center border-l border-zinc-800/60 bg-[#0f0f0f] py-3 gap-2"
@@ -36,16 +31,15 @@ export function RightRail({ onPlusClick }: RightRailProps) {
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Plus button — opens chat */}
+      {/* Mic button — starts voice communication */}
       <button
         type="button"
-        onClick={onPlusClick}
         className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-300"
-        aria-label="Open chat"
-        title="Open chat"
+        aria-label="Start voice communication with Tendo"
+        title="Start voice communication with Tendo"
       >
-        <Plus size={20} />
+        <Mic size={20} />
       </button>
     </aside>
-  )
+  );
 }

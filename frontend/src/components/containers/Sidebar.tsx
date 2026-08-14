@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import {
   Inbox,
   Lightbulb,
@@ -58,8 +58,8 @@ function NavItemLink({
         className={clsx(
           "group flex items-center transition-colors cursor-default",
           collapsed
-            ? "justify-center rounded-full mx-auto h-8 w-8"
-            : "gap-3 rounded-r-full py-1 pl-4 pr-3 text-[13px] font-medium",
+            ? "justify-center mx-auto h-8 w-8"
+            : "gap-3 py-1 pl-4 pr-3 text-[13px] font-medium",
           "text-zinc-500",
         )}
         disabled
@@ -79,8 +79,8 @@ function NavItemLink({
         clsx(
           "group flex items-center transition-colors",
           collapsed
-            ? "justify-center rounded-full mx-auto h-8 w-8"
-            : "gap-3 rounded-r-full py-1 pl-4 pr-3 text-[13px] font-medium",
+            ? "justify-center mx-auto h-8 w-8"
+            : "gap-3 py-1 pl-4 pr-3 text-[13px] font-medium",
           isActive
             ? "bg-emerald-500/15 text-emerald-400"
             : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200",
@@ -105,6 +105,7 @@ const CODE =
 export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { currentProfile } = useBusinessStore();
   const { folders, createFolder, fetchFolders } = useWorkspaceStore();
   const [moreExpanded, setMoreExpanded] = useState(false);
@@ -355,7 +356,7 @@ export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
             }
             className={clsx(
               "flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-white/5",
-              whatsappConnected ? "text-[#3ecf8e]" : "text-zinc-500",
+              "text-zinc-500",
             )}
           >
             <MessageCircle size={18} />
@@ -408,18 +409,12 @@ export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
             onClick={handleConnectWhatsApp}
             className="flex w-full items-center gap-2.5 rounded-r-full py-1 pl-4 pr-3 text-[12px] text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200"
           >
-            <MessageCircle
-              size={14}
-              className={clsx(
-                "shrink-0",
-                whatsappConnected ? "text-[#3ecf8e]" : "text-zinc-500",
-              )}
-            />
+            <MessageCircle size={14} className="shrink-0 text-zinc-500" />
             <span className="flex-1 truncate text-left">
               {whatsappConnected ? "WhatsApp" : "Connect WhatsApp"}
             </span>
             {whatsappConnected && (
-              <span className="rounded bg-[#3ecf8e]/15 px-1.5 py-0.5 text-[10px] font-medium text-[#3ecf8e]">
+              <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400">
                 Enabled
               </span>
             )}
@@ -436,19 +431,43 @@ export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
           type="button"
           onClick={() => navigate("/app/profile")}
           className={clsx(
-            "flex items-center w-full rounded-lg transition-colors hover:bg-white/5",
+            "flex items-center w-full rounded-lg transition-colors",
             collapsed ? "justify-center p-1" : "gap-2.5 px-1 py-1",
+            location.pathname === "/app/profile"
+              ? "bg-emerald-500/15"
+              : "hover:bg-white/5",
           )}
           title="View profile"
         >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-zinc-700 bg-zinc-800">
-            <span className="text-[11px] font-bold text-zinc-400">
+          <div
+            className={clsx(
+              "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border",
+              location.pathname === "/app/profile"
+                ? "border-emerald-500/50 bg-emerald-500/20"
+                : "border-zinc-700 bg-zinc-800",
+            )}
+          >
+            <span
+              className={clsx(
+                "text-[11px] font-bold",
+                location.pathname === "/app/profile"
+                  ? "text-emerald-400"
+                  : "text-zinc-400",
+              )}
+            >
               {(user?.name || "U")[0].toUpperCase()}
             </span>
           </div>
           {!collapsed && (
             <div className="min-w-0 flex-1 text-left">
-              <p className="truncate text-[12px] font-medium text-zinc-300">
+              <p
+                className={clsx(
+                  "truncate text-[12px] font-medium",
+                  location.pathname === "/app/profile"
+                    ? "text-emerald-400"
+                    : "text-zinc-300",
+                )}
+              >
                 {user?.name || "User"}
               </p>
               <p className="truncate text-[10px] text-zinc-500">

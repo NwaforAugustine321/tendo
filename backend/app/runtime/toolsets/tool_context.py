@@ -37,9 +37,7 @@ from pydantic_core import PydanticUndefined, from_json
 from typing_extensions import NotRequired, Self, TypeAlias
 from .adapter.adapter import ToolAdapter
 from .adapter.langchain_adapter import LangChainAdapter
-from .strategy import (
-    BM25SearchStrategy,
-    KeywordSearchStrategy,
+from .strategies.strategy import (
     SearchItem,
     SearchStrategy,
 )

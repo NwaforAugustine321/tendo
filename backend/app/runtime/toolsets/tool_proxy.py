@@ -69,7 +69,8 @@ class ToolExecutionResult:
 
 
 _DEFAULT_CALL_DESCRIPTION = (
-    "Execute a tool that was previously discovered using after tool search providing the right tool name and all optional and required parameter\n"
+    "Execute an exact tool previously discovered through tool search. "
+    "Provide the correct tool name and all required parameters, plus any optional parameters needed."
 )
 
 
@@ -117,11 +118,29 @@ class ToolProxyToolset(ToolSearchToolset):
                 source=tool,
             )
 
-        self._strategy.build_index(
+        # build_index may be async (e.g. HybridSearchStrategy).
+        # If we're in an async context, schedule it as a task.
+        # Otherwise, run it synchronously.
+        import inspect
+        import asyncio
+
+        build_result = self._strategy.build_index(
             self._search_items,
         )
 
-        self._initialized = True
+        if inspect.isawaitable(build_result):
+            try:
+                loop = asyncio.get_running_loop()
+                # Running inside an event loop — schedule the coroutine
+                loop.create_task(self._async_build_index())
+                # Close the unused coroutine to suppress warnings
+                build_result.close()
+            except RuntimeError:
+                # No running loop — run synchronously
+                asyncio.run(build_result)
+                self._initialized = True
+        else:
+            self._initialized = True
 
         call_description = (
             call_description
@@ -138,7 +157,7 @@ class ToolProxyToolset(ToolSearchToolset):
                     "properties": {
                         "name": {
                             "type": "string",
-                            "description": "Discovered tool name.",
+                            "description": "tool name.",
                         },
                         "parameters": {
                             "type": "object",
@@ -162,6 +181,11 @@ class ToolProxyToolset(ToolSearchToolset):
             self._search_tool,
             self._call_tool,
         ]
+
+    async def _async_build_index(self) -> None:
+        """Await the async build_index for the search strategy."""
+        await self._strategy.build_index(self._search_items)
+        self._initialized = True
 
     async def setup(
         self,
@@ -295,7 +319,7 @@ class ToolProxyToolset(ToolSearchToolset):
     def _parse_call_arguments(
         self,
         raw_arguments: dict[str, Any],
-    ) -> tuple[str, dict[str, Any] | str]:
+    ) -> tuple[str, dict[str, Any] | str] | ToolResult:
 
         name = raw_arguments.get(
             "name",
@@ -366,9 +390,14 @@ class ToolProxyToolset(ToolSearchToolset):
                 )
             )
 
-        name, parameters = self._parse_call_arguments(
+        parsed = self._parse_call_arguments(
             raw_arguments,
         )
+
+        if isinstance(parsed, ToolResult):
+            return parsed
+
+        name, parameters = parsed
 
         tool = self._selected_tools.get_function_tool(
             name,

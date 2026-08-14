@@ -1,25 +1,52 @@
-import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useState, useMemo } from "react";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { toast } from "sonner";
 import { AuthCard, authInputClass } from "./AuthCard";
+import { resetPassword } from "../../lib/services/auth";
 
 export function ResetPassword() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSave = () => {
-    setError("");
+  const accessToken = useMemo(() => {
+    const fromQuery = searchParams.get("access_token");
+    if (fromQuery) return fromQuery;
+    const hash = window.location.hash.substring(1);
+    const params = new URLSearchParams(hash);
+    return params.get("access_token") || "";
+  }, [searchParams]);
+
+  const handleSave = async () => {
     if (!password || !confirmPassword) {
-      setError("Both fields are required.");
+      toast.error("Both fields are required.");
       return;
     }
     if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+      toast.error("Passwords do not match.");
       return;
     }
-    // TODO: call reset password API with token from URL
-    navigate("/login");
+    if (password.length < 8) {
+      toast.error("Password must be at least 8 characters.");
+      return;
+    }
+    if (!accessToken) {
+      toast.error("Invalid or missing reset token.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await resetPassword(accessToken, password);
+      toast.success("Password updated successfully.");
+      navigate("/login");
+    } catch {
+      // error toast handled by http layer
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -67,15 +94,13 @@ export function ResetPassword() {
           />
         </label>
 
-        {error && <p className="text-xs text-red-400">{error}</p>}
-
         <div className="pt-2">
           <button
             type="submit"
-            disabled={!password || !confirmPassword}
+            disabled={!password || !confirmPassword || loading}
             className="flex w-full items-center justify-center gap-2 rounded-md bg-[#3ecf8e] px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-[#5ee9b0] disabled:opacity-50"
           >
-            Save
+            {loading ? "Saving…" : "Save"}
           </button>
         </div>
       </form>

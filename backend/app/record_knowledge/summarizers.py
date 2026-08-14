@@ -44,7 +44,6 @@ system_prompt = (
     "Respond exactly as:\n"
     "<title>short title referencing the main subject or entity found in the content</title>\n"
     "<summary>natural explanation of the content focusing on facts and findings</summary>\n"
-    '<insights>["question referencing a specific fact from the content?", "question about a specific finding?", "question about a detail mentioned?"]</insights>'
 )
 
 user_prompt = (
@@ -55,66 +54,78 @@ user_prompt = (
 
 record_system_prompt = (
     "You are an information overview specialist.\n\n"
-    "Explain what the information says, not what it is or where it came from.\n\n"
-    "Before analyzing the information, construct a broad, comprehensive query "
-    "that captures the main subject, related topics, concepts, entities, facts, "
-    "events, findings, decisions, and relationships needed to understand the whole picture. "
-    "Do not construct a query around only one detail\n\n"
-    "Instructions:\n"
-    "- Use the good phrase query to gather information covering the full subject and its related areas.\n"
-    "- Connect related information across all available topics rather than focusing on one record.\n"
-    "- Identify the major topics, themes, entities, and areas of information.\n"
-    "- Explain each major topic separately.\n"
-    "- Under each topic, present each distinct piece of information as a clear bullet point or parameter.\n"
-    "- Combine related information from different records when they describe the same topic, entity, event, or idea.\n"
-    "- Include important facts, evidence, findings, ideas, decisions, insights, observations, "
-    "perspectives, assumptions, patterns, relationships, and conclusions.\n"
-    "- Explain how different topics, findings, decisions, and ideas connect to or influence one another.\n"
-    "- Distinguish established facts and evidence from interpretations, assumptions, ideas, and conclusions.\n"
-    "- Do not invent, speculate, or introduce unsupported information.\n"
-    "- Do not describe the information as coming from a document, record, source, retrieval, "
-    "database, context, or any other external origin.\n"
-    "- Present the information directly and naturally as an explanation of what is known.\n"
-    "- Be comprehensive but concise and avoid unnecessary repetition.\n"
-    "- Generate 2-3 useful follow-up questions based on specific details or relationships.\n\n"
-    "Respond exactly in this format:\n"
+
+    "Never expose internal workings or implementation details. "
+    "Present only the relevant information and its meaning to the business owner."
+
+    "Synthesize the available information into one coherent naturally explanation and conversationally, not robotically. "
+    "Connect related information and explain what it collectively means. "
+    "Do not present separate findings, topics, relationships, or conclusions.\n\n"
+
+    "Explain what is happening, how the information connects, and what it means. "
+    "Only explain business impact, improvement, or next actions when directly "
+    "supported by the information, and clearly connect them to the relevant details.\n\n"
+
+
+    "Combine related information without forcing unrelated connections. "
+    "Distinguish facts from interpretations and recommendations. "
+    "Do not invent, speculate, or introduce unsupported information. "
+    "If the information does not support an impact or recommendation, say so.\n\n"
+
+    "Present the insight as a natural explanation, not a list of findings. "
+    "Write for the business owner, not for an internal system or another agent.\n\n"
+
+    "Output requirements:\n"
+    "- Insight (maximum 300 words).\n"
+    "- Generate up to 2-3 useful follow-up questions (maximum 30 words).\n"
+
+    "Format:\n"
     "<insight>\n"
-    "## Topic 1\n"
-    "- Point: explanation\n"
-    "- Point: explanation\n\n"
-    "## Topic 2\n"
-    "- Point: explanation\n"
-    "- Point: explanation\n\n"
-    "## Relationships\n"
-    "- Relationship: explanation\n"
-    "- Relationship: explanation\n"
+    "Unified explanation.\n"
     "</insight>\n"
-    '<suggestion_questions>["question 1?", "question 2?", "question 3?"]</suggestion_questions>'
+    "<suggestion_questions>\n"
+    "[\"question insight 1?\", \"question insight 2?\", \"question insight 3?\"]\n"
+    "</suggestion_questions>"
 )
 
 record_user_prompt = (
-    "Explain the available information comprehensively. "
-    "then provide a comprehensive overview covering all major topics, distinct information ,points, and relationships"
-    "as a clear point, then explain how the topics relate to one another."
+    "Synthesize the available information into one coherent overview. "
+    "Explain what is happening, how the information connects, and what it means. "
+    "Only explain business impact, improvement, or next actions when they are "
+    "directly supported by the information, and clearly connect them to the relevant details."
 )
 
 
-def _parse_tagged_response(text: str) -> tuple[str, str, list[str]]:
-    """Extract title, summary, and questions from tagged response."""
-    title_match = re.search(r"<title>(.*?)</title>", text, re.DOTALL)
-    summary_match = re.search(r"<summary>(.*?)</summary>", text, re.DOTALL)
-    questions_match = re.search(
-        r"<insights>(.*?)</insights>", text, re.DOTALL)
-    title = title_match.group(1).strip() if title_match else ""
-    summary = summary_match.group(1).strip() if summary_match else ""
-    questions = []
-    if questions_match:
-        raw = questions_match.group(1).strip()
+def _extract_tag(text: str, tag: str) -> str:
+    match = re.search(rf"<{tag}>(.*?)</{tag}>", text, re.DOTALL)
+    return match.group(1).strip() if match else ""
+
+
+def _extract_json_list(text: str, tag: str, max_items: int = 3) -> list[str]:
+    raw = _extract_tag(text, tag)
+    if raw:
         try:
-            questions = json.loads(raw)[:3]
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(q) for q in parsed[:max_items]]
         except (json.JSONDecodeError, TypeError):
-            questions = []
-    return title, summary, questions
+            pass
+    return []
+
+
+def _parse_response(
+    text: str,
+    *,
+    content_tags: list[str],
+    questions_tag: str,
+) -> tuple[dict[str, str], list[str]]:
+    contents = {}
+    for tag in content_tags:
+        contents[tag] = _extract_tag(text, tag)
+
+    questions = _extract_json_list(text, questions_tag)
+
+    return contents, questions
 
 
 async def generate_record_summary(content: str, max_length: int = MAX_LENGTH) -> dict:
@@ -130,13 +141,38 @@ async def generate_record_summary(content: str, max_length: int = MAX_LENGTH) ->
                 name="Summarizer Specialist",
                 llm=_get_llm(),
                 instructions=system_prompt,
+                max_iteration=10
             )
             _session = agent.create_session()
             response = await _session.run(user_prompt.replace("{content}",  str(content)))
             response_text = response.text if hasattr(
                 response, "text") else str(response)
-            title, summary, suggested_questions = _parse_tagged_response(
-                response_text)
+            contents, suggested_questions = _parse_response(
+                response_text,
+                content_tags=["title", "summary"],
+                questions_tag="insights",
+            )
+            title = contents.get("title", "")
+            summary = contents.get("summary", "")
+            if title and summary:
+                break
+
+            # Tags not found — ask the same session to reformat
+            response = await _session.run(
+                "Your response was not in the correct format. "
+                "Respond exactly as:\n"
+                "<title>short title</title>\n"
+                "<summary>natural explanation</summary>"
+            )
+            response_text = response.text if hasattr(
+                response, "text") else str(response)
+            contents, suggested_questions = _parse_response(
+                response_text,
+                content_tags=["title", "summary"],
+                questions_tag="insights",
+            )
+            title = contents.get("title", "")
+            summary = contents.get("summary", "")
             if title and summary:
                 break
         except Exception as e:
@@ -149,22 +185,6 @@ async def generate_record_summary(content: str, max_length: int = MAX_LENGTH) ->
     title = title or content[:60].strip()
 
     return {"title": title, "summary": summary, "suggested_questions": suggested_questions, "content": content}
-
-
-def _parse_record_overview_response(text: str) -> tuple[str, list[str]]:
-    """Extract insight and suggestion_questions from tagged response."""
-    insight_match = re.search(r"<insight>(.*?)</insight>", text, re.DOTALL)
-    questions_match = re.search(
-        r"<suggestion_questions>(.*?)</suggestion_questions>", text, re.DOTALL)
-    insight = insight_match.group(1).strip() if insight_match else ""
-    suggestions = []
-    if questions_match:
-        raw = questions_match.group(1).strip()
-        try:
-            suggestions = json.loads(raw)[:3]
-        except (json.JSONDecodeError, TypeError):
-            suggestions = []
-    return insight, suggestions
 
 
 async def generate_record_overview(business_id: str, record_id: str) -> dict:
@@ -184,6 +204,7 @@ async def generate_record_overview(business_id: str, record_id: str) -> dict:
             rag=create_rag_provider(
                 namespace=business_id, scopes=scopes, ignore_threshold=True),
             instructions=record_system_prompt,
+            max_iteration=10
         )
 
         for attempt in range(MAX_RETRIES):
@@ -193,13 +214,31 @@ async def generate_record_overview(business_id: str, record_id: str) -> dict:
                 response_text = response.text if hasattr(
                     response, "text") else str(response)
                 logger.info(f"Overview raw response: {response_text[:500]}")
-                insight, suggestions = _parse_record_overview_response(
-                    response_text)
+                contents, suggestions = _parse_response(
+                    response_text,
+                    content_tags=["insight"],
+                    questions_tag="suggestion_questions",
+                )
+                insight = contents.get("insight", "")
                 if insight:
                     break
-                # If no tags found but we got a response, use it as insight directly
-                if response_text.strip() and not insight:
-                    insight = response_text.strip()
+
+                # Tags not found — ask the same session to reformat
+                response = await session.run(
+                    "Your response was not in the correct format. "
+                    "Respond exactly in this format:\n"
+                    "<insight>your comprehensive overview here</insight>\n"
+                    '<suggestion_questions>["question insight 1?", "question insight 2?"]</suggestion_questions>'
+                )
+                response_text = response.text if hasattr(
+                    response, "text") else str(response)
+                contents, suggestions = _parse_response(
+                    response_text,
+                    content_tags=["insight"],
+                    questions_tag="suggestion_questions",
+                )
+                insight = contents.get("insight", "")
+                if insight:
                     break
             except Exception as e:
                 logger.error(f"Overview attempt {attempt + 1} failed: {e}")

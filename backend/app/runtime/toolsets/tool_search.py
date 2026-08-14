@@ -8,9 +8,9 @@ from typing import Any
 from typing_extensions import Self
 
 from .tool_context import (
-    BM25SearchStrategy,
     FunctionTool,
     NOT_GIVEN,
+    NotGiven,
     NotGivenOr,
     ProviderTool,
     RawFunctionTool,
@@ -26,15 +26,21 @@ from .tool_context import (
     function_tool,
 )
 
+from .strategies.hybrid_search_strategy import HybridSearchStrategy
+from .strategies.bm25_search_strategy import BM25SearchStrategy
+from .strategies.semantic_search_strategy import SemanticSearchStrategy
+
 
 _DEFAULT_SEARCH_DESCRIPTION = (
-    "Search for available tools by describing what tool you need using keywords and facts extracted from the message.\n"
-    "Do not use the whole message, insteady rephrase into keywords and facts for best tool seach\n"
-    "Returns the schemas of matching tools."
+    "Search for tools using concise keywords and relevant facts extracted "
+    "from the task's request. Do not use the entire message; rephrase it "
+    "into the most relevant search terms for accurate tool retrieval. "
+    "Return the schemas of the matching tools. After finding the required "
+    "tools, use call_tool to execute them and obtain the results."
 )
 
 _DEFAULT_QUERY_DESCRIPTION = (
-    "extracted keywords to search for in the tool names and descriptions, split by spaces"
+    "Search query: space-separated keywords extracted from the task's request that best match tool names and descriptions."
 )
 
 
@@ -53,7 +59,14 @@ class ToolSearchToolset(Toolset):
 
         super().__init__(id=id, tools=tools)
 
-        self._strategy = search_strategy or BM25SearchStrategy()
+        self._strategy = (
+            search_strategy
+            if search_strategy is not None and not isinstance(search_strategy, NotGiven)
+            else HybridSearchStrategy(
+                bm25=BM25SearchStrategy(),
+                vector=SemanticSearchStrategy(),
+            )
+        )
         self._max_results = max_results
 
         self._loaded_tools: list[Tool | Toolset] = []

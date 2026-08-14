@@ -75,6 +75,7 @@ class Agent:
         memory: MemoryProvider | None = None,
         conversation: ConversationProvider | None = None,
         rag: RAGProvider | None = None,
+        max_iteration: int = 20
     ) -> None:
 
         self._name = name
@@ -86,7 +87,7 @@ class Agent:
         self._memory = memory
         self._conversation = conversation
         self._rag = rag
-        self._max_iterations: int = 20
+        self._max_iterations = max_iteration
 
         self._tool_context = ToolContext.from_tools(
             tools,

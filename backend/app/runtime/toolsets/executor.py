@@ -101,22 +101,18 @@ class ToolExecutor:
         """
         _results = []
         for result in results:
+            # Include the observation in the tool message content directly
+            content = self._serialize_output(result.output)
+            if result.output and result.output.observation:
+                content = result.output.observation
+
             _results.append(
                 ChatMessage.tool(
                     tool_call_id=result.tool_call.id,
                     name=result.tool_call.name,
-                    content=self._serialize_output(
-                        result.output,
-                    ),
+                    content=content,
                 )
             )
-
-            if result.output.observation:
-                _results.append(
-                    ChatMessage.system(
-                        content=result.output.observation
-                    )
-                )
 
         return _results
 
