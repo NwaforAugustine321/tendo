@@ -1,115 +1,125 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Sparkles, Lightbulb, Loader2 } from 'lucide-react'
-import clsx from 'clsx'
-import { useWorkspaceStore } from '../../store/workspace'
-import { useBusinessStore } from '../../store/business'
-import * as recordsApi from '../../lib/services/records'
+import { useEffect, useState, useCallback } from "react";
+import { Sparkles, Lightbulb, Loader2 } from "lucide-react";
+import clsx from "clsx";
+import { useWorkspaceStore } from "../../store/workspace";
+import { useBusinessStore } from "../../store/business";
+import * as recordsApi from "../../lib/services/records";
 
 type InsightEntry = {
-  id: string
-  insight: string
-  suggested_questions: string[]
-  timestamp: string
-}
+  id: string;
+  insight: string;
+  suggested_questions: string[];
+  timestamp: string;
+};
 
-const WORD_LIMIT = 25
+const WORD_LIMIT = 25;
 
 function truncateWords(text: string, limit: number): string {
-  const words = text.split(/\s+/)
-  if (words.length <= limit) return text
-  return words.slice(0, limit).join(' ') + '...'
+  const words = text.split(/\s+/);
+  if (words.length <= limit) return text;
+  return words.slice(0, limit).join(" ") + "...";
 }
 
 function isLongText(text: string): boolean {
-  return text.split(/\s+/).length > WORD_LIMIT || text.length > 400
+  return text.split(/\s+/).length > WORD_LIMIT || text.length > 400;
 }
 
 export function RecordInsightPanel() {
-  const { currentProfile } = useBusinessStore()
-  const businessId = currentProfile?.id || ''
-  const [insights, setInsights] = useState<InsightEntry[]>([])
-  const [loading, setLoading] = useState(false)
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const { currentProfile } = useBusinessStore();
+  const businessId = currentProfile?.id || "";
+  const [insights, setInsights] = useState<InsightEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const toggleExpanded = useCallback((id: string) => {
     setExpandedIds((prev) => {
-      const next = new Set(prev)
+      const next = new Set(prev);
       if (next.has(id)) {
-        next.delete(id)
+        next.delete(id);
       } else {
-        next.add(id)
+        next.add(id);
       }
-      return next
-    })
-  }, [])
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!businessId) {
-      setInsights([])
-      return
+      setInsights([]);
+      return;
     }
 
-    setLoading(true)
+    setLoading(true);
 
     // Fetch all folders, then all records, then aggregate insights
-    recordsApi.getFolders().then(async (folders) => {
-      const allInsights: InsightEntry[] = []
+    recordsApi
+      .getFolders()
+      .then(async (folders) => {
+        const allInsights: InsightEntry[] = [];
 
-      for (const folder of folders) {
-        try {
-          const records = await recordsApi.getRecords(folder.id)
-          for (const record of records) {
-            const aiInsights = record.ai_insight || []
-            for (const entry of aiInsights) {
-              allInsights.push({
-                id: `${record.id}-${entry.version}`,
-                insight: entry.insight,
-                suggested_questions: entry.suggested_questions || [],
-                timestamp: entry.timestamp,
-              })
+        for (const folder of folders) {
+          try {
+            const records = await recordsApi.getRecords(folder.id);
+            for (const record of records) {
+              const aiInsights = record.ai_insight || [];
+              for (const entry of aiInsights) {
+                allInsights.push({
+                  id: `${record.id}-${entry.version}`,
+                  insight: entry.insight,
+                  suggested_questions: entry.suggested_questions || [],
+                  timestamp: entry.timestamp,
+                });
+              }
             }
+          } catch {
+            // Skip failed folders
           }
-        } catch {
-          // Skip failed folders
         }
-      }
 
-      // Sort by timestamp descending (newest first)
-      allInsights.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      setInsights(allInsights)
-      setLoading(false)
-    }).catch(() => {
-      setLoading(false)
-    })
-  }, [businessId])
+        // Sort by timestamp descending (newest first)
+        allInsights.sort(
+          (a, b) =>
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+        );
+        setInsights(allInsights);
+        setLoading(false);
+      })
+      .catch(() => {
+        setLoading(false);
+      });
+  }, [businessId]);
 
   // Listen for new processing completions
   useEffect(() => {
-    if (!businessId) return
+    if (!businessId) return;
 
     const handleStatus = (e: Event) => {
-      const detail = (e as CustomEvent).detail
-      if (detail?.status === 'completed' && detail?.record_id) {
-        recordsApi.getRecord(detail.record_id).then((record) => {
-          const aiInsights = record?.ai_insight || []
-          const newEntries: InsightEntry[] = aiInsights.map((entry: any) => ({
-            id: `${record.id}-${entry.version}`,
-            insight: entry.insight,
-            suggested_questions: entry.suggested_questions || [],
-            timestamp: entry.timestamp,
-          }))
-          setInsights((prev) => {
-            const existingIds = new Set(prev.map((i) => i.id))
-            const fresh = newEntries.filter((e) => !existingIds.has(e.id))
-            return [...fresh, ...prev]
+      const detail = (e as CustomEvent).detail;
+      if (detail?.status === "completed" && detail?.record_id) {
+        recordsApi
+          .getRecord(detail.record_id)
+          .then((record) => {
+            const aiInsights = record?.ai_insight || [];
+            const newEntries: InsightEntry[] = aiInsights.map((entry: any) => ({
+              id: `${record.id}-${entry.version}`,
+              insight: entry.insight,
+              suggested_questions: entry.suggested_questions || [],
+              timestamp: entry.timestamp,
+            }));
+            setInsights((prev) => {
+              const existingIds = new Set(prev.map((i) => i.id));
+              const fresh = newEntries.filter((e) => !existingIds.has(e.id));
+              return [...fresh, ...prev];
+            });
           })
-        }).catch(() => {})
+          .catch(() => {});
       }
-    }
+    };
 
-    window.addEventListener('tendo:record-processing', handleStatus)
-    return () => window.removeEventListener('tendo:record-processing', handleStatus)
-  }, [businessId])
+    window.addEventListener("tendo:record-processing", handleStatus);
+    return () =>
+      window.removeEventListener("tendo:record-processing", handleStatus);
+  }, [businessId]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -125,16 +135,19 @@ export function RecordInsightPanel() {
           <div className="py-6 text-center">
             <Lightbulb size={20} className="mx-auto mb-2 text-zinc-600" />
             <p className="text-xs text-zinc-500">No insights yet</p>
-            <p className="text-[10px] text-zinc-600 mt-1">Capture content to generate insights</p>
+            <p className="text-[10px] text-zinc-600 mt-1">
+              Capture content to generate insights
+            </p>
           </div>
         )}
 
         {insights.map((entry) => {
-          const isExpanded = expandedIds.has(entry.id)
-          const isLong = isLongText(entry.insight)
-          const displayText = isExpanded || !isLong
-            ? entry.insight
-            : truncateWords(entry.insight, WORD_LIMIT)
+          const isExpanded = expandedIds.has(entry.id);
+          const isLong = isLongText(entry.insight);
+          const displayText =
+            isExpanded || !isLong
+              ? entry.insight
+              : truncateWords(entry.insight, WORD_LIMIT);
 
           return (
             <div
@@ -149,12 +162,12 @@ export function RecordInsightPanel() {
                 <button
                   type="button"
                   onClick={(e) => {
-                    e.stopPropagation()
-                    toggleExpanded(entry.id)
+                    e.stopPropagation();
+                    toggleExpanded(entry.id);
                   }}
                   className="text-[10px] text-[#3ecf8e] hover:text-[#3ecf8e]/80 mb-2 block"
                 >
-                  {isExpanded ? 'See less' : 'See more'}
+                  {isExpanded ? "See less" : "See more"}
                 </button>
               )}
 
@@ -165,17 +178,22 @@ export function RecordInsightPanel() {
                       key={i}
                       type="button"
                       onClick={() => {
-                        useWorkspaceStore.getState().setPendingChatMessage(q)
-                        useWorkspaceStore.getState().setDashboardChatVisible(true)
+                        useWorkspaceStore.getState().setPendingChatMessage(q);
+                        useWorkspaceStore
+                          .getState()
+                          .setDashboardChatVisible(true);
                       }}
                       className={clsx(
-                        'flex items-center gap-1 rounded-full px-2.5 py-1',
-                        'border border-zinc-700/50 bg-[#1a1a1a]',
-                        'text-[10px] text-zinc-400 hover:text-zinc-200 hover:border-zinc-600',
-                        'transition-colors text-left'
+                        "flex items-center gap-1 rounded-full px-2.5 py-1",
+                        "border border-zinc-700/50 bg-[#1a1a1a]",
+                        "text-[10px] text-zinc-400 hover:text-zinc-200 hover:border-zinc-600",
+                        "transition-colors text-left",
                       )}
                     >
-                      <Lightbulb size={10} className="text-[#3ecf8e] shrink-0" />
+                      <Lightbulb
+                        size={10}
+                        className="text-[#3ecf8e] shrink-0"
+                      />
                       <span>{q}</span>
                     </button>
                   ))}
@@ -186,20 +204,26 @@ export function RecordInsightPanel() {
                 <button
                   type="button"
                   onClick={() => {
-                    useWorkspaceStore.getState().setDashboardChatVisible(true)
-                    useWorkspaceStore.getState().setPendingChatMessage(`Can you explain this insight and what happened? "${entry.insight}"`)
+                    useWorkspaceStore.getState().setDashboardChatVisible(true);
+                    useWorkspaceStore
+                      .getState()
+                      .setPendingChatMessage(
+                        `List the key points and important information? "${entry.insight}"`,
+                      );
                   }}
                   className="flex items-center gap-1 rounded-full px-2.5 py-1 border border-[#3ecf8e]/30 bg-[#3ecf8e]/5 text-[10px] text-[#3ecf8e] hover:bg-[#3ecf8e]/10 hover:border-[#3ecf8e]/50 transition-colors"
                 >
                   <Sparkles size={10} />
                   <span>Ask Tendo</span>
                 </button>
-                <span className="text-[9px] text-zinc-600">{new Date(entry.timestamp).toLocaleString()}</span>
+                <span className="text-[9px] text-zinc-600">
+                  {new Date(entry.timestamp).toLocaleString()}
+                </span>
               </div>
             </div>
-          )
+          );
         })}
       </div>
     </div>
-  )
+  );
 }

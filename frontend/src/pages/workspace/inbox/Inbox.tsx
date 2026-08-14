@@ -31,7 +31,7 @@ import type { BusinessInsight } from "../../../lib/workspace/dashboard-types";
 import { useBusinessStore } from "../../../store/business";
 import { useWorkspaceStore } from "../../../store/workspace";
 import * as recordsApi from "../../../lib/services/records";
-import { useSocketEvent, emitEvent } from "../../../lib/ws";
+import { useSocketEvent } from "../../../lib/ws";
 import { toast } from "sonner";
 import type { InboxTab, InboxMessage } from "./types";
 import { TABS } from "./types";
@@ -245,7 +245,7 @@ function MessageDetail({
     document.addEventListener("mouseup", onUp);
   };
 
-  // Fetch insight via WebSocket and listen for updates
+  // Fetch insight via API
   useEffect(() => {
     if (!recordId) {
       setLoadingInsight(false);
@@ -260,23 +260,19 @@ function MessageDetail({
     }
 
     setLoadingInsight(true);
-  }, [recordId]);
-
-  useSocketEvent(
-    "record_understanding",
-    (data: any) => {
-      if (data?.record_id === recordId) {
-        const hasInsight = !!data?.insight;
-        if (hasInsight) {
+    recordsApi
+      .getRecordUnderstanding(recordId)
+      .then((data) => {
+        if (data?.insight) {
           setInsight(data.insight);
           setSuggestedQuestions(data?.suggestions || []);
-          setLoadingInsight(false);
         }
-        // If no insight returned, keep loading — wait for record_processing_status
-      }
-    },
-    [recordId],
-  );
+        setLoadingInsight(false);
+      })
+      .catch(() => {
+        setLoadingInsight(false);
+      });
+  }, [recordId]);
 
   useSocketEvent(
     "record_processing_status",
@@ -295,18 +291,6 @@ function MessageDetail({
     },
     [recordId],
   );
-
-  // Request understanding via socket on mount
-  useEffect(() => {
-    if (!recordId) return;
-    const { currentProfile } = useBusinessStore.getState();
-    const businessId = currentProfile?.id || "";
-    if (!businessId) return;
-    emitEvent("get_record_understanding", {
-      record_id: recordId,
-      business_id: businessId,
-    });
-  }, [recordId]);
 
   // Auto-scroll to bottom when new content is added
   useEffect(() => {
@@ -628,7 +612,7 @@ function MessageDetail({
                         useWorkspaceStore
                           .getState()
                           .setPendingChatMessage(
-                            "Give me a comprehensive insight of the record?",
+                            "List the key points and important information?",
                           );
                       }}
                       className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
@@ -691,7 +675,7 @@ function MessageDetail({
                         useWorkspaceStore
                           .getState()
                           .setPendingChatMessage(
-                            "Give me a comprehensive insight of the record?",
+                            "List the key points and important information?",
                           );
                       }}
                       className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
@@ -737,7 +721,7 @@ function MessageDetail({
                       useWorkspaceStore
                         .getState()
                         .setPendingChatMessage(
-                          "Give me a comprehensive insight of the record?",
+                          "List the key points and important information?",
                         );
                     }}
                     className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"

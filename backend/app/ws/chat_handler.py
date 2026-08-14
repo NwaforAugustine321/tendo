@@ -10,7 +10,7 @@ sessions: dict[str, dict] = {}
 
 @sio.event
 async def connect(sid, environ, auth):
-   
+
     query_string = environ.get("QUERY_STRING", "")
     params = dict(p.split("=", 1) for p in query_string.split("&") if "=" in p)
 
@@ -44,14 +44,14 @@ async def connect(sid, environ, auth):
 async def message(sid, data):
 
     session = sessions.get(sid)
-    if not  session:
+    if not session:
         payload = {
-            "type": "message", 
+            "type": "message",
             "data": {
-                "response": "Unauthorized", 
-                }
+                "response": "Unauthorized",
             }
-        await emit_event("message",payload=payload, sid=sid)
+        }
+        await emit_event("message", payload=payload, sid=sid)
         return
 
     text = ""
@@ -69,36 +69,36 @@ async def message(sid, data):
         if not data.get("business_id"):
 
             payload = {
-                "type": "message", 
+                "type": "message",
                 "data": {
-                "response": "Unauthorized, no bussiness id", 
+                    "response": "Unauthorized, no bussiness id",
                 }
             }
 
-            await emit_event("message",payload=payload, sid=sid)
-            return 
+            await emit_event("message", payload=payload, sid=sid)
+            return
 
         if not data.get("session_id"):
 
             payload = {
-               "type": "message", 
-               "data": {
-                "response": "Unauthorized, no session id", 
+                "type": "message",
+                "data": {
+                    "response": "Unauthorized, no session id",
                 }
             }
 
-            await emit_event("message",payload=payload, sid=sid)
+            await emit_event("message", payload=payload, sid=sid)
             return
 
     else:
         payload = {
-            "type": "message", 
+            "type": "message",
             "data": {
-                "response": "Invalid message format", 
-                }
+                "response": "Invalid message format",
+            }
         }
-        await emit_event("message",payload=payload, sid=sid)
-        return      
+        await emit_event("message", payload=payload, sid=sid)
+        return
 
     if not text.strip():
         return
@@ -107,9 +107,8 @@ async def message(sid, data):
     business_id = data["business_id"]
 
     session["business_id"] = business_id
-    session["session_id"]  = session_id
+    session["session_id"] = session_id
     user_id = session.get("user_id", ""),
-    
 
     logger.info(f"Chat message from {sid}: {text[:100]}")
 
@@ -131,15 +130,14 @@ async def message(sid, data):
         result = await moa_node(graph_state)
         response = result.get("response", {})
 
-
         await _emit_event("message", payload={
-                "type": "message",
-                "data": {"response": response.get("text", ""), "msg_type": response.get("msg_type", "answer")},
+            "type": "message",
+            "data": {"response": response.get("text", ""), "msg_type": response.get("msg_type", "answer")},
         })
 
     except Exception as e:
         logger.error(f"Chat error for {sid}: {e}", exc_info=True)
-        await _emit_event("message",payload= {
+        await _emit_event("message", payload={
             "type": "message",
             "data": {"response": "Something went wrong. Please try again.", "msg_type": "answer"},
         })
@@ -149,41 +147,3 @@ async def message(sid, data):
 async def disconnect(sid):
     logger.info(f"Socket.IO disconnected: {sid}")
     sessions.pop(sid, None)
-
-
-@sio.event
-async def get_record_understanding(sid, data):
-    """Handle request for record understanding via WebSocket."""
-    from app.record_knowledge.record_agent import get_record_understanding as fetch_understanding
-
-    session = sessions.get(sid)
-    business_id = ""
-    if session:
-        business_id = session.get("business_id", "")
-
-    if isinstance(data, dict):
-        record_id = data.get("record_id", "")
-        if data.get("business_id"):
-            business_id = data["business_id"]
-    else:
-        record_id = ""
-
-    if not record_id or not business_id:
-        await emit_event("record_understanding",payload= {"insight": "", "suggestions": [], "record_id": record_id}, sid=sid)
-        return
-
-    try:
-        result = await fetch_understanding(business_id, record_id)
-        await emit_event("record_understanding", payload= {
-            "record_id": record_id,
-            "insight": result.get("insight", ""),
-            "suggestions": result.get("suggestions", []),
-        }, sid=sid)
-    except Exception as e:
-        logger.error(f"Error fetching understanding for {record_id}: {e}", exc_info=True)
-        await emit_event(
-          "record_understanding", 
-          payload={"insight": "", "suggestions": [], "record_id": record_id},
-          sid=sid
-          )
-

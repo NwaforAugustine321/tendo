@@ -66,47 +66,42 @@ class DefaultContextMonitor(
         *,
         conversation_context: ConversationContext,
         run_context: RunContext,
+        stable_messages: list[ChatMessage] | None = None,
     ) -> int:
         """
         Estimate the current runtime context size.
 
-        Includes:
+        When stable_messages are provided, they already contain the
+        prepared stable prompt, including conversation, memory, RAG,
+        instructions, output formatting, and template messages.
 
-        - conversation summary
-        - persisted conversation messages
-        - current execution messages
-
-        This performs one approximate token measurement.
-
-        The result is returned to RunContext, which owns
-        the latest measurement for the current execution.
+        Current execution messages are always added separately.
         """
 
         messages: list[ChatMessage] = []
 
-        #
-        # Persisted conversation summary.
-        #
-        if conversation_context.summary:
-
-            messages.append(
-                ChatMessage.system(
-                    conversation_context.summary.strip(),
-                ),
+        if stable_messages:
+            messages.extend(
+                message
+                for message in stable_messages
+                if message.content
             )
 
-        #
-        # Persisted conversation messages.
-        #
-        messages.extend(
-            message
-            for message in conversation_context.messages
-            if message.content
-        )
+        else:
+            if conversation_context.summary:
 
-        #
-        # Messages generated during the current execution.
-        #
+                messages.append(
+                    ChatMessage.system(
+                        conversation_context.summary.strip(),
+                    ),
+                )
+
+            messages.extend(
+                message
+                for message in conversation_context.messages
+                if message.content
+            )
+
         messages.extend(
             message
             for message in run_context.messages
@@ -117,7 +112,9 @@ class DefaultContextMonitor(
             return 0
 
         return count_tokens_approximately(
-            run_context.agent.llm.to_provider_messages(messages=messages)
+            run_context.agent.llm.to_provider_messages(
+                messages=messages,
+            )
         )
 
     def reached(

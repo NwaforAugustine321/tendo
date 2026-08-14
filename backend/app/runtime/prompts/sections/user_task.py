@@ -12,8 +12,12 @@ class UserTaskPromptBuilder:
     """
 
     HEADER = (
-        "## User Task\n"
-        "Complete the user's current request.\n"
+        "## User Task:\n"
+        "Complete the current task using the relevant information available in "
+        "Central Knowledge, Long-Term Memory, and Conversation History. "
+        "Use these sources together to understand the business, maintain continuity, "
+        "apply remembered preferences and context, and make informed decisions. "
+        "Prioritize the current task while grounding your reasoning in relevant context."
     )
 
     def build(

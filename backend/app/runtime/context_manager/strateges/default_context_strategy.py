@@ -241,12 +241,37 @@ class DefaultContextStrategy(
 
             optimized = True
 
+            #
+            # Conversation changed, so the previously prepared
+            # stable prompt is stale.
+            #
+            prompt_state = (
+                builder.context.prompt_state
+            )
+
+            prompt_state.stable_messages.clear()
+            prompt_state.prepared = False
+
+            #
+            # Rebuild the stable prompt so the next measurement
+            # includes the updated conversation, memory, RAG,
+            # instructions, output formatting, and templates.
+            #
+            await builder.prepare()
+
+            #
+            # Measure the same full runtime context that will
+            # be used for inference.
+            #
             current_tokens = (
                 run_context.session.context_monitor.count(
                     conversation_context=(
                         builder.context.conversation_context
                     ),
                     run_context=run_context,
+                    stable_messages=(
+                        prompt_state.stable_messages
+                    ),
                 )
             )
 
@@ -261,21 +286,21 @@ class DefaultContextStrategy(
 
             logger.info(
                 "Conversation optimization pass completed. "
-                "Tokens before: %s. "
-                "Tokens after: %s. "
-                "Tokens saved: %s.",
+                "Full context before: %s. "
+                "Full context after: %s. "
+                "Context reduction: %s.",
                 tokens_before,
                 current_tokens,
                 tokens_saved,
             )
 
-            if tokens_saved <= 0:
+            if current_tokens >= tokens_before:
 
                 logger.warning(
                     "Conversation optimization made no measurable "
                     "progress. "
-                    "Tokens before: %s. "
-                    "Tokens after: %s. "
+                    "Full context before: %s. "
+                    "Full context after: %s. "
                     "Stopping optimization loop.",
                     tokens_before,
                     current_tokens,
@@ -292,9 +317,9 @@ class DefaultContextStrategy(
 
             logger.info(
                 "Conversation optimization phase completed. "
-                "Initial tokens: %s. "
-                "Final tokens: %s. "
-                "Total tokens saved: %s. "
+                "Initial full context: %s. "
+                "Final full context: %s. "
+                "Total context reduction: %s. "
                 "Target: %s.",
                 initial_tokens,
                 current_tokens,

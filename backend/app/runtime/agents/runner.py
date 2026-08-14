@@ -131,18 +131,40 @@ class AgentRunner:
                         return blocked
 
                     #
-                    # Context optimization.
+                    # Context preparation and optimization.
                     #
-                    # RunContext has already performed the
-                    # approximate token count when the latest
-                    # message was added.
+                    # Prepare the stable prompt first so the context measurement
+                    # includes conversation, memory, RAG, instructions, output
+                    # formatting, and template messages.
                     #
-                    # No prompt is built here.
-                    # No token counting is performed here.
-                    #
-                    if (
-                        run_context.context_threshold_reached
-                    ):
+                    builder = PromptBuilder(
+                        context=PromptContext(
+                            agent=session.agent,
+                            run_context=run_context,
+                            conversation_context=(
+                                session.conversation_context
+                            ),
+                            prompt_state=session.prompt_state,
+                        ),
+                    )
+
+                    await builder.prepare()
+
+                    run_context.refresh_context_threshold(
+                        stable_messages=(
+                            session.prompt_state.stable_messages
+                        ),
+                    )
+
+                    logger.warning(
+                        "PRE-INFERENCE CONTEXT CHECK: "
+                        "tokens=%s threshold=%s reached=%s",
+                        run_context.context_tokens,
+                        session.context_monitor.threshold,
+                        run_context.context_threshold_reached,
+                    )
+
+                    if run_context.context_threshold_reached:
 
                         await run_context.emitter.emit(
                             EventType.PROGRESS,
@@ -435,12 +457,10 @@ class AgentRunner:
         )
 
         #
-        # The threshold event has now been handled for
-        # this execution cycle.
+        # The optimization phase has handled this threshold event.
         #
-        # If additional messages are produced by the LLM
-        # or tools, RunContext can perform another context
-        # measurement and trigger optimization again.
+        # The next execution cycle will perform a fresh full
+        # context measurement.
         #
         run_context.reset_context_threshold()
 

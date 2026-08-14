@@ -8,18 +8,15 @@ class MemoryPromptBuilder:
     Builds the long-term memory section of the system prompt.
     """
 
-    HEADER = """\
-## Long-Term Memory
-
-The following memories were learned from previous conversations.
-
-Use them only when they are relevant to the user's current request.
-
-- Do not mention these memories unless they help answer the user.
-- If the current conversation contradicts a memory, trust the current conversation.
-- Treat these memories as helpful context rather than absolute facts.
-
-"""
+    HEADER = (
+        "## Long-Term Memory:\n"
+        "Use this memory as a source of relevant context when performing the task. "
+        "It contains accumulated knowledge of the business, including facts, history, "
+        "preferences, decisions, insights, patterns, relationships, past history,  and prior observations. "
+        "Use relevant memory to inform your reasoning and response. "
+        "Do not ignore relevant memory, but do not invent or assume information "
+        "that is not supported by the memory."
+    )
 
     def build(
         self,

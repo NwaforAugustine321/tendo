@@ -4,6 +4,9 @@ from app.runtime.chat.message import ChatMessage
 
 from ..context import PromptContext
 from ..section import PromptSection
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class SystemSection(PromptSection):

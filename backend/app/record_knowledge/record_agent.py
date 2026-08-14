@@ -17,7 +17,7 @@ from app.runtime.rag.factory import (
     create_rag_provider
 )
 from app.runtime.utils.spec_loader import LoaderAgentSpec
-from app.record_knowledge.summarizers import generate_record_summary
+from app.record_knowledge.summarizers import generate_record_summary, generate_record_overview
 
 logger = logging.getLogger(__name__)
 
@@ -105,9 +105,7 @@ async def process_record_content(record_content: RecordContentInput) -> Processi
 async def get_record_understanding(business_id: str, record_id: str) -> dict:
 
     try:
-
-        return {"insight": "", "suggestions": []}
-        # return await run_understanding_agent(business_id, record_id)
+        return await generate_record_overview(business_id, record_id)
     except Exception as e:
         logger.error(f"Understanding generation failed: {e}", exc_info=True)
         return {"insight": "", "suggestions": []}

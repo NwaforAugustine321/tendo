@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { FloatingPanel } from "./FloatingPanel";
 import { useWorkspaceStore } from "../../store/workspace";
 import { useBusinessStore } from "../../store/business";
-import { useSocketEvent, emitEvent } from "../../lib/ws";
+import { useSocketEvent } from "../../lib/ws";
 import type { Record } from "../../lib/workspace/types";
 import * as recordsApi from "../../lib/services/records";
 
@@ -138,7 +138,7 @@ function RecordContentTab({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Fetch insight via WebSocket
+  // Fetch insight via API
   useEffect(() => {
     if (!recordId) {
       setLoadingInsight(false);
@@ -151,27 +151,19 @@ function RecordContentTab({
       return;
     }
     setLoadingInsight(true);
-    emitEvent("get_record_understanding", {
-      record_id: recordId,
-      business_id: businessId,
-    });
-  }, [recordId]);
-
-  useSocketEvent(
-    "record_understanding",
-    (data: any) => {
-      if (data?.record_id === recordId) {
-        const hasInsight = !!data?.insight;
-        if (hasInsight) {
+    recordsApi
+      .getRecordUnderstanding(recordId)
+      .then((data) => {
+        if (data?.insight) {
           setInsight(data.insight);
           setSuggestedQuestions(data?.suggestions || []);
-          setLoadingInsight(false);
         }
-        // If no insight returned, keep loading — wait for record_processing_status
-      }
-    },
-    [recordId],
-  );
+        setLoadingInsight(false);
+      })
+      .catch(() => {
+        setLoadingInsight(false);
+      });
+  }, [recordId]);
 
   useSocketEvent(
     "record_processing_status",
@@ -580,7 +572,7 @@ function RecordContentTab({
                     type="button"
                     onClick={() =>
                       onOpenDetail(
-                        "Give me a comprehensive insight of the record?",
+                        "List the key points and important information?",
                       )
                     }
                     className="flex items-center gap-1 rounded-full px-1.5 py-0.5 mt-2 border border-emerald-500/30 bg-emerald-500/5 text-[8px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
@@ -637,7 +629,7 @@ function RecordContentTab({
                       type="button"
                       onClick={() =>
                         onOpenDetail(
-                          "Give me a comprehensive insight of the record?",
+                          "List the key points and important information?",
                         )
                       }
                       className="flex items-center gap-1 rounded-full px-1.5 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[8px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
@@ -659,7 +651,7 @@ function RecordContentTab({
                     type="button"
                     onClick={() =>
                       onOpenDetail(
-                        "Give me a comprehensive insight of the record?",
+                        "List the key points and important information?",
                       )
                     }
                     className="flex items-center gap-1 rounded-full px-1.5 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[8px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"

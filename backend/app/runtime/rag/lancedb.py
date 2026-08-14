@@ -74,6 +74,7 @@ class LanceRAGStore(
         uri: str | Path = "./data/rag",
         embeddings: EmbeddingProvider | None = None,
         scopes: list[str] | None = None,
+        ignore_threshold: bool = False
     ) -> None:
 
         self._embeddings = (
@@ -82,6 +83,7 @@ class LanceRAGStore(
         )
 
         self._scopes = scopes or []
+        self._ignore_threshold = ignore_threshold
 
         self._db = (
             db
@@ -122,7 +124,7 @@ class LanceRAGStore(
         query: str,
         limit: int = 5,
         distance_threshold: float = 0.75,
-        scopes: list[str] | None = None,
+        scopes: list[str] | None = None
     ) -> RAGContext:
 
         if not query.strip():
@@ -153,9 +155,10 @@ class LanceRAGStore(
             if row.get("_distance", 1.0) <= distance_threshold
         ]
 
+        selected_rows = rows if self._ignore_threshold else relevant_rows
         _logger.info(
             f"RAG retrieve: query='{query[:50]}', "
-            f"rows_found={len(rows)}, "
+            f"rows_found={len(selected_rows)}, "
 
         )
 
@@ -174,7 +177,7 @@ class LanceRAGStore(
                         row.get("metadata", "{}"),
                     ),
                 )
-                for row in relevant_rows
+                for row in selected_rows
             ]
         )
 

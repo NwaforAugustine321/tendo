@@ -9,12 +9,15 @@ class ConversationPromptBuilder:
     """
     Builds the conversation history prompt.
     """
-
     HEADER = (
-        "## Conversation History\n"
-        "The following conversation occurred before the current user request.\n"
-        "Use it only when it provides useful context.\n"
-        "Always prioritize the latest user message.\n"
+        "## Conversation History:\n"
+        "Use this conversation history to maintain continuity and understand the "
+        "ongoing business context. It contains previous interactions, discussions, "
+        "requests, decisions, questions, answers, preferences, clarifications, "
+        "commitments, tasks, and other context established during the conversation.\n"
+        "Use relevant history when reasoning, responding, or continuing ongoing work. "
+        "Prioritize recent and relevant information while using earlier interactions "
+        "when necessary to preserve continuity and consistency."
     )
 
     def build(

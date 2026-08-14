@@ -30,10 +30,33 @@ from app.runtime.utils.spec_loader import LoaderAgentSpec
 from app.runtime.events.default_emitter import DefaultEmitter
 from app.runtime.events.events import (EventType, StatusEvent)
 
-planner_specialist_spec = LoaderAgentSpec.from_spec(
-    name='Planner Specialist', path='planner')
 
-prompt = f"Role:\n{planner_specialist_spec.role}\n\nBackstory:\n{planner_specialist_spec.backstory}\n\nGoal:\n{planner_specialist_spec.goal}\n"
+specialist_info = {
+    "planner": LoaderAgentSpec.from_spec(name='Planner Specialist', path='planner'),
+    "knowledge": LoaderAgentSpec.from_spec(name='Knowledge  Specialist', path='domain/knowledge'),
+    "transaction": LoaderAgentSpec.from_spec(name='Transactions  Specialist', path='domain/transactions'),
+    "inventory": LoaderAgentSpec.from_spec(name='Inventory  Specialist', path='domain/inventory'),
+}
+
+
+planner_system_prompt = (
+    f"Role:\n{specialist_info.get('planner').role}\n\n"
+    f"Backstory:\n{specialist_info.get('planner').backstory}\n\n"
+    f"Goal:\n{specialist_info.get('planner').goal}\n\n"
+    "Other Specialized Business Employees:\n\n"
+    "## transaction\n"
+    "- **Domain**: transaction\n"
+    "- **Capabilities**: search, query, update, add\n"
+    "- **Description**: It is only used for business transaction recording and financial queries.\n\n"
+    "## inventory\n"
+    "- **Domain**: inventory\n"
+    "- **Capabilities**: search, query, update, track, and manage\n"
+    "- **Description**: It is only used for managing inventory and tracking.\n\n"
+    "## knowledge\n"
+    "- **Domain**: knowledge\n"
+    "- **Capabilities**: search, retrieve\n"
+    "- **Description**: It is used to answer general questions of all types as the source of truth.\n\n"
+)
 
 
 emitter = DefaultEmitter()
@@ -134,18 +157,13 @@ def delegate_to_agents(session: dict | None = {}):
         agents: list[SelectedAgent],
         shared_constraints: str = "",
     ) -> str:
-        """Search, find, gather, and look up information from other specialized agents. 
-
-        Use this tool when you need to ask questions, solve complex queries, 
-        delegate tasks, get details, discover data, research a topic, or request 
-        further analysis and execution from sub-agents.
-
+        """This tool is used to delegate task to other specialist for further task processing 
            Args:
-              agents: List of agent assignments. Each must have:
-                - agent_id: <agent_name>
+              specialists: List of agent assignments. Each must have:
+                - specialist_id: <agent_name>
                 - message_input: <user_message>
-                - depends_on: List of agent_ids this agent depends on
-              shared_constraints: Constraints that apply to all agents.
+                - depends_on: List of specialist_ids this specialist depends on
+              shared_constraints: Constraints that apply to all specialists.
 
             Return:
               - str
@@ -210,43 +228,75 @@ async def _run_parallel(agents: list[dict], shared_constraints: str, session: di
     return agent_response
 
 
-async def _run_sequential(agents: list[dict], shared_constraints: str, session: dict | None = {}) -> str:
-
-    business_id = session.get("business_id", "")
-    emit_event = session.get("emit_event")
-    vc_session = session.get("vc_session")
-
+async def _run_sequential(specialists: list[dict], shared_constraints: str, session: dict | None = {}) -> str:
     results = []
-    for agent_info in agents:
-        agent_id = agent_info.get("agent_id", "")
-        message_input = agent_info.get("message_input", "")
+    try:
+        business_id = session.get("business_id", "")
+        session_id = session.get('session_id', "")
+        record_id = session.get('record_id', '')
+        emit_event = session.get("emit_event")
+        vc_session = session.get("vc_session")
 
-        agent = registry.get(agent_id)
-        if agent is None:
-            results.append(f"Unknown agent: {agent_id}")
-            continue
+        for specialist in specialists:
+            selected_specailist_id = specialist.get("agent_id", "")
+            specialist_spec = specialist_info.get(selected_specailist_id, "")
+            message_input = agent_info.get("message_input", "")
 
-        try:
-            task = f"{message_input}\n{shared_constraints}".strip()
-            agent.bind_tools(business_id, scopes=[])
-            result = await agent.execute_agent(task)
-            results.append(result)
-        except Exception as e:
-            logger.error(f"Agent {agent_id} failed: {e}")
-            results.append(f"Error from {agent_id}: {str(e)}")
+            if specialist_spec:
+                results.append(
+                    f"Delegated specialist not found for : {agent_id}")
+                continue
 
-    agent_response = "\n\n".join(r for r in results if r)
+            scopes = [f"business/{business_id}",
+                      f"business/{business_id}/record/{record_id}"]
 
-    if emit_event and agent_response:
-        await emit_event("message", {
-            "type": "message",
-            "data": {"response": agent_response, "msg_type": "answer"},
-        })
+            system_prompt = (
+                f"Role:\n{specialist_spec.get(selected_specailist_id).role}\n\n"
+                f"Backstory:\n{specialist_spec.get(selected_specailist_id).backstory}\n\n"
+                f"Goal:\n{specialist_spec.get(selected_specailist_id).goal}\n\n"
+            )
 
-    if vc_session and agent_response:
-        await vc_session.say(agent_response, allow_interruptions=True)
+            agent = Agent(
+                name=selected_specailist_id,
+                llm=_get_llm(),
+                memory=create_memory_provider(
+                    namespace=business_id, scopes=scopes),
+                rag=create_rag_provider(namespace=business_id, scopes=scopes),
+                conversation=create_conversation_provider(
+                    namespace=business_id),
+                instructions=system_prompt,
 
-    return agent_response
+                tools=[
+
+                ],
+            )
+
+            _session = agent.create_session(
+                session_id=session_id,
+                emitter=emitter,
+            )
+
+            response = await _session.run(
+                user_message
+            )
+
+            results.append(response.text)
+
+        all_response = "\n\n".join(r for r in results if r)
+
+        if emit_event and agent_response:
+            await emit_event("message", {
+                "type": "message",
+                "data": {"response": all_response, "msg_type": "answer"},
+            })
+
+        if vc_session and agent_response:
+            await vc_session.say(all_response, allow_interruptions=True)
+
+        return all_response
+    except Exception as e:
+        logger.error(f"Paralles execution failed: {e}")
+        print(e)
 
 
 class Planner:
@@ -266,21 +316,6 @@ class Planner:
 
         emitter.on(EventType.PROGRESS, callbacks)
 
-        system_context = (
-            f"{manifests['agents']}\n\n"
-            # f"{manifests['skills']}\n\n"
-            # f"{manifests['knowledge']}\n\n"
-            # f"{manifests['tools']}\n\n"
-        )
-
-        # self._runtime = AgentRuntime(
-        #     tool_binder=ToolBinder(),
-        #     agent=agent_spec,
-        #     tools=[delegate_to_agents(session)],
-        #     # allowed_input_guardrail=True,
-        #     system_prompt=system_context,
-        # )
-
         agent = Agent(
             name="Assistant",
 
@@ -289,11 +324,11 @@ class Planner:
             rag=create_rag_provider(namespace=self._business_id),
             conversation=create_conversation_provider(
                 namespace=self._business_id),
-            instructions=prompt,
+            instructions=planner_system_prompt,
 
             tools=[
-                get_weather,
                 get_temperature,
+                get_weather,
                 delegate_to_agents(session)
             ],
 

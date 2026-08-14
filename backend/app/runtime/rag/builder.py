@@ -10,19 +10,18 @@ class RAGPromptBuilder:
     Builds the knowledge section of the system prompt.
     """
 
-    HEADER = """\
-## Knowledge
-
-The following documents were retrieved because they may
-help answer the user's request.
-
-Use them only when they are relevant.
-
-- Do not mention these documents unless they help answer
-  the user.
-- If the retrieved knowledge conflicts with the current
-  conversation, trust the current conversation.
-"""
+    HEADER = (
+        "## Central Knowledge:\n"
+        "Use this knowledge as a central source of business information when "
+        "reasoning about and performing the task. It represents the accumulated "
+        "understanding of the business, including its operations, activities, "
+        "processes, data, entities, relationships, facts, evidence, findings, "
+        "decisions, goals, insights, observations, patterns, assumptions, "
+        "perspectives, and other relevant business knowledge.\n"
+        "Use relevant knowledge to inform your reasoning, decisions, and responses. "
+        "Distinguish established information from interpretations and assumptions, "
+        "and do not invent unsupported information."
+    )
 
     def build(
         self,

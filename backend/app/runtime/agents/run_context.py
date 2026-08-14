@@ -43,6 +43,27 @@ class RunContext:
 
     _context_threshold_reached: bool = False
 
+    def refresh_context_threshold(
+        self,
+        *,
+        stable_messages: list[ChatMessage] | None = None,
+    ) -> None:
+
+        self._context_tokens = (
+            self.session.context_monitor.count(
+                conversation_context=(
+                    self.conversation_context
+                ),
+                run_context=self,
+                stable_messages=stable_messages,
+            )
+        )
+
+        self._context_threshold_reached = (
+            self._context_tokens
+            >= self.session.context_monitor.threshold
+        )
+
     def update_context_tokens(
         self,
         tokens: int,

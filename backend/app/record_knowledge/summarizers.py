@@ -1,9 +1,17 @@
+import json
 import logging
 import re
 
 from app.llm.client import get_client
 from app.runtime.llm_vendors.langchain import LangChainLLM
 from app.runtime.agents.agent import Agent
+from app.runtime.memory.factory import create_memory_provider
+from app.runtime.memory.factory import (
+    create_memory_provider,
+)
+from app.runtime.rag.factory import (
+    create_rag_provider
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,21 +53,50 @@ user_prompt = (
 )
 
 
-record_system_prompt = ()
-record_user_prompt = ()
+record_system_prompt = (
+    "You are an information overview specialist.\n\n"
+    "Explain what the information says, not what it is or where it came from.\n\n"
+    "Before analyzing the information, construct a broad, comprehensive query "
+    "that captures the main subject, related topics, concepts, entities, facts, "
+    "events, findings, decisions, and relationships needed to understand the whole picture. "
+    "Do not construct a query around only one detail\n\n"
+    "Instructions:\n"
+    "- Use the good phrase query to gather information covering the full subject and its related areas.\n"
+    "- Connect related information across all available topics rather than focusing on one record.\n"
+    "- Identify the major topics, themes, entities, and areas of information.\n"
+    "- Explain each major topic separately.\n"
+    "- Under each topic, present each distinct piece of information as a clear bullet point or parameter.\n"
+    "- Combine related information from different records when they describe the same topic, entity, event, or idea.\n"
+    "- Include important facts, evidence, findings, ideas, decisions, insights, observations, "
+    "perspectives, assumptions, patterns, relationships, and conclusions.\n"
+    "- Explain how different topics, findings, decisions, and ideas connect to or influence one another.\n"
+    "- Distinguish established facts and evidence from interpretations, assumptions, ideas, and conclusions.\n"
+    "- Do not invent, speculate, or introduce unsupported information.\n"
+    "- Do not describe the information as coming from a document, record, source, retrieval, "
+    "database, context, or any other external origin.\n"
+    "- Present the information directly and naturally as an explanation of what is known.\n"
+    "- Be comprehensive but concise and avoid unnecessary repetition.\n"
+    "- Generate 2-3 useful follow-up questions based on specific details or relationships.\n\n"
+    "Respond exactly in this format:\n"
+    "<insight>\n"
+    "## Topic 1\n"
+    "- Point: explanation\n"
+    "- Point: explanation\n\n"
+    "## Topic 2\n"
+    "- Point: explanation\n"
+    "- Point: explanation\n\n"
+    "## Relationships\n"
+    "- Relationship: explanation\n"
+    "- Relationship: explanation\n"
+    "</insight>\n"
+    '<suggestion_questions>["question 1?", "question 2?", "question 3?"]</suggestion_questions>'
+)
 
-_agent_instance = None
-
-
-def _get_agent():
-    global _agent_instance
-    if _agent_instance is None:
-        _agent_instance = Agent(
-            name="Summarizer Specialist",
-            llm=_get_llm(),
-            instructions=system_prompt,
-        )
-    return _agent_instance
+record_user_prompt = (
+    "Explain the available information comprehensively. "
+    "then provide a comprehensive overview covering all major topics, distinct information ,points, and relationships"
+    "as a clear point, then explain how the topics relate to one another."
+)
 
 
 def _parse_tagged_response(text: str) -> tuple[str, str, list[str]]:
@@ -72,7 +109,6 @@ def _parse_tagged_response(text: str) -> tuple[str, str, list[str]]:
     summary = summary_match.group(1).strip() if summary_match else ""
     questions = []
     if questions_match:
-        import json
         raw = questions_match.group(1).strip()
         try:
             questions = json.loads(raw)[:3]
@@ -89,7 +125,13 @@ async def generate_record_summary(content: str, max_length: int = MAX_LENGTH) ->
 
     for attempt in range(MAX_RETRIES):
         try:
-            _session = _get_agent().create_session()
+
+            agent = Agent(
+                name="Summarizer Specialist",
+                llm=_get_llm(),
+                instructions=system_prompt,
+            )
+            _session = agent.create_session()
             response = await _session.run(user_prompt.replace("{content}",  str(content)))
             response_text = response.text if hasattr(
                 response, "text") else str(response)
@@ -109,25 +151,62 @@ async def generate_record_summary(content: str, max_length: int = MAX_LENGTH) ->
     return {"title": title, "summary": summary, "suggested_questions": suggested_questions, "content": content}
 
 
-async def generate_record_overview(business_id: str, record_id: str):
+def _parse_record_overview_response(text: str) -> tuple[str, list[str]]:
+    """Extract insight and suggestion_questions from tagged response."""
+    insight_match = re.search(r"<insight>(.*?)</insight>", text, re.DOTALL)
+    questions_match = re.search(
+        r"<suggestion_questions>(.*?)</suggestion_questions>", text, re.DOTALL)
+    insight = insight_match.group(1).strip() if insight_match else ""
+    suggestions = []
+    if questions_match:
+        raw = questions_match.group(1).strip()
+        try:
+            suggestions = json.loads(raw)[:3]
+        except (json.JSONDecodeError, TypeError):
+            suggestions = []
+    return insight, suggestions
+
+
+async def generate_record_overview(business_id: str, record_id: str) -> dict:
+
+    insight = ""
+    suggestions = []
 
     try:
-
-        scopes = [f"business/{business_id}/record/{record_id}"]
+        scopes = [
+            f"business/{business_id}/record/{record_id}", f"business/{business_id}"]
 
         agent = Agent(
             name="Insight Specialist",
             llm=_get_llm(),
             memory=create_memory_provider(
-                namespace=business_id, scopes=scopes),
-            rag=create_rag_provider(namespace=business_id, scopes=scopes),
-            instructions=prompt,
+                namespace=business_id, scopes=scopes, ignore_threshold=True),
+            rag=create_rag_provider(
+                namespace=business_id, scopes=scopes, ignore_threshold=True),
+            instructions=record_system_prompt,
         )
 
-        session = agent.create_session()
-        response = await session.run(
-            user_message
-        )
+        for attempt in range(MAX_RETRIES):
+            try:
+                session = agent.create_session()
+                response = await session.run(record_user_prompt)
+                response_text = response.text if hasattr(
+                    response, "text") else str(response)
+                logger.info(f"Overview raw response: {response_text[:500]}")
+                insight, suggestions = _parse_record_overview_response(
+                    response_text)
+                if insight:
+                    break
+                # If no tags found but we got a response, use it as insight directly
+                if response_text.strip() and not insight:
+                    insight = response_text.strip()
+                    break
+            except Exception as e:
+                logger.error(f"Overview attempt {attempt + 1} failed: {e}")
+                if attempt == MAX_RETRIES - 1:
+                    return {"insight": "", "suggestions": []}
 
     except Exception as e:
         logger.error(f"Failed to generate overview: {e}")
+
+    return {"insight": insight, "suggestions": suggestions}

@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import logging
+
+from langchain_core.messages.utils import (
+    count_tokens_approximately,
+)
+
 from app.runtime.chat.message import ChatMessage
 from app.runtime.memory.builder import MemoryPromptBuilder
 from app.runtime.prompts.sections.conversation import (
@@ -12,6 +18,9 @@ from app.runtime.rag.builder import RAGPromptBuilder
 from app.runtime.structured_output.formatter import OutputFormatter
 
 from .context import PromptContext
+
+
+logger = logging.getLogger(__name__)
 
 
 class PromptBuilder:
@@ -70,9 +79,6 @@ class PromptBuilder:
         """
         Build and cache the stable prompt.
 
-        This is intentionally called only when the prompt
-        state has not already been prepared.
-
         Stable content includes:
 
         - agent instructions
@@ -82,7 +88,7 @@ class PromptBuilder:
         - structured output instructions
         - template-contributed messages
 
-        Current execution messages are intentionally excluded.
+        Current execution messages are excluded.
         """
 
         state = (
@@ -133,18 +139,6 @@ class PromptBuilder:
             )
 
         #
-        # Agent instructions.
-        #
-        instructions = (
-            self._context.agent.instructions.strip()
-        )
-
-        if instructions:
-            parts.append(
-                instructions,
-            )
-
-        #
         # Structured output
         #
         prompt = (
@@ -187,6 +181,24 @@ class PromptBuilder:
             )
 
         #
+        # Measure complete stable prompt.
+        #
+        stable_tokens = count_tokens_approximately(
+            self._context.agent.llm.to_provider_messages(
+                messages=messages,
+            ),
+        )
+
+        #
+        # Measure current execution messages separately.
+        #
+        execution_messages = [
+            message
+            for message in self._context.run_context.messages
+            if message.content
+        ]
+
+        #
         # Store the complete stable prompt.
         #
         state.stable_messages = messages
@@ -206,10 +218,12 @@ class PromptBuilder:
 
         await self.prepare()
 
-        return [
+        messages = [
             *self._context.prompt_state.stable_messages,
             *self._context.run_context.messages,
         ]
+
+        return messages
 
     async def _build_memory_prompt(
         self,

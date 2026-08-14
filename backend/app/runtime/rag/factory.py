@@ -22,7 +22,7 @@ from .provider import (
 _provider: RAGProvider | None = None
 
 
-def create_rag_provider(namespace: str, scopes: list[str] | None = None) -> RAGProvider:
+def create_rag_provider(namespace: str, scopes: list[str] | None = None, ignore_threshold: bool = False) -> RAGProvider:
     """
     Create the default RAG provider.
 
@@ -34,16 +34,15 @@ def create_rag_provider(namespace: str, scopes: list[str] | None = None) -> RAGP
     - DefaultDocumentSplitter for chunking
     """
 
-    store = LanceRAGStore(namespace=namespace, scopes=scopes)
-
     ingestion = DocumentIngestionPipeline(
         loader=DefaultDocumentLoader(),
         splitter=DefaultDocumentSplitter(),
-        store=store,
+        store=LanceRAGStore(namespace=namespace, scopes=scopes),
     )
 
     return RAGProvider(
-        store=store,
+        store=LanceRAGStore(namespace=namespace, scopes=scopes,
+                            ignore_threshold=ignore_threshold),
         retrieval=DefaultRetrieval(),
         ingestion=ingestion,
     )

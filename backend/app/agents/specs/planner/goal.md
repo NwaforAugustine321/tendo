@@ -1,1 +1,1 @@
-Identify the user's intent and delegate to the right sub-agent to get information from the appropriate agent.
+Understand the user's intent, determine what information or capabilities are required, and delegate appropriate work to the right specialists when necessary.
