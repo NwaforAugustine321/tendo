@@ -6,6 +6,7 @@ import inspect
 import json
 import logging
 import re
+import json as _json
 from functools import cached_property
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Sequence
@@ -348,7 +349,7 @@ def _get_tool_params(tool: FunctionTool | RawFunctionTool) -> dict[str, str]:
     }
 
 
-def _build_tool_schema(tool: FunctionTool | RawFunctionTool) -> dict[str, Any]:
+def _build_tool_schema(tool: FunctionTool | RawFunctionTool | ProviderTool) -> dict[str, Any]:
     """Build a JSON-serializable tool schema with full parameter type info."""
     if isinstance(tool, FunctionTool):
         func = getattr(tool, "_func", None) or getattr(
@@ -365,14 +366,25 @@ def _build_tool_schema(tool: FunctionTool | RawFunctionTool) -> dict[str, Any]:
             "description": tool.info.description or "",
             "parameters": {"type": "object", "properties": {}},
         }
-
-    # RawFunctionTool — use raw_schema directly
-    raw = tool.info.parameters
-    return {
-        "name": raw.get("name", tool.id),
-        "description": raw.get("description", ""),
-        "parameters": raw.get("parameters", {}),
-    }
+    elif isinstance(tool, RawFunctionTool):
+        raw = tool.info.raw_schema
+        return {
+            "name": raw.get("name", tool.id),
+            "description": raw.get("description", ""),
+            "parameters": raw.get("parameters", {}),
+        }
+    elif isinstance(tool, ProviderTool):
+        return {
+            "name": tool.name,
+            "description": tool.description or "",
+            "parameters": tool.args_schema.model_json_schema() if tool.args_schema else {"type": "object", "properties": {}},
+        }
+    else:
+        return {
+            "name": getattr(tool, "id", "") or "",
+            "description": getattr(tool, "description", "") or "",
+            "parameters": getattr(tool, "args_schema", None).model_json_schema() if hasattr(tool, "args_schema") else {"type": "object", "properties": {}},
+        }
 
 
 class Toolset:
@@ -626,3 +638,10 @@ class ToolContext:
             return
 
         raise TypeError(f"Unsupported tool type: {type(tool)}")
+
+    def tool_to_string(self, tools: [FunctionTool | RawFunctionTool | ProviderTool]):
+
+        return "\n".join(
+            _json.dumps(_build_tool_schema(tool))
+            for tool in tools
+        )

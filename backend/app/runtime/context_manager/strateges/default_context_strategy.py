@@ -70,11 +70,6 @@ class DefaultContextStrategy(
 
         if conversation_provider is None:
 
-            logger.debug(
-                "Conversation optimization skipped: "
-                "no conversation provider is configured.",
-            )
-
             return False
 
         run_context = (
@@ -86,11 +81,6 @@ class DefaultContextStrategy(
         )
 
         if current_tokens <= 0:
-
-            logger.debug(
-                "Conversation optimization skipped: "
-                "no context token measurement is available.",
-            )
 
             return False
 
@@ -122,11 +112,6 @@ class DefaultContextStrategy(
 
         if current_user_message is None:
 
-            logger.warning(
-                "Conversation optimization skipped: "
-                "current user message is unavailable.",
-            )
-
             run_context.mark_context_optimized(
                 current_tokens,
             )
@@ -151,29 +136,7 @@ class DefaultContextStrategy(
             minimum_safe_context,
         )
 
-        logger.info(
-            "Context optimization started. "
-            "Current: %s. "
-            "Threshold: %s. "
-            "User message: %s. "
-            "Target: %s.",
-            current_tokens,
-            threshold,
-            current_user_tokens,
-            optimization_target,
-        )
-
         if optimization_target >= current_tokens:
-
-            logger.info(
-                "Conversation optimization skipped. "
-                "Current context is already at or below "
-                "the minimum safe context. "
-                "Current: %s. "
-                "Target: %s.",
-                current_tokens,
-                optimization_target,
-            )
 
             run_context.mark_context_optimized(
                 current_tokens,
@@ -227,16 +190,6 @@ class DefaultContextStrategy(
                         optimization_target,
                         result.reason,
                     )
-
-                else:
-
-                    logger.debug(
-                        "Conversation optimization made no "
-                        "changes. Current: %s. Reason: %s",
-                        tokens_before,
-                        result.reason,
-                    )
-
                 break
 
             optimized = True
@@ -295,17 +248,6 @@ class DefaultContextStrategy(
             )
 
             if current_tokens >= tokens_before:
-
-                logger.warning(
-                    "Conversation optimization made no measurable "
-                    "progress. "
-                    "Full context before: %s. "
-                    "Full context after: %s. "
-                    "Stopping optimization loop.",
-                    tokens_before,
-                    current_tokens,
-                )
-
                 break
 
         total_tokens_saved = max(

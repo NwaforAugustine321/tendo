@@ -65,7 +65,7 @@ class AgentRunner:
         self,
         *,
         tool_executor: ToolExecutor,
-        max_iterations: int = 20,
+        max_iterations: int,
     ) -> None:
 
         self._tool_executor = tool_executor
@@ -94,7 +94,7 @@ class AgentRunner:
                 run_context,
             )
 
-            for _ in range(
+            for iteration in range(
                 self._max_iterations,
             ):
 
@@ -266,20 +266,12 @@ class AgentRunner:
                         )
                     )
 
-                    #
-                    # Track the assistant response.
-                    #
                     # Adding the message performs the next
-                    # approximate context measurement.
-                    #
+
                     run_context.add_message(
                         assistant_message,
                     )
 
-                    #
-                    # Persist / process the assistant response
-                    # through middleware.
-                    #
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.AFTER_LLM,
                         run_context,
@@ -328,19 +320,10 @@ class AgentRunner:
 
                     #
                     # Track tool messages.
-                    #
-                    # add_messages() performs one approximate
-                    # context measurement after all tool
-                    # messages have been added.
-                    #
                     run_context.add_messages(
                         tool_messages,
                     )
 
-                    #
-                    # Persist / process tool messages through
-                    # middleware.
-                    #
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.AFTER_TOOLS,
                         run_context,
@@ -350,6 +333,13 @@ class AgentRunner:
                         ),
                     )
 
+                    remaining_steps = self._max_iterations - iteration
+                    run_context.add_message(
+                        ChatMessage.system(
+                            f"You have {remaining_steps} interaction steps remaining. "
+                            "Use them efficiently and complete the task within the limit."
+                        ),
+                    )
                 except RetryRequest:
 
                     await run_context.emitter.emit(
@@ -456,26 +446,10 @@ class AgentRunner:
             )
         )
 
-        #
-        # The optimization phase has handled this threshold event.
-        #
         # The next execution cycle will perform a fresh full
         # context measurement.
         #
         run_context.reset_context_threshold()
-
-        if optimized:
-
-            logger.info(
-                "Conversation context optimized before "
-                "LLM inference.",
-            )
-
-        else:
-
-            logger.debug(
-                "Conversation context was not optimized.",
-            )
 
     async def _force_final_response(
         self,
@@ -493,10 +467,9 @@ class AgentRunner:
 
         run_context.add_message(
             ChatMessage.system(
-                "You have reached the maximum number of tool "
-                "iterations. Provide your best final response "
-                "to the user now based on the information "
-                "gathered so far. Do not call any more tools.",
+                "You have reached the maximum number of interaction steps.\n"
+                "Stop taking further actions and provide your best final response based on the information gathered so far."
+
             ),
         )
 

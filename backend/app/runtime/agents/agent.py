@@ -86,6 +86,7 @@ class Agent:
         self._memory = memory
         self._conversation = conversation
         self._rag = rag
+        self._max_iterations: int = 20
 
         self._tool_context = ToolContext.from_tools(
             tools,
@@ -240,6 +241,7 @@ class Agent:
                 tool_executor=ToolExecutor(
                     self._tool_context.proxy,
                 ),
+                max_iterations=self._max_iterations
             )
 
         return self._runner

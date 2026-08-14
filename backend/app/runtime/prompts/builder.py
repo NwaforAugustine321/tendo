@@ -14,6 +14,8 @@ from app.runtime.prompts.sections.conversation import (
 from app.runtime.prompts.sections.user_task import (
     UserTaskPromptBuilder,
 )
+from app.runtime.prompts.sections.tools import ToolPromptBuilder
+from app.runtime.prompts.sections.runtime import RuntimePromptBuilder
 from app.runtime.rag.builder import RAGPromptBuilder
 from app.runtime.structured_output.formatter import OutputFormatter
 
@@ -66,6 +68,12 @@ class PromptBuilder:
             OutputFormatter()
         )
 
+        self._tools_builder = (
+            ToolPromptBuilder()
+        )
+
+        self._runtime_builder = (RuntimePromptBuilder())
+
     @property
     def context(
         self,
@@ -91,14 +99,22 @@ class PromptBuilder:
         Current execution messages are excluded.
         """
 
+        parts: list[str] = []
+
+        # Setup agent system runtime
+        prompt = await self._build_runtime_prompt()
+
+        if prompt:
+            parts.append(
+                prompt,
+            )
+
         state = (
             self._context.prompt_state
         )
 
         if state.prepared:
             return
-
-        parts: list[str] = []
 
         #
         # Conversation history
@@ -113,7 +129,8 @@ class PromptBuilder:
             parts.append(
                 prompt,
             )
-
+        print("\n\n".join(parts))
+        print('\n\n')
         #
         # Memory
         #
@@ -152,11 +169,19 @@ class PromptBuilder:
                 prompt,
             )
 
-        messages: list[ChatMessage] = []
+        # tools prompt
+        prompt = await self._build_tool_prompt()
 
+        if prompt:
+            parts.append(
+                prompt,
+            )
+
+        messages: list[ChatMessage] = []
         #
-        # Stable system prompt.
+        # Other agent system instructions.
         #
+
         if parts:
 
             messages.append(
@@ -166,18 +191,18 @@ class PromptBuilder:
             )
 
         #
-        # Stable template messages.
+        # Default agent stystem instructions.
         #
-        template_messages = (
+        agent_instructions = (
             self._context.agent.prompt_template.build(
-                self._context,
+                self._context
             )
         )
 
-        if template_messages:
+        if agent_instructions:
 
             messages.extend(
-                template_messages,
+                agent_instructions,
             )
 
         #
@@ -257,4 +282,39 @@ class PromptBuilder:
 
         return self._rag_builder.build(
             knowledge,
+        )
+
+    async def _build_tool_prompt(
+        self,
+    ) -> str:
+
+        tools = self._context.agent\
+            .tool_context\
+            .proxy.tools
+
+        if not tools:
+            return ""
+
+        return self._tools_builder.build(
+            self._context.agent
+            .tool_context
+            .tool_to_string(tools=tools)
+        )
+
+    async def _build_runtime_prompt(
+        self,
+        runtime_inject_payload: list[dict[str, str]] | None = []
+    ) -> str:
+
+        default_runtime = [
+            {
+                "key": "max_iterations",
+                "value": str(self._context.agent._max_iterations),
+            }
+        ]
+
+        default_runtime.extend(runtime_inject_payload)
+
+        return self._runtime_builder.build(
+            runtime_inject_payload=default_runtime
         )

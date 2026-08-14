@@ -40,22 +40,13 @@ specialist_info = {
 
 
 planner_system_prompt = (
-    f"Role:\n{specialist_info.get('planner').role}\n\n"
-    f"Backstory:\n{specialist_info.get('planner').backstory}\n\n"
-    f"Goal:\n{specialist_info.get('planner').goal}\n\n"
+    f"{specialist_info.get('planner').backstory}\n\n"
+    f"{specialist_info.get('planner').role}.\n\n"
+    f"{specialist_info.get('planner').goal}\n\n"
     "Other Specialized Business Employees:\n\n"
     "## transaction\n"
-    "- **Domain**: transaction\n"
-    "- **Capabilities**: search, query, update, add\n"
-    "- **Description**: It is only used for business transaction recording and financial queries.\n\n"
     "## inventory\n"
-    "- **Domain**: inventory\n"
-    "- **Capabilities**: search, query, update, track, and manage\n"
-    "- **Description**: It is only used for managing inventory and tracking.\n\n"
     "## knowledge\n"
-    "- **Domain**: knowledge\n"
-    "- **Capabilities**: search, retrieve\n"
-    "- **Description**: It is used to answer general questions of all types as the source of truth.\n\n"
 )
 
 
@@ -120,19 +111,20 @@ class ToolLoggingMiddleware(AgentMiddleware):
             print('\n')
 
 
-class SelectedAgent(BaseModel):
-    agent_id: str = Field(default_factory=str, description="Agent id.")
+class SelectedSpecialist(BaseModel):
+    specialist_id: str = Field(
+        default_factory=str, description="Specialist Id.")
     depends_on: list = Field(
-        default_factory=list[str], description="List of agent_id the agent depend on")
+        default_factory=list[str], description="List of specialist_id the agent depend on")
     message_input: str = Field(..., min_length=1,
-                               description="Clear instruction for what the agent must accomplish")
+                               description="Clear instruction for what the specialist must accomplish")
 
 
-class AgentSelectionOutput(BaseModel):
-    agents: list[SelectedAgent] = Field(
-        default_factory=list, description="List of agents to handle the request. Each has agent_id, execution_context, and depends_on.")
+class SpecialistSelectionOutput(BaseModel):
+    specialists: list[SelectedSpecialist] = Field(
+        default_factory=list, description="List of specialists to handle the request. Each has specialist_id, execution_context, and depends_on.")
     shared_constraints: str = Field(
-        default_factory=str, description="Shared constraints for all agents execution")
+        default_factory=str, description="Shared constraints for all specialists execution")
 
 
 class PlanningError(Exception):
@@ -154,78 +146,121 @@ def delegate_to_agents(session: dict | None = {}):
 
     @tool
     async def _tool(
-        agents: list[SelectedAgent],
+        specialists: list[SelectedSpecialist],
         shared_constraints: str = "",
     ) -> str:
-        """This tool is used to delegate task to other specialist for further task processing 
-           Args:
-              specialists: List of agent assignments. Each must have:
-                - specialist_id: <agent_name>
-                - message_input: <user_message>
-                - depends_on: List of specialist_ids this specialist depends on
-              shared_constraints: Constraints that apply to all specialists.
+        """
+        Delegate work to one or more business specialists.
 
-            Return:
-              - str
+        Use this tool when the task requires business information,
+        domain expertise, knowledge retrieve search, data, actions, search, retrieve, knowledge, answer and others or capabilities handled by
+        one or more specialists.
+
+        Args:
+            specialists: Specialist assignments. Each assignment contains:
+                - specialist_id: Identifier of the specialist to handle the task.
+                - message_input: Specific task or information request for the specialist.
+                - depends_on: Specialist IDs whose results are required before
+                this specialist can proceed. Use an empty list when independent.
+
+            shared_constraints: Constraints, requirements, or instructions that
+                apply to all assigned specialists.
+
+        Returns:
+            A string containing the specialists' results and execution outcome.
         """
 
         has_dependencies = any(
-            len(a.depends_on) > 0 for a in agents if hasattr(a, 'depends_on')
+            len(a.depends_on) > 0 for a in specialists if hasattr(a, 'depends_on')
         )
 
-        agent_dicts = [a.model_dump() if hasattr(
-            a, 'model_dump') else a for a in agents]
+        specialist_dicts = [a.model_dump() if hasattr(
+            a, 'model_dump') else a for a in specialists]
 
         if has_dependencies:
             asyncio.create_task(_run_sequential(
-                agent_dicts, shared_constraints, session=session))
+                specialist_dicts, shared_constraints, session=session))
         else:
             asyncio.create_task(_run_parallel(
-                agent_dicts, shared_constraints, session=session))
-        print("we ar here ......")
-        return "Task delegated to specialist agents. They are processing now. Provide a brief natural acknowledgment to the user."
+                specialist_dicts, shared_constraints, session=session))
 
-    _tool.name = "discover_information"
+        return "Task delegated to specialists. They are processing now. Provide a brief natural acknowledgment to the user."
+
+    _tool.name = "delegate_to_specailist"
     return _tool
 
 
-async def _run_parallel(agents: list[dict], shared_constraints: str, session: dict | None = {}) -> str:
+async def _run_parallel(specialists: list[dict], shared_constraints: str, session: dict | None = {}) -> str:
 
     business_id = session.get("business_id", "")
+    session_id = session.get('session_id', "")
+    record_id = session.get('record_id', '')
     emit_event = session.get("emit_event")
     vc_session = session.get("vc_session")
 
-    async def run_one(agent_info: dict) -> str:
-        agent_id = agent_info.get("agent_id", "")
-        message_input = agent_info.get("message_input", "")
+    async def run_one(specialist: dict) -> str:
+        print("running specialist >>>>>>>>>>>.: " + str(specialist))
+        selected_specailist_id = specialist.get("specialist_id", "")
+        specialist_spec = specialist_info.get(selected_specailist_id, "")
+        message_input = specialist.get("message_input", "")
 
-        agent = registry.get(agent_id)
-        if agent is None:
-            return f"Unknown agent: {agent_id}"
+        if not specialist_spec:
+            return f"Delegated specialist not found for: {selected_specailist_id}"
+
+        scopes = [f"business/{business_id}",
+                  f"business/{business_id}/record/{record_id}"]
+
+        system_prompt = (
+            f"Role:\n{specialist_spec.role}\n\n"
+            f"Backstory:\n{specialist_spec.backstory}\n\n"
+            f"Goal:\n{specialist_spec.goal}\n\n"
+        )
+
+        agent = Agent(
+            name=selected_specailist_id,
+            llm=_get_llm(),
+            memory=create_memory_provider(
+                namespace=business_id, scopes=scopes),
+            rag=create_rag_provider(namespace=business_id, scopes=scopes),
+            conversation=create_conversation_provider(
+                namespace=business_id),
+            instructions=system_prompt,
+
+            tools=[
+
+            ],
+        )
 
         try:
-            task = f"{message_input}\n{shared_constraints}".strip()
-            await agent.bind_tools(business_id, scopes=[])
-            result = await agent.execute_agent(task)
-            return result
+            _session = agent.create_session(
+                session_id=session_id,
+                emitter=emitter,
+            )
+
+            response = await _session.run(
+                message_input
+            )
+
+            return response.text
+
         except Exception as e:
-            logger.error(f"Agent {agent_id} failed: {e}")
-            return f"Error from {agent_id}: {str(e)}"
+            logger.error(f"Agent {selected_specailist_id} failed: {e}")
+            return f"Error from {selected_specailist_id}: {str(e)}"
 
-    tasks = [run_one(a) for a in agents]
+    tasks = [run_one(a) for a in specialists]
     results = await asyncio.gather(*tasks)
-    agent_response = "\n\n".join(r for r in results if r)
+    specialists_response = "\n\n".join(r for r in results if r)
 
-    if emit_event and agent_response:
+    if emit_event and specialists_response:
         await emit_event("message", {
             "type": "message",
-            "data": {"response": agent_response, "msg_type": "answer"},
+            "data": {"response": specialists_response, "msg_type": "answer"},
         })
 
-    if vc_session and agent_response:
-        await vc_session.say(agent_response, allow_interruptions=True)
+    if vc_session and specialists_response:
+        await vc_session.say(specialists_response, allow_interruptions=True)
 
-    return agent_response
+    return specialists_response
 
 
 async def _run_sequential(specialists: list[dict], shared_constraints: str, session: dict | None = {}) -> str:
@@ -238,22 +273,22 @@ async def _run_sequential(specialists: list[dict], shared_constraints: str, sess
         vc_session = session.get("vc_session")
 
         for specialist in specialists:
-            selected_specailist_id = specialist.get("agent_id", "")
+            selected_specailist_id = specialist.get("specialist_id", "")
             specialist_spec = specialist_info.get(selected_specailist_id, "")
-            message_input = agent_info.get("message_input", "")
+            message_input = specialist.get("message_input", "")
 
-            if specialist_spec:
+            if not specialist_spec:
                 results.append(
-                    f"Delegated specialist not found for : {agent_id}")
+                    f"Delegated specialist not found for: {selected_specailist_id}")
                 continue
 
             scopes = [f"business/{business_id}",
                       f"business/{business_id}/record/{record_id}"]
 
             system_prompt = (
-                f"Role:\n{specialist_spec.get(selected_specailist_id).role}\n\n"
-                f"Backstory:\n{specialist_spec.get(selected_specailist_id).backstory}\n\n"
-                f"Goal:\n{specialist_spec.get(selected_specailist_id).goal}\n\n"
+                f"Role:\n{specialist_spec.role}\n\n"
+                f"Backstory:\n{specialist_spec.backstory}\n\n"
+                f"Goal:\n{specialist_spec.goal}\n\n"
             )
 
             agent = Agent(
@@ -277,7 +312,7 @@ async def _run_sequential(specialists: list[dict], shared_constraints: str, sess
             )
 
             response = await _session.run(
-                user_message
+                message_input
             )
 
             results.append(response.text)
@@ -321,7 +356,7 @@ class Planner:
 
             llm=_get_llm(),
             memory=create_memory_provider(namespace=self._business_id),
-            rag=create_rag_provider(namespace=self._business_id),
+            # rag=create_rag_provider(namespace=self._business_id),
             conversation=create_conversation_provider(
                 namespace=self._business_id),
             instructions=planner_system_prompt,

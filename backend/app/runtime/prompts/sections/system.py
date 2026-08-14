@@ -18,7 +18,7 @@ class SystemSection(PromptSection):
 
     def build(
         self,
-        ctx: PromptContext,
+        ctx: PromptContext
     ) -> list[ChatMessage]:
 
         instructions = ctx.agent.instructions.strip()
