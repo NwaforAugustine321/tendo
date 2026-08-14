@@ -342,6 +342,12 @@ class Planner:
         self._business_id = self._session.get("business_id", "")
         self._record_id = self._session.get("record_id", "")
 
+        scopes = [f"business/{self._business_id}"]
+
+        if self._record_id:
+            scopes.append(
+                f"business/{self._business_id}/record/{self._record_id}")
+
         self._memory = Memory(
             scopes=[f"/conversations/{self._session_id}"],
             business_id=self._business_id,
@@ -355,8 +361,10 @@ class Planner:
             name="Assistant",
 
             llm=_get_llm(),
-            memory=create_memory_provider(namespace=self._business_id),
-            # rag=create_rag_provider(namespace=self._business_id),
+            memory=create_memory_provider(
+                namespace=self._business_id, scopes=scopes),
+            rag=create_rag_provider(
+                namespace=self._business_id, scopes=scopes),
             conversation=create_conversation_provider(
                 namespace=self._business_id),
             instructions=planner_system_prompt,

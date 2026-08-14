@@ -129,8 +129,7 @@ class PromptBuilder:
             parts.append(
                 prompt,
             )
-        print("\n\n".join(parts))
-        print('\n\n')
+
         #
         # Memory
         #
