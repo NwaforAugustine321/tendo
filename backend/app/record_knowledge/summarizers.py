@@ -96,21 +96,112 @@ record_user_prompt = (
 )
 
 
-def _extract_tag(text: str, tag: str) -> str:
-    match = re.search(rf"<{tag}>(.*?)</{tag}>", text, re.DOTALL)
-    return match.group(1).strip() if match else ""
+def _extract_tag(
+    text: str,
+    tag: str,
+) -> str:
+    """
+    Extract the content of a tag.
+
+    Supports both:
+    - properly closed tags
+    - incomplete tags where the closing tag is missing
+    """
+
+    tag = re.escape(tag)
+
+    # First: normal closed tag.
+    match = re.search(
+        rf"<{tag}>\s*(.*?)\s*</{tag}>",
+        text,
+        re.DOTALL | re.IGNORECASE,
+    )
+
+    if match:
+        return match.group(1).strip()
+
+    # Fallback: opening tag exists but closing tag is missing.
+    match = re.search(
+        rf"<{tag}>\s*(.*)",
+        text,
+        re.DOTALL | re.IGNORECASE,
+    )
+
+    if match:
+        return match.group(1).strip()
+
+    return ""
 
 
-def _extract_json_list(text: str, tag: str, max_items: int = 3) -> list[str]:
-    raw = _extract_tag(text, tag)
-    if raw:
+def _extract_json_list(
+    text: str,
+    tag: str,
+    max_items: int = 3,
+) -> list[str]:
+
+    raw = _extract_tag(
+        text,
+        tag,
+    )
+
+    if not raw:
+        return []
+
+    # Remove accidental markdown code fences.
+    raw = re.sub(
+        r"```(?:json)?",
+        "",
+        raw,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    raw = raw.replace(
+        "```",
+        "",
+    ).strip()
+
+    # Normal valid JSON.
+    try:
+        parsed = json.loads(raw)
+
+        if isinstance(parsed, list):
+            return [
+                str(item).strip()
+                for item in parsed[:max_items]
+                if str(item).strip()
+            ]
+
+    except (
+        json.JSONDecodeError,
+        TypeError,
+    ):
+        pass
+
+    # Fallback for partially generated JSON.
+    questions = re.findall(
+        r'"((?:\\.|[^"\\])*)"',
+        raw,
+    )
+
+    result: list[str] = []
+
+    for value in questions:
         try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, list):
-                return [str(q) for q in parsed[:max_items]]
-        except (json.JSONDecodeError, TypeError):
-            pass
-    return []
+            value = json.loads(
+                f'"{value}"',
+            )
+        except json.JSONDecodeError:
+            continue
+
+        value = value.strip()
+
+        if value:
+            result.append(value)
+
+        if len(result) >= max_items:
+            break
+
+    return result
 
 
 def _parse_response(
@@ -119,11 +210,19 @@ def _parse_response(
     content_tags: list[str],
     questions_tag: str,
 ) -> tuple[dict[str, str], list[str]]:
-    contents = {}
-    for tag in content_tags:
-        contents[tag] = _extract_tag(text, tag)
 
-    questions = _extract_json_list(text, questions_tag)
+    contents = {
+        tag: _extract_tag(
+            text,
+            tag,
+        )
+        for tag in content_tags
+    }
+
+    questions = _extract_json_list(
+        text,
+        questions_tag,
+    )
 
     return contents, questions
 

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
-
 from .context import RAGContext
 
 
@@ -31,32 +29,12 @@ class RAGPromptBuilder:
         if context.empty:
             return ""
 
-        groups: dict[str, list] = defaultdict(list)
+        lines = [self.HEADER]
 
         for document in context.documents:
 
-            source = (
-                document.source.strip()
-                or "General"
-            )
-
-            groups[source].append(
-                document,
-            )
-
-        lines = [self.HEADER]
-
-        for source, documents in groups.items():
-
-            lines.append("")
             lines.append(
-                f"### {source}"
+                f"- {document.content}"
             )
-
-            for document in documents:
-
-                lines.append(
-                    f"- {document.content}"
-                )
 
         return "\n".join(lines)
