@@ -37,7 +37,8 @@ async def send_message(
     extracted: dict | None = None,
 ) -> None:
     """Send a complete agent message — text + optional questions + extracted data."""
-    msg: dict = {"type": "message", "data": {"response": text, "msg_type": "answer"}}
+    msg: dict = {"type": "message", "data": {
+        "response": text, "msg_type": "answer"}}
     if questions:
         msg["data"]["msg_type"] = "question"
         msg["data"]["questions"] = questions
@@ -49,11 +50,6 @@ async def send_message(
 async def send_turn_complete(websocket: WebSocket) -> None:
     """Signal that the current AI turn is complete."""
     await websocket.send_json({"type": "turn_complete"})
-
-
-async def send_thinking(websocket: WebSocket, text: str) -> None:
-    """Send a thinking/status update to keep the UI lively."""
-    await websocket.send_json({"type": "thinking", "data": text})
 
 
 async def send_error(websocket: WebSocket, error: str) -> None:

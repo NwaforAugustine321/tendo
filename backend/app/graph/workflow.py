@@ -8,7 +8,7 @@ from langgraph.config import get_config
 from langgraph.config import get_stream_writer
 from langgraph.runtime import Runtime
 from langchain_core.runnables import RunnableConfig
-from app.runtime.events.events import (EventType, StatusEvent)
+
 
 logger = logging.getLogger(__name__)
 
@@ -37,14 +37,8 @@ async def planner_node(state: State, config: RunnableConfig, runtime: Runtime):
         "record_id": context["record_id"]
     }
 
-    async def progress_callback(event: StatusEvent):
-        print('event >>>>>>>>>>>', event.message)
-        # handle = context['vc_session'].say(
-        #     event.message, allow_interruptions=True)
-        # await handle.wait_for_playout()
-
     emit_event = context.get("emit_event")
-    planner = Planner(session=session, callbacks=[progress_callback])
+    planner = Planner(session=session)
     messages = state["messages"]
 
     user_message = ""

@@ -7,7 +7,7 @@ import re
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.ws.connection import accept, close
-from app.ws.sender import send_audio, send_message, send_turn_complete, send_error, send_thinking
+from app.ws.sender import send_audio, send_message, send_turn_complete, send_error
 from app.ws.receiver import receive_json
 from app.ws.encoding import decode_audio
 from app.config.settings import settings
@@ -34,45 +34,19 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
     graph = get_graph()
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 25}
 
-    from app.lib.thinking_status import get_thinking_status
-
     # Maintain per-thread conversation history (last 12 messages)
     if thread_id not in _thread_histories:
         _thread_histories[thread_id] = []
     thread_messages = _thread_histories[thread_id]
 
-    async def _send_thinking_msg(msg):
-        """Send thinking/thought to frontend. Accepts str or dict."""
-        if send_fn:
-            try:
-                if isinstance(msg, dict):
-                    # From ThinkingStreamCallback — already formatted
-                    await send_fn(msg)
-                elif isinstance(msg, str):
-                    await send_fn({"type": "thinking", "data": msg})
-            except Exception:
-                pass
-        elif websocket:
-            try:
-                text = msg.get("data", "") if isinstance(msg, dict) else msg
-                await send_thinking(websocket, text)
-            except Exception:
-                pass
-
     async def _stream_invoke(input_data):
-        """Stream graph execution and send thinking updates."""
+        """Stream graph execution."""
         result = {}
         try:
             async for event in graph.astream(input_data, config=config, stream_mode="updates"):
                 for node_name, node_output in event.items():
-                    if node_name != "response":
-                        msg = get_thinking_status(node_name)
-                        await _send_thinking_msg(msg)
-
                     if isinstance(node_output, dict):
                         result.update(node_output)
-
-                        # Thought extraction is handled in agent executor via callback
         except Exception as e:
             logger.error(f"Graph execution error: {e}", exc_info=True)
             if send_fn:
@@ -87,7 +61,6 @@ async def _run_graph(user_text: str, thread_id: str, business_id: str, websocket
         "business_id": business_id,
         "user_id": user_id,
         "messages": thread_messages[-12:],
-        "thinking_callback": _send_thinking_msg,
     }
     result = await _stream_invoke(input_state)
 
@@ -179,7 +152,8 @@ async def _handle_livekit_session(websocket: WebSocket, thread_id: str, business
         if recent:
             for r in recent:
                 meta = r.metadata or {}
-                conversation_messages.append({"role": meta.get("role", "user"), "content": r.content})
+                conversation_messages.append(
+                    {"role": meta.get("role", "user"), "content": r.content})
     except Exception as e:
         logger.warning(f"Failed to load conversation history: {e}")
 
@@ -187,7 +161,7 @@ async def _handle_livekit_session(websocket: WebSocket, thread_id: str, business
         return await receive_json(websocket)
 
     async def send(msg):
-        from app.ws.sender import send_audio, send_message, send_turn_complete, send_thinking
+        from app.ws.sender import send_audio, send_message, send_turn_complete
         from app.ws.encoding import encode_audio
         msg_type = msg.get("type")
         if msg_type == "audio":
@@ -197,8 +171,6 @@ async def _handle_livekit_session(websocket: WebSocket, thread_id: str, business
             await send_message(websocket, data.get("response", ""), data.get("questions"), data.get("extracted"))
         elif msg_type == "turn_complete":
             await send_turn_complete(websocket)
-        elif msg_type == "thinking":
-            await send_thinking(websocket, msg.get("data", ""))
         elif msg_type == "error":
             from app.ws.sender import send_error
             await send_error(websocket, msg.get("data", ""))
@@ -233,7 +205,6 @@ async def _handle_cartesia_session(websocket: WebSocket, provider, thread_id: st
             elif kind == "text":
                 user_text = message.get("data", "")
                 if user_text:
-                    await send_thinking(websocket, "Processing...")
                     result = await _run_graph(user_text, thread_id, business_id, websocket, user_id)
                     moa_response = result.get("text", "")
                     await send_message(websocket, moa_response, result.get("input"), result.get("extracted"))
@@ -255,7 +226,6 @@ async def _handle_cartesia_session(websocket: WebSocket, provider, thread_id: st
                 if is_speaking:
                     continue
                 logger.info(f"Transcribed: {transcript[:80]}")
-                await send_thinking(websocket, "Processing...")
                 result = await _run_graph(transcript, thread_id, business_id, websocket, user_id)
                 moa_response = result.get("text", "")
                 logger.info(f"Response: {moa_response[:80]}")
@@ -342,7 +312,8 @@ async def _collect_input(websocket: WebSocket) -> tuple[str, bytes | str] | None
         elif kind == "end_turn":
             if audio_buffer:
                 full_audio = b"".join(audio_buffer)
-                logger.info(f"Audio collected: {len(full_audio)} bytes from {len(audio_buffer)} chunks")
+                logger.info(
+                    f"Audio collected: {len(full_audio)} bytes from {len(audio_buffer)} chunks")
                 return ("audio", full_audio)
             continue
 
@@ -373,7 +344,8 @@ async def run_voice_session(
     provider = create_voice_provider()
 
     async def _send_msg(text: str = "", questions=None, extracted=None):
-        msg = {"type": "message", "data": {"response": text, "msg_type": "answer"}}
+        msg = {"type": "message", "data": {
+            "response": text, "msg_type": "answer"}}
         if questions:
             msg["data"]["msg_type"] = "question"
             msg["data"]["questions"] = questions
@@ -383,7 +355,8 @@ async def run_voice_session(
 
     try:
         await provider.connect()
-        logger.info(f"Socket.IO: Voice provider connected ({settings.voice_provider})")
+        logger.info(
+            f"Socket.IO: Voice provider connected ({settings.voice_provider})")
         await send({"type": "turn_complete"})
 
         if settings.voice_provider == "cartesia":
@@ -403,7 +376,8 @@ async def run_voice_session(
                 if recent:
                     for r in recent:
                         meta = r.metadata or {}
-                        conversation_messages.append({"role": meta.get("role", "user"), "content": r.content})
+                        conversation_messages.append(
+                            {"role": meta.get("role", "user"), "content": r.content})
             except Exception as e:
                 logger.warning(f"Failed to load conversation history: {e}")
 
@@ -449,7 +423,6 @@ async def _run_socketio_cartesia(provider, thread_id, business_id, user_id, rece
                 user_text = message.get("data", "")
                 if user_text:
                     logger.info(f"Socket.IO text: {user_text[:50]}")
-                    await send({"type": "thinking", "data": "Processing..."})
                     result = await _run_graph(user_text, thread_id, business_id, None, user_id, send_fn=send)
                     moa_response = result.get("text", "")
                     await _send_msg(moa_response, result.get("input"), result.get("extracted"))
@@ -470,10 +443,10 @@ async def _run_socketio_cartesia(provider, thread_id, business_id, user_id, rece
             if transcript:
                 # Ignore transcripts that arrive while TTS is playing (echo from speaker)
                 if is_speaking:
-                    logger.debug(f"Ignoring echo transcript: {transcript[:40]}")
+                    logger.debug(
+                        f"Ignoring echo transcript: {transcript[:40]}")
                     continue
                 logger.info(f"Socket.IO transcribed: {transcript[:80]}")
-                await send({"type": "thinking", "data": "Processing..."})
                 result = await _run_graph(transcript, thread_id, business_id, None, user_id, send_fn=send)
                 moa_response = result.get("text", "")
                 logger.info(f"Socket.IO response: {moa_response[:80]}")
@@ -516,11 +489,13 @@ async def _run_socketio_google(provider, thread_id, business_id, user_id, receiv
         response_modalities=["AUDIO"],
         output_audio_transcription=types.AudioTranscriptionConfig(),
         system_instruction=types.Content(
-            parts=[types.Part.from_text(text="Repeat exactly what the user says. Do not add anything.")]
+            parts=[types.Part.from_text(
+                text="Repeat exactly what the user says. Do not add anything.")]
         ),
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
-                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Charon")
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                    voice_name="Charon")
             )
         ),
     )
@@ -543,7 +518,6 @@ async def _run_socketio_google(provider, thread_id, business_id, user_id, receiv
                 if not user_text:
                     continue
                 logger.info(f"Socket.IO text: {user_text[:50]}")
-                await send({"type": "thinking", "data": "Processing..."})
 
                 result = await _run_graph(user_text, thread_id, business_id, None, user_id, send_fn=send)
                 moa_response = result.get("text", "")
@@ -556,7 +530,8 @@ async def _run_socketio_google(provider, thread_id, business_id, user_id, receiv
                 if session and moa_response:
                     try:
                         await session.send_client_content(
-                            turns=[types.Content(role="user", parts=[types.Part.from_text(text=moa_response)])],
+                            turns=[types.Content(role="user", parts=[
+                                                 types.Part.from_text(text=moa_response)])],
                             turn_complete=True,
                         )
                         async for response in session.receive():
@@ -565,7 +540,8 @@ async def _run_socketio_google(provider, thread_id, business_id, user_id, receiv
                             if response.server_content and response.server_content.turn_complete:
                                 break
                     except Exception as e:
-                        logger.warning(f"Socket.IO TTS failed (non-fatal): {e}")
+                        logger.warning(
+                            f"Socket.IO TTS failed (non-fatal): {e}")
                         # Session died — recreate
                         try:
                             await session.__aexit__(None, None, None)
@@ -582,7 +558,8 @@ async def _run_socketio_google(provider, thread_id, business_id, user_id, receiv
                     try:
                         await session.send_client_content(
                             turns=[types.Content(role="user", parts=[
-                                types.Part(inline_data=types.Blob(data=chunk_data, mime_type="audio/pcm"))
+                                types.Part(inline_data=types.Blob(
+                                    data=chunk_data, mime_type="audio/pcm"))
                             ])],
                             turn_complete=False,
                         )
@@ -591,7 +568,6 @@ async def _run_socketio_google(provider, thread_id, business_id, user_id, receiv
                         session = None
 
             elif kind == "end_turn":
-                await send({"type": "thinking", "data": "Processing..."})
 
                 # If session died, reconnect
                 if not session:
@@ -621,7 +597,8 @@ async def _run_socketio_google(provider, thread_id, business_id, user_id, receiv
 
                     user_text = "".join(transcription_parts)
                 except Exception as e:
-                    logger.debug(f"Transcription failed (will retry next turn): {e}")
+                    logger.debug(
+                        f"Transcription failed (will retry next turn): {e}")
                     user_text = ""
                     try:
                         await session.__aexit__(None, None, None)
@@ -642,7 +619,8 @@ async def _run_socketio_google(provider, thread_id, business_id, user_id, receiv
                 if session and moa_response:
                     try:
                         await session.send_client_content(
-                            turns=[types.Content(role="user", parts=[types.Part.from_text(text=moa_response)])],
+                            turns=[types.Content(role="user", parts=[
+                                                 types.Part.from_text(text=moa_response)])],
                             turn_complete=True,
                         )
                         async for response in session.receive():

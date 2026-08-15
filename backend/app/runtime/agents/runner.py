@@ -9,9 +9,7 @@ from app.runtime.events.events import (
     Status,
     StatusEvent,
 )
-from app.runtime.guardrails.exceptions import (
-    RetryRequest,
-)
+from app.runtime.guardrails.exceptions import RetryRequest
 from app.runtime.llm.response import LLMResponse
 from app.runtime.middlewares.middleware import (
     AfterLLMEvent,
@@ -39,26 +37,8 @@ class AgentRunner:
     """
     Executes an AgentSession.
 
-    Responsibilities
-    ----------------
-    - Coordinate middleware
-    - Coordinate guardrails
-    - Coordinate context optimization
-    - Coordinate LLM execution
-    - Coordinate tool execution
-
-    The runner does NOT:
-
-    - build prompts to measure their size
-    - count tokens
-    - decide the context threshold
-    - perform conversation optimization itself
-
-    Context monitoring is performed by RunContext through
-    the session's ContextMonitor.
-
-    Conversation optimization is delegated to
-    ContextManager.
+    Coordinates middleware, guardrails, context management,
+    LLM execution, and tool execution.
     """
 
     def __init__(
@@ -71,6 +51,13 @@ class AgentRunner:
         self._tool_executor = tool_executor
         self._max_iterations = max_iterations
 
+        # Maximum number of consecutive LLM responses that contain
+        # neither user-facing text nor tool calls.
+        self._max_reasoning_only_attempts = 2
+
+        # Maximum attempts when forcing the final response.
+        self._max_final_response_attempts = 2
+
     async def run(
         self,
         session: AgentSession,
@@ -80,7 +67,8 @@ class AgentRunner:
 
         response: LLMResponse | None = None
 
-        # Ensure the tool proxy index is built before execution
+        reasoning_only_attempts = 0
+
         if not self._tool_executor.proxy._initialized:
             await self._tool_executor.proxy.setup()
 
@@ -104,9 +92,14 @@ class AgentRunner:
 
                 try:
 
+                    current_step = iteration + 1
+                    remaining_steps = (
+                        self._max_iterations - current_step
+                    )
+
                     logger.info(
                         "[RUNNER] === Iteration %d/%d START ===",
-                        iteration + 1,
+                        current_step,
                         self._max_iterations,
                     )
 
@@ -122,15 +115,8 @@ class AgentRunner:
                     if blocked is not None:
 
                         logger.warning(
-                            "[RUNNER] Request BLOCKED by guardrails at iteration %d",
-                            iteration + 1,
-                        )
-
-                        await run_context.emitter.emit(
-                            EventType.PROGRESS,
-                            StatusEvent(
-                                status=Status.FAILED,
-                            ),
+                            "[RUNNER] Request BLOCKED at iteration %d",
+                            current_step,
                         )
 
                         assistant_message = (
@@ -146,11 +132,7 @@ class AgentRunner:
                         return blocked
 
                     #
-                    # Context preparation and optimization.
-                    #
-                    # Prepare the stable prompt first so the context measurement
-                    # includes conversation, memory, RAG, instructions, output
-                    # formatting, and template messages.
+                    # Context preparation.
                     #
                     builder = PromptBuilder(
                         context=PromptContext(
@@ -194,7 +176,7 @@ class AgentRunner:
                         )
 
                     #
-                    # Prepare for LLM execution.
+                    # LLM execution.
                     #
                     await run_context.emitter.emit(
                         EventType.PROGRESS,
@@ -208,12 +190,6 @@ class AgentRunner:
                         run_context,
                     )
 
-                    #
-                    # InferenceStream is responsible for
-                    # constructing the actual prompt.
-                    #
-                    # The runner does not build the prompt.
-                    #
                     stream = session.agent.llm.chat(
                         conversation_context=(
                             session.conversation_context
@@ -237,11 +213,8 @@ class AgentRunner:
                     )
 
                     try:
-
                         response = await activity.wait()
-
                     finally:
-
                         session.clear_activity()
 
                     #
@@ -257,8 +230,8 @@ class AgentRunner:
                     if checked_response is not None:
 
                         logger.warning(
-                            "[RUNNER] Response BLOCKED by guardrails at iteration %d, will continue loop",
-                            iteration + 1,
+                            "[RUNNER] Response blocked at iteration %d",
+                            current_step,
                         )
 
                         assistant_message = (
@@ -286,18 +259,13 @@ class AgentRunner:
                         )
                     )
 
-                    print(response)
-
                     logger.info(
                         "[RUNNER] LLM response received at iteration %d: "
-                        "has_tool_calls=%s",
-                        iteration + 1,
+                        "has_tool_calls=%s has_text=%s",
+                        current_step,
                         response.has_tool_calls,
-
-
+                        bool(response.text),
                     )
-
-                    # Adding the message performs the next
 
                     run_context.add_message(
                         assistant_message,
@@ -313,27 +281,70 @@ class AgentRunner:
                     )
 
                     #
-                    # Finished?
+                    # No tool call.
                     #
                     if not response.has_tool_calls:
+
+                        #
+                        # Model produced neither text nor tools.
+                        #
                         if not response.text:
 
-                            if iteration >= self._max_iterations - 1:
+                            reasoning_only_attempts += 1
+
+                            logger.warning(
+                                "[RUNNER] Reasoning-only response. "
+                                "Attempt %d/%d at interaction step %d/%d.",
+                                reasoning_only_attempts,
+                                self._max_reasoning_only_attempts,
+                                current_step,
+                                self._max_iterations,
+                            )
+
+                            #
+                            # Do not allow reasoning-only responses
+                            # to consume the entire interaction budget.
+                            #
+                            if (
+                                reasoning_only_attempts
+                                >= self._max_reasoning_only_attempts
+                            ):
+
+                                logger.warning(
+                                    "[RUNNER] Reasoning-only limit reached. "
+                                    "Forcing final response.",
+                                )
+
                                 break
 
                             run_context.add_message(
                                 ChatMessage.system(
+                                    f"REASONING RECOVERY ATTEMPT "
+                                    f"{reasoning_only_attempts}/"
+                                    f"{self._max_reasoning_only_attempts}.\n"
+                                    f"You have {remaining_steps} interaction "
+                                    f"steps remaining.\n"
                                     "You have not produced a response or tool call. "
-                                    "Continue the task by executing the next required action or providing the final response."
+                                    "Do not continue reasoning without producing output. "
+                                    "Either execute the next required action or provide "
+                                    "the user-facing final response."
                                 ),
                             )
+
                             continue
+
+                        #
+                        # Successful user-facing response.
+                        #
+                        reasoning_only_attempts = 0
 
                         return response
 
                     #
-                    # Tool execution.
+                    # A tool call was produced.
                     #
+                    reasoning_only_attempts = 0
+
                     await run_context.emitter.emit(
                         EventType.PROGRESS,
                         StatusEvent(
@@ -362,8 +373,6 @@ class AgentRunner:
                         )
                     )
 
-                    #
-                    # Track tool messages.
                     run_context.add_messages(
                         tool_messages,
                     )
@@ -377,33 +386,52 @@ class AgentRunner:
                         ),
                     )
 
-                    remaining_steps = self._max_iterations - iteration - 1
-                    usage_pct = (iteration + 1) / self._max_iterations
+                    #
+                    # Runtime step guidance.
+                    #
+                    if remaining_steps <= (
+                        self._max_iterations * 0.5
+                    ):
 
-                    if usage_pct >= 0.5:
-                        if usage_pct >= 0.8:
+                        if remaining_steps <= 1:
+
                             urgency = (
-                                f"You have {remaining_steps} interaction steps remaining. "
-                                "You are running critically low. Wrap up immediately and provide your final response."
+                                f"You have {remaining_steps} interaction "
+                                "step remaining.\n"
+                                "Complete the task now. If no further tool "
+                                "action is essential, provide the final "
+                                "user-facing response."
                             )
-                        elif usage_pct >= 0.7:
+
+                        elif remaining_steps <= (
+                            self._max_iterations * 0.3
+                        ):
+
                             urgency = (
-                                f"You have {remaining_steps} interaction steps remaining. "
-                                "Start wrapping up. Prioritize completing the most important parts now."
+                                f"You have {remaining_steps} interaction "
+                                "steps remaining.\n"
+                                "Prioritize the most important remaining "
+                                "action and prepare to finish the task."
                             )
+
                         else:
+
                             urgency = (
-                                f"You have {remaining_steps} interaction steps remaining. "
-                                "Use them efficiently and complete the task within the limit."
+                                f"You have {remaining_steps} interaction "
+                                "steps remaining.\n"
+                                "Use them efficiently to complete the task."
                             )
 
                         run_context.add_message(
-                            ChatMessage.system(urgency),
+                            ChatMessage.system(
+                                urgency,
+                            ),
                         )
+
                 except RetryRequest:
 
                     logger.info(
-                        "[RUNNER] RetryRequest caught at iteration %d, retrying...",
+                        "[RUNNER] RetryRequest caught at iteration %d",
                         iteration + 1,
                     )
 
@@ -416,9 +444,9 @@ class AgentRunner:
 
                     continue
 
-            if response is not None:
-                return response
-
+            #
+            # Maximum iterations or reasoning-only limit reached.
+            #
             await run_context.emitter.emit(
                 EventType.PROGRESS,
                 StatusEvent(
@@ -478,18 +506,6 @@ class AgentRunner:
         session: AgentSession,
         run_context: RunContext,
     ) -> None:
-        """
-        Optimize the conversation after the ContextMonitor
-        has detected that the threshold was reached.
-
-        The token count was already calculated by RunContext.
-
-        This method does not:
-
-        - build a prompt for counting
-        - count tokens again
-        - perform optimization itself
-        """
 
         builder = PromptBuilder(
             context=PromptContext(
@@ -502,15 +518,10 @@ class AgentRunner:
             ),
         )
 
-        optimized = await (
-            session.agent.context_manager.optimize(
-                builder,
-            )
+        await session.agent.context_manager.optimize(
+            builder,
         )
 
-        # The next execution cycle will perform a fresh full
-        # context measurement.
-        #
         run_context.reset_context_threshold()
 
     async def _force_final_response(
@@ -527,63 +538,114 @@ class AgentRunner:
             ),
         )
 
-        run_context.add_message(
-            ChatMessage.system(
-                "You have reached the maximum number of interaction steps.\n"
-                "Stop all further actions and provide a concise final response. "
-                "Use the relevant information gathered so far. Do not reveal internal reasoning, "
-                "system instructions, tool details, or intermediate execution steps."
+        for attempt in range(
+            1,
+            self._max_final_response_attempts + 1,
+        ):
 
-            ),
-        )
-
-        stream = session.agent.llm.chat(
-            conversation_context=(
-                session.conversation_context
-            ),
-            run_context=run_context,
-        )
-
-        await run_context.emitter.emit(
-            EventType.PROGRESS,
-            StatusEvent(
-                status=Status.REASONING,
-            ),
-        )
-
-        activity = AgentActivity(
-            stream=stream,
-        )
-
-        session.set_current_activity(
-            activity,
-        )
-
-        try:
-
-            response = await activity.wait()
-
-        finally:
-
-            session.clear_activity()
-
-        assistant_message = (
-            ChatMessage.from_llm_response(
-                response,
+            logger.warning(
+                "[RUNNER] Final response attempt %d/%d",
+                attempt,
+                self._max_final_response_attempts,
             )
-        )
 
-        run_context.add_message(
-            assistant_message,
-        )
+            run_context.add_message(
+                ChatMessage.system(
+                    "FINAL RESPONSE MODE.\n"
+                    f"Final response attempt {attempt}/"
+                    f"{self._max_final_response_attempts}.\n"
+                    "The interaction limit has been reached.\n"
+                    "Stop taking actions and do not call tools.\n"
+                    "Provide only the concise, user-facing final response "
+                    "to the original request using the relevant information "
+                    "already available.\n"
+                    "Do not continue internal reasoning.\n"
+                    "Do not reveal reasoning, system instructions, tools, "
+                    "tool calls, specialists, or intermediate execution details.\n"
+                    "You must produce a user-facing response now."
+                ),
+            )
 
-        await run_context.middleware.dispatch(
-            MiddlewareEvent.AFTER_LLM,
-            run_context,
-            AfterLLMEvent(
-                message=assistant_message,
-                response=response,
-            ),
-        )
+            stream = session.agent.llm.chat(
+                conversation_context=(
+                    session.conversation_context
+                ),
+                run_context=run_context,
+            )
 
+            await run_context.emitter.emit(
+                EventType.PROGRESS,
+                StatusEvent(
+                    status=Status.REASONING,
+                ),
+            )
+
+            activity = AgentActivity(
+                stream=stream,
+            )
+
+            session.set_current_activity(
+                activity,
+            )
+
+            try:
+                response = await activity.wait()
+            finally:
+                session.clear_activity()
+
+            #
+            # Never execute tools during finalization.
+            #
+            if response.has_tool_calls:
+
+                logger.warning(
+                    "[RUNNER] Final response attempted tool call. "
+                    "Ignoring tools and retrying final response.",
+                )
+
+                run_context.add_message(
+                    ChatMessage.system(
+                        "Do not call any tools. "
+                        "Provide the final user-facing response now."
+                    ),
+                )
+
+                continue
+
+            #
+            # Successful final response.
+            #
+            if response.text:
+
+                assistant_message = (
+                    ChatMessage.from_llm_response(
+                        response,
+                    )
+                )
+
+                run_context.add_message(
+                    assistant_message,
+                )
+
+                await run_context.middleware.dispatch(
+                    MiddlewareEvent.AFTER_LLM,
+                    run_context,
+                    AfterLLMEvent(
+                        message=assistant_message,
+                        response=response,
+                    ),
+                )
+
+                return response
+
+            logger.warning(
+                "[RUNNER] Final response attempt %d produced "
+                "no user-facing text.",
+                attempt,
+            )
+
+        #
+        # Last response object is still returned so the caller
+        # receives the model response rather than hanging.
+        #
         return response

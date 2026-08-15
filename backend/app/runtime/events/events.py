@@ -235,8 +235,8 @@ class Status(str, Enum):
         "I wasn't able to complete that successfully.",
     )
 
-    MAX_ITERATIONS = (
-        "max_iterations",
+    MAX_ITERATION = (
+        "max_iteration",
         "I've reached the processing limit, so I'm finishing with what I have...",
     )
 

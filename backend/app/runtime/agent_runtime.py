@@ -1,6 +1,4 @@
 from __future__ import annotations
-import asyncio
-import inspect
 import json
 import logging
 import re
@@ -58,7 +56,6 @@ class AgentRuntime:
         conversation_messages: list[dict[str, Any]] | None = [],
         max_iter: int = 10,
         max_validation_retries: int = 5,
-        thinking_callback: Any | None = None,
         output_pydantic: type | None = None,
         output_json: type | None = None,
         guardrail_llm: Any | None = None,
@@ -83,7 +80,6 @@ class AgentRuntime:
         self._reflection_stage = reflection_stage
         self._max_iter = max_iter
         self._max_validation_retries = max_validation_retries
-        self._thinking_callback = thinking_callback
         self._messages: list[dict[str, Any]] = []
         self._iterations: int = 0
         self._tool_call_history: set[str] = set()
@@ -202,38 +198,6 @@ class AgentRuntime:
 
         await self._tool_binder.release()
         return strip_internal_reasoning(raw) if raw else ""
-
-    async def emit_callback(event_name: str, payload: dict):
-        await sio.emit(event_name, payload, to=sid)
-
-    async def thinking_callback(msg):
-        if isinstance(msg, dict):
-            thinking_text = msg.get("data", str(msg))
-        else:
-            thinking_text = str(msg)
-        await emit_callback("message", {"type": "thinking", "data": thinking_text})
-
-    async def _emit_status(self, text: str) -> None:
-        if not self._thinking_callback:
-            return
-        try:
-            if inspect.iscoroutinefunction(self._thinking_callback):
-                await self._thinking_callback(text)
-            else:
-                await asyncio.to_thread(self._thinking_callback, text)
-        except Exception:
-            pass
-
-    async def _emit_thinking(self, text: str) -> None:
-        if not self._thinking_callback or not text:
-            return
-        try:
-            if inspect.iscoroutinefunction(self._thinking_callback):
-                await self._thinking_callback(text)
-            else:
-                await asyncio.to_thread(self._thinking_callback, text)
-        except Exception:
-            pass
 
     def _build_agent_system_prompt(self, domain_agent: Any = None) -> str:
         from app.lib.prompts import prepare_system_prompt

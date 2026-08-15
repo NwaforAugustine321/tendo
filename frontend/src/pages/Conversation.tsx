@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { ConversationPage, type MessageItem } from "../components/containers";
 import type { InputSpec } from "../components/containers/ConversationPage";
 import { useVoiceSession } from "../hooks/useVoiceSession";
+import { useEventReceiver } from "../hooks/useEmitReceiver";
 import { SpeakingIndicator } from "../components/SpeakingIndicator";
 import { useBusinessStore } from "../store/business";
 import { useWorkspaceStore } from "../store/workspace";
@@ -39,6 +40,9 @@ export function Conversation({
   const [wakeActive, setWakeActive] = useState(false);
   const { currentProfile } = useBusinessStore();
   const voice = useVoiceSession();
+  const { events: statusEvents, clear: clearStatus } = useEventReceiver([
+    "progress",
+  ]);
 
   // Sync initialMessages when they change (e.g., switching sessions)
   useEffect(() => {
@@ -94,13 +98,6 @@ export function Conversation({
     }
   }, [voice.isConnected, voice.isSpeaking, voice.isListening]);
 
-  // Show thinking indicator when backend sends thinking event (voice transcription processing)
-  useEffect(() => {
-    if (voice.thinkingText) {
-      setThinking(true);
-    }
-  }, [voice.thinkingText]);
-
   // When a voice transcript arrives, show it as a user message and trigger thinking
   const lastTranscriptRef = useRef<string | null>(null);
   useEffect(() => {
@@ -126,6 +123,7 @@ export function Conversation({
     if (voice.lastMessage.id === lastMsgId.current) return;
     lastMsgId.current = voice.lastMessage.id;
     setThinking(false);
+    clearStatus();
 
     console.log("[Conversation] lastMessage:", voice.lastMessage);
 
@@ -277,12 +275,20 @@ export function Conversation({
       <SpeakingIndicator
         active={voice.state === "listening" || voice.state === "speaking"}
         speaking={voice.agentSpeaking}
+        statusText={
+          statusEvents.length > 0
+            ? (statusEvents[statusEvents.length - 1].data as any)?.message
+            : undefined
+        }
       />
       <ConversationPage
         messages={messages}
         isTyping={thinking || voice.isSpeaking}
-        thinkingText={thinking ? voice.thinkingText || "" : undefined}
-        thoughtText={thinking ? voice.thoughtText : undefined}
+        statusText={
+          statusEvents.length > 0
+            ? (statusEvents[statusEvents.length - 1].data as any)?.message
+            : undefined
+        }
         onSendText={handleSendText}
         onVoiceRecorded={() => {}}
         onVoiceToggle={handleVoiceToggle}

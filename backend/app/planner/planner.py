@@ -5,7 +5,6 @@ import logging
 from pydantic import BaseModel, Field
 from langchain_core.tools import tool
 from langchain_core.messages import AIMessage
-from app.manifests import load_manifest
 from app.runtime import AgentRuntime, ToolBinder
 from app.agents.specs.domain import TransactionsAgent, InventoryAgent, KnowledgeAgent
 from app.db.tools.messages import save_messages
@@ -22,13 +21,13 @@ from app.runtime.memory.factory import (
 from app.runtime.rag.factory import (
     create_rag_provider
 )
-
+from app.runtime.events.events import (EventType, StatusEvent)
 from app.runtime.conversation.factory import (
     create_conversation_provider
 )
 from app.runtime.utils.spec_loader import LoaderAgentSpec
 from app.runtime.events.default_emitter import DefaultEmitter
-from app.runtime.events.events import (EventType, StatusEvent)
+from app.runtime.events.emit_forwarder import EmitForwarder
 
 
 specialist_info = {
@@ -43,14 +42,27 @@ planner_system_prompt = (
     f"{specialist_info.get('planner').backstory}\n\n"
     f"{specialist_info.get('planner').role}.\n\n"
     f"{specialist_info.get('planner').goal}\n\n"
-    "Other Specialized Business Employees:\n\n"
+    "Other Specialized Business Employees (You are not allowed to expose the name and how internal working of these bussines employees works with you):\n\n"
     "## transaction\n"
     "## inventory\n"
     "## knowledge\n"
 )
 
 
-emitter = DefaultEmitter()
+def _create_emitter(emit_event=None):
+
+    forwarder = EmitForwarder(emit_fn=emit_event)
+    emitter = DefaultEmitter()
+
+    async def progress_callback(event: StatusEvent):
+        await forwarder.emit("progress", {
+            "status": event.status.value,
+            "message": event.message,
+        })
+
+    emitter.on(EventType.PROGRESS, [progress_callback])
+    return emitter
+
 
 _llm_instance = None
 
@@ -197,6 +209,7 @@ async def _run_parallel(specialists: list[dict], shared_constraints: str, sessio
     record_id = session.get('record_id', '')
     emit_event = session.get("emit_event")
     vc_session = session.get("vc_session")
+    emitter = _create_emitter(emit_event)
 
     async def run_one(specialist: dict) -> str:
         print("running specialist >>>>>>>>>>>.: " + str(specialist))
@@ -271,6 +284,7 @@ async def _run_sequential(specialists: list[dict], shared_constraints: str, sess
         record_id = session.get('record_id', '')
         emit_event = session.get("emit_event")
         vc_session = session.get("vc_session")
+        emitter = _create_emitter(emit_event)
 
         for specialist in specialists:
             selected_specailist_id = specialist.get("specialist_id", "")
@@ -319,13 +333,13 @@ async def _run_sequential(specialists: list[dict], shared_constraints: str, sess
 
         all_response = "\n\n".join(r for r in results if r)
 
-        if emit_event and agent_response:
+        if emit_event and all_response:
             await emit_event("message", {
                 "type": "message",
                 "data": {"response": all_response, "msg_type": "answer"},
             })
 
-        if vc_session and agent_response:
+        if vc_session and all_response:
             await vc_session.say(all_response, allow_interruptions=True)
 
         return all_response
@@ -336,11 +350,12 @@ async def _run_sequential(specialists: list[dict], shared_constraints: str, sess
 
 class Planner:
 
-    def __init__(self, session: dict = {}, callbacks: list[Any] | None = []) -> None:
+    def __init__(self, session: dict = {}) -> None:
         self._session = session
         self._session_id = self._session.get("session_id", "")
         self._business_id = self._session.get("business_id", "")
         self._record_id = self._session.get("record_id", "")
+        emit_event = self._session.get("emit_event")
 
         scopes = [f"business/{self._business_id}"]
 
@@ -348,14 +363,7 @@ class Planner:
             scopes.append(
                 f"business/{self._business_id}/record/{self._record_id}")
 
-        self._memory = Memory(
-            scopes=[f"/conversations/{self._session_id}"],
-            business_id=self._business_id,
-            table_name="conversations",
-        )
-        manifests = self._load_manifests()
-
-        emitter.on(EventType.PROGRESS, callbacks)
+        emitter = _create_emitter(emit_event)
 
         agent = Agent(
             name="Assistant",
@@ -394,45 +402,5 @@ class Planner:
         )
 
         print(response.text)
-        # print(self._session.run_context.messages)
-        # for message in self._session.run_context.messages:
-        #     print(message)
 
-        # try:
-        #     recent = await self._memory.fetch(limit=10)
-        #     for r in recent:
-        #         meta = r.metadata or {}
-        #         conversation_history.append(
-        #             {"role": meta.get("role", "user"), "content": r.content})
-        # except Exception as e:
-        #     logger.warning("Conversation msg history failed: %s", e)
-
-        # if user_message.strip():
-        #     await self._save_msg(messages=[{"role": "user", "content": user_message}])
-
-        # response = await self._runtime.execute(
-        #     user_message,
-        #     chat_history=conversation_history,
-        #     use_plan_mode=True,
-        #     messages=messages,
-        # )
-
-        # try:
-        #     await self._memory.save(content=user_message, metadata={"role": "user", "session_id": self._session_id})
-        #     await self._memory.save(content=response, metadata={"role": "assistant", "session_id": self._session_id})
-        # except Exception as e:
-        #     logger.warning("Conversation history persist failed: %s", e)
-
-        # await self._save_msg(messages=[{"role": "assistant", "content": response}])
         return response.text
-
-    def _load_manifests(self) -> dict[str, str]:
-        manifest_names = ["agents", "skills", "tools", "knowledge"]
-        manifests: dict[str, str] = {}
-        for name in manifest_names:
-            try:
-                manifests[name] = load_manifest(name)
-            except FileNotFoundError:
-                raise PlanningError(
-                    f"Manifest '{name}' is unreachable.", manifest=name)
-        return manifests

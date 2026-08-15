@@ -1,91 +1,122 @@
-import { useState, useRef, useEffect } from 'react'
-import { Play, Pause } from 'lucide-react'
-import clsx from 'clsx'
-import { BotAvatar } from './BotAvatar'
-import { UserAvatar } from './UserAvatar'
-import { AiDisplay } from './AiDisplay'
+import { useState, useRef, useEffect } from "react";
+import { Play, Pause } from "lucide-react";
+import clsx from "clsx";
+import { BotAvatar } from "./BotAvatar";
+import { UserAvatar } from "./UserAvatar";
+import { AiDisplay } from "./AiDisplay";
 
 type Props = {
-  role: 'user' | 'assistant'
-  content: string
-  audioUrl?: string
+  role: "user" | "assistant";
+  content: string;
+  audioUrl?: string;
+  stream?: boolean;
+};
+
+function useStreamText(text: string, enabled: boolean, speed = 12) {
+  const [displayed, setDisplayed] = useState(enabled ? "" : text);
+  const doneRef = useRef(!enabled);
+
+  useEffect(() => {
+    if (!enabled || !text) {
+      setDisplayed(text);
+      doneRef.current = true;
+      return;
+    }
+    let i = 0;
+    setDisplayed("");
+    const interval = setInterval(() => {
+      i += 2;
+      if (i >= text.length) {
+        setDisplayed(text);
+        doneRef.current = true;
+        clearInterval(interval);
+      } else {
+        setDisplayed(text.slice(0, i));
+      }
+    }, speed);
+    return () => clearInterval(interval);
+  }, [text, enabled, speed]);
+
+  return displayed;
 }
 
 function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
-  const [playing, setPlaying] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [waveform, setWaveform] = useState<number[]>([])
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  const animRef = useRef<number | null>(null)
-  const playingRef = useRef(false)
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [waveform, setWaveform] = useState<number[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const animRef = useRef<number | null>(null);
+  const playingRef = useRef(false);
 
-  const NUM_BARS = 30
+  const NUM_BARS = 30;
 
   useEffect(() => {
-    if (!audioUrl) return
+    if (!audioUrl) return;
 
-    const ctx = new AudioContext()
+    const ctx = new AudioContext();
     fetch(audioUrl)
       .then((res) => res.arrayBuffer())
       .then((buf) => ctx.decodeAudioData(buf))
       .then((decoded) => {
-        const raw = decoded.getChannelData(0)
-        const step = Math.floor(raw.length / NUM_BARS)
-        const bars: number[] = []
+        const raw = decoded.getChannelData(0);
+        const step = Math.floor(raw.length / NUM_BARS);
+        const bars: number[] = [];
         for (let i = 0; i < NUM_BARS; i++) {
-          let sum = 0
+          let sum = 0;
           for (let j = 0; j < step; j++) {
-            sum += Math.abs(raw[i * step + j])
+            sum += Math.abs(raw[i * step + j]);
           }
-          bars.push(sum / step)
+          bars.push(sum / step);
         }
         // Normalize to 4–14px range
-        const max = Math.max(...bars, 0.01)
-        setWaveform(bars.map((v) => 4 + (v / max) * 10))
-        ctx.close()
+        const max = Math.max(...bars, 0.01);
+        setWaveform(bars.map((v) => 4 + (v / max) * 10));
+        ctx.close();
       })
       .catch(() => {
         // Fallback static bars
-        setWaveform(Array.from({ length: NUM_BARS }, () => 4 + Math.random() * 8))
-      })
-  }, [audioUrl])
+        setWaveform(
+          Array.from({ length: NUM_BARS }, () => 4 + Math.random() * 8),
+        );
+      });
+  }, [audioUrl]);
 
   const tick = () => {
     if (audioRef.current && audioRef.current.duration) {
-      setProgress(audioRef.current.currentTime / audioRef.current.duration)
+      setProgress(audioRef.current.currentTime / audioRef.current.duration);
     }
     if (playingRef.current) {
-      animRef.current = requestAnimationFrame(tick)
+      animRef.current = requestAnimationFrame(tick);
     }
-  }
+  };
 
   const togglePlay = () => {
-    if (!audioUrl) return
+    if (!audioUrl) return;
 
     if (!audioRef.current) {
-      audioRef.current = new Audio(audioUrl)
+      audioRef.current = new Audio(audioUrl);
       audioRef.current.onended = () => {
-        playingRef.current = false
-        setPlaying(false)
-        setProgress(0)
-        if (animRef.current) cancelAnimationFrame(animRef.current)
-      }
+        playingRef.current = false;
+        setPlaying(false);
+        setProgress(0);
+        if (animRef.current) cancelAnimationFrame(animRef.current);
+      };
     }
 
     if (playing) {
-      audioRef.current.pause()
-      playingRef.current = false
-      setPlaying(false)
-      if (animRef.current) cancelAnimationFrame(animRef.current)
+      audioRef.current.pause();
+      playingRef.current = false;
+      setPlaying(false);
+      if (animRef.current) cancelAnimationFrame(animRef.current);
     } else {
-      audioRef.current.play()
-      playingRef.current = true
-      setPlaying(true)
-      animRef.current = requestAnimationFrame(tick)
+      audioRef.current.play();
+      playingRef.current = true;
+      setPlaying(true);
+      animRef.current = requestAnimationFrame(tick);
     }
-  }
+  };
 
-  const activeBars = Math.floor(progress * waveform.length)
+  const activeBars = Math.floor(progress * waveform.length);
 
   return (
     <div className="flex items-center gap-1.5 py-0.5">
@@ -93,9 +124,13 @@ function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
         type="button"
         onClick={togglePlay}
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#3ecf8e] text-[#0a0a0a] transition hover:bg-[#4ddb9b]"
-        aria-label={playing ? 'Pause' : 'Play'}
+        aria-label={playing ? "Pause" : "Play"}
       >
-        {playing ? <Pause size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />}
+        {playing ? (
+          <Pause size={12} fill="currentColor" />
+        ) : (
+          <Play size={12} fill="currentColor" />
+        )}
       </button>
       <div className="flex items-end gap-[2px]" style={{ height: 16 }}>
         {waveform.map((h, i) => (
@@ -104,78 +139,97 @@ function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
             className="inline-block w-[2px] rounded-full transition-colors duration-75"
             style={{
               height: `${h}px`,
-              backgroundColor: i < activeBars ? '#3ecf8e' : '#52525b',
+              backgroundColor: i < activeBars ? "#3ecf8e" : "#52525b",
             }}
           />
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 function formatDisplayContent(content: string): string {
-  if (!content.trim().startsWith('[')) return content
+  if (!content.trim().startsWith("[")) return content;
   try {
-    const responses = JSON.parse(content)
-    if (!Array.isArray(responses) || !responses.every((r: any) => r && typeof r === 'object' && 'answer' in r)) {
-      return content
+    const responses = JSON.parse(content);
+    if (
+      !Array.isArray(responses) ||
+      !responses.every((r: any) => r && typeof r === "object" && "answer" in r)
+    ) {
+      return content;
     }
-    return responses.map((r: any) => r.answer).join('\n')
+    return responses.map((r: any) => r.answer).join("\n");
   } catch {
-    return content
+    return content;
   }
 }
 
-export function MessageBubble({ role, content, audioUrl }: Props) {
-  const isUser = role === 'user'
-  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  const isVoice = content === '🎤 Voice message'
-  const displayContent = isUser ? formatDisplayContent(content) : content
+export function MessageBubble({
+  role,
+  content,
+  audioUrl,
+  stream = false,
+}: Props) {
+  const isUser = role === "user";
+  const time = new Date().toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const isVoice = content === "🎤 Voice message";
+  const displayContent = isUser ? formatDisplayContent(content) : content;
+  const streamedContent = useStreamText(displayContent, !isUser && stream);
 
   return (
-    <div className={clsx('flex gap-2', isUser ? 'flex-row-reverse' : 'flex-row')}>
+    <div
+      className={clsx("flex gap-2", isUser ? "flex-row-reverse" : "flex-row")}
+    >
       {!isUser ? <BotAvatar size={28} /> : <UserAvatar size={28} />}
 
       <div className="relative max-w-[80%]">
         {/* Tail */}
         <div
           className={clsx(
-            'absolute top-2 h-3 w-3 rotate-45',
+            "absolute top-2 h-3 w-3 rotate-45",
             isUser
-              ? '-right-1.5 bg-[#1a2e1a]'
-              : '-left-1.5 border border-zinc-800/90 bg-[#141414]'
+              ? "-right-1.5 bg-[#1a2e1a]"
+              : "-left-1.5 border border-zinc-800/90 bg-[#141414]",
           )}
         />
 
         {/* Body */}
         <div
           className={clsx(
-            'relative rounded-lg px-3 py-1.5 text-[13px] leading-snug',
+            "relative rounded-lg px-3 py-1.5 text-[13px] leading-snug",
             isUser
-              ? 'bg-[#1a2e1a] text-zinc-100'
-              : 'border border-zinc-800/90 bg-[#141414] text-zinc-200'
+              ? "bg-[#1a2e1a] text-zinc-100"
+              : "border border-zinc-800/90 bg-[#141414] text-zinc-200",
           )}
         >
           {isVoice ? (
             <VoiceWaveform audioUrl={audioUrl} />
           ) : isUser ? (
-            displayContent.split('\n').map((line, i) => (
-              <p key={i} className={i > 0 ? 'mt-0.5' : ''}>
+            displayContent.split("\n").map((line, i) => (
+              <p key={i} className={i > 0 ? "mt-0.5" : ""}>
                 {line}
               </p>
             ))
           ) : (
-            <AiDisplay content={displayContent} className="text-[13px] leading-snug" />
+            <AiDisplay
+              content={streamedContent}
+              className="text-[13px] leading-snug"
+            />
           )}
 
-          <span className={clsx(
-            'mt-0.5 block text-right text-[10px]',
-            isUser ? 'text-zinc-400' : 'text-zinc-400'
-          )}>
+          <span
+            className={clsx(
+              "mt-0.5 block text-right text-[10px]",
+              isUser ? "text-zinc-400" : "text-zinc-400",
+            )}
+          >
             {time}
           </span>
         </div>
       </div>
     </div>
-  )
+  );
 }

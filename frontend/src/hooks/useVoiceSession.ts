@@ -39,8 +39,6 @@ export function useVoiceSession() {
   const [lastMessage, setLastMessage] = useState<AgentMessage | null>(null);
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
-  const [thinkingText, setThinkingText] = useState("");
-  const [thoughtText, setThoughtText] = useState("");
   const [micActive, setMicActive] = useState(false);
   const [userSpeaking, setUserSpeaking] = useState(false);
   const [agentSpeaking, setAgentSpeaking] = useState(false);
@@ -71,12 +69,6 @@ export function useVoiceSession() {
             questions: questions || undefined,
             extracted: extracted || undefined,
           });
-          setThinkingText("");
-          setThoughtText("");
-        } else if (msg.type === "thinking") {
-          setThinkingText(msg.data || "");
-        } else if (msg.type === "thought") {
-          setThoughtText(msg.data || "");
         } else if (msg.type === "error") {
           setErrorMessage(msg.data || "Something went wrong");
         }
@@ -159,10 +151,7 @@ export function useVoiceSession() {
           questions: questions || undefined,
           extracted: extracted || undefined,
         });
-        setThinkingText("");
-        setThoughtText("");
       },
-      onThinking: (text) => setThinkingText(text),
       onTranscript: (text) => setLastTranscript(text),
       onTurnComplete: () => {
         setAgentSpeaking(false);
@@ -367,8 +356,6 @@ export function useVoiceSession() {
     lastMessage,
     lastTranscript,
     errorMessage,
-    thinkingText,
-    thoughtText,
     micActive,
     userSpeaking,
     agentSpeaking,

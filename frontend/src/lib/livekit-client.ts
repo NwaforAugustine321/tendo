@@ -19,7 +19,6 @@ export type VoiceCallbacks = {
   onUserSpeakingChange: (speaking: boolean) => void;
   onAgentSpeakingChange: (speaking: boolean) => void;
   onMessage: (data: any) => void;
-  onThinking: (text: string) => void;
   onTranscript: (text: string) => void;
   onTurnComplete: () => void;
   onError: (error: string) => void;
@@ -139,9 +138,6 @@ export class LiveKitVoiceClient {
             break;
           case "message":
             this.callbacks.onMessage(data.data);
-            break;
-          case "thinking":
-            this.callbacks.onThinking(data.data || "");
             break;
           case "turn_complete":
             this.callbacks.onTurnComplete();

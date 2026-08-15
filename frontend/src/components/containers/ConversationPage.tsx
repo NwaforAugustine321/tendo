@@ -1,85 +1,90 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from "react";
 import {
   MessageBubble,
   UnderstandingCard,
   InputCard,
   ConfirmationCard,
   OperationCard,
-  TypingIndicator,
   TextInput,
   VoiceButton,
   EmptyState,
-} from '../atoms'
-import { TalkingCharacter } from './TalkingCharacter'
+} from "../atoms";
+import { TalkingCharacter } from "./TalkingCharacter";
 
 export type InputSpec = {
   fields: Array<{
-    id?: string
-    name: string
-    label?: string
-    placeholder?: string
-    description?: string
-  }>
-}
+    id?: string;
+    name: string;
+    label?: string;
+    placeholder?: string;
+    description?: string;
+  }>;
+};
 
 export type MessageItem = {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  type: 'text' | 'understanding' | 'options' | 'confirmation' | 'operation' | 'input'
-  audioUrl?: string
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  type:
+    | "text"
+    | "understanding"
+    | "options"
+    | "confirmation"
+    | "operation"
+    | "input";
+  audioUrl?: string;
   understanding?: {
-    title?: string
-    businessName?: string
-    activities?: string[]
-    behaviors?: string[]
-    note?: string
-  }
+    title?: string;
+    businessName?: string;
+    activities?: string[];
+    behaviors?: string[];
+    note?: string;
+  };
   options?: {
-    prompt: string
-    choices: { id: string; label: string; recommended?: boolean }[]
-  }
+    prompt: string;
+    choices: { id: string; label: string; recommended?: boolean }[];
+  };
   confirmation?: {
-    summary: string
-    details: { label: string; value: string }[]
-  }
+    summary: string;
+    details: { label: string; value: string }[];
+  };
   operation?: {
-    operationType: string
-    changes: { label: string; before: string; after: string }[]
-  }
-  inputSpec?: InputSpec
-}
+    operationType: string;
+    changes: { label: string; before: string; after: string }[];
+  };
+  inputSpec?: InputSpec;
+};
 
 type Props = {
-  messages: MessageItem[]
-  isTyping: boolean
-  thinkingText?: string
-  thoughtText?: string
-  onSendText: (text: string) => void
-  onVoiceRecorded: (blob: Blob) => void
-  onVoiceToggle?: () => void
-  isListening?: boolean
-  voiceLoading?: boolean
-  onOptionSelect: (optionId: string) => void
-  onConfirm?: () => void
-  onModify?: () => void
-  onCancel?: () => void
-  onRevert?: (messageId: string) => void
-  onContinueFromHere?: (messageId: string) => void
-  showHeader?: boolean
-  headerTitle?: string
-  headerSubtitle?: string
-  fullScreen?: boolean
-  transparentBg?: boolean
-  flipCharacter?: boolean
-  characterRightOffset?: number
-  onWakeToggle?: () => void
-  wakeActive?: boolean
-}
+  messages: MessageItem[];
+  isTyping: boolean;
+  statusText?: string;
+  onSendText: (text: string) => void;
+  onVoiceRecorded: (blob: Blob) => void;
+  onVoiceToggle?: () => void;
+  isListening?: boolean;
+  voiceLoading?: boolean;
+  onOptionSelect: (optionId: string) => void;
+  onConfirm?: () => void;
+  onModify?: () => void;
+  onCancel?: () => void;
+  onRevert?: (messageId: string) => void;
+  onContinueFromHere?: (messageId: string) => void;
+  showHeader?: boolean;
+  headerTitle?: string;
+  headerSubtitle?: string;
+  fullScreen?: boolean;
+  transparentBg?: boolean;
+  flipCharacter?: boolean;
+  characterRightOffset?: number;
+  onWakeToggle?: () => void;
+  wakeActive?: boolean;
+};
 
 export function ConversationPage({
   messages,
   isTyping,
+  statusText,
   onSendText,
   onVoiceRecorded,
   onVoiceToggle,
@@ -92,30 +97,64 @@ export function ConversationPage({
   onRevert,
   onContinueFromHere,
   showHeader = true,
-  headerTitle = 'Tendo',
-  headerSubtitle = 'Your AI Business Assistant',
+  headerTitle = "Tendo",
+  headerSubtitle = "Your AI Business Assistant",
   fullScreen = true,
-  thinkingText,
-  thoughtText,
   transparentBg = false,
   flipCharacter = false,
   characterRightOffset = 0,
   onWakeToggle,
   wakeActive = false,
 }: Props) {
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [displayedStatus, setDisplayedStatus] = useState("");
+  const streamRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (streamRef.current) clearInterval(streamRef.current);
+    if (!statusText) {
+      setDisplayedStatus("");
+      return;
+    }
+    setDisplayedStatus("");
+    let i = 0;
+    streamRef.current = setInterval(() => {
+      i++;
+      if (i >= statusText.length) {
+        setDisplayedStatus(statusText);
+        if (streamRef.current) clearInterval(streamRef.current);
+      } else {
+        setDisplayedStatus(statusText.slice(0, i));
+      }
+    }, 20);
+    return () => {
+      if (streamRef.current) clearInterval(streamRef.current);
+    };
+  }, [statusText]);
+
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    const el = scrollRef.current;
+    const observer = new ResizeObserver(() => {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    });
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
         top: scrollRef.current.scrollHeight,
-        behavior: 'smooth',
-      })
+        behavior: "smooth",
+      });
     }
-  }, [messages, isTyping, thinkingText, thoughtText])
+  }, [messages, isTyping]);
 
   return (
-    <div className={`relative flex flex-col overflow-hidden bg-[#0a0a0a] ${fullScreen ? 'h-dvh' : 'h-full'}`}>
+    <div
+      className={`relative flex flex-col overflow-hidden bg-[#0a0a0a] ${fullScreen ? "h-dvh" : "h-full"}`}
+    >
       {/* {showHeader && (
         <header className="relative z-10 flex flex-col items-center pt-4 pb-2 mb-4">
           <h1 className="text-lg font-bold tracking-[-0.03em] text-white">{headerTitle}</h1>
@@ -132,7 +171,7 @@ export function ConversationPage({
         ) : (
           <div className="mx-auto max-w-2xl space-y-4">
             {messages.map((msg, idx) => {
-              if (msg.type === 'understanding' && msg.understanding) {
+              if (msg.type === "understanding" && msg.understanding) {
                 return (
                   <UnderstandingCard
                     key={msg.id}
@@ -142,20 +181,20 @@ export function ConversationPage({
                     behaviors={msg.understanding.behaviors}
                     note={msg.understanding.note}
                   />
-                )
+                );
               }
-              if (msg.type === 'input' && msg.inputSpec) {
-                const isLast = idx === messages.length - 1
+              if (msg.type === "input" && msg.inputSpec) {
+                const isLast = idx === messages.length - 1;
                 return (
                   <InputCard
                     key={msg.id}
-                    fields={msg.inputSpec.fields as any[] || []}
+                    fields={(msg.inputSpec.fields as any[]) || []}
                     onSubmit={isLast ? onSendText : () => {}}
                     disabled={!isLast}
                   />
-                )
+                );
               }
-              if (msg.type === 'confirmation' && msg.confirmation) {
+              if (msg.type === "confirmation" && msg.confirmation) {
                 return (
                   <ConfirmationCard
                     key={msg.id}
@@ -165,18 +204,22 @@ export function ConversationPage({
                     onModify={onModify ?? (() => {})}
                     onCancel={onCancel ?? (() => {})}
                   />
-                )
+                );
               }
-              if (msg.type === 'operation' && msg.operation) {
+              if (msg.type === "operation" && msg.operation) {
                 return (
                   <OperationCard
                     key={msg.id}
                     operationType={msg.operation.operationType}
                     changes={msg.operation.changes}
                     onRevert={onRevert ? () => onRevert(msg.id) : undefined}
-                    onContinueFromHere={onContinueFromHere ? () => onContinueFromHere(msg.id) : undefined}
+                    onContinueFromHere={
+                      onContinueFromHere
+                        ? () => onContinueFromHere(msg.id)
+                        : undefined
+                    }
                   />
-                )
+                );
               }
               return (
                 <MessageBubble
@@ -184,17 +227,34 @@ export function ConversationPage({
                   role={msg.role}
                   content={msg.content}
                   audioUrl={msg.audioUrl}
+                  stream={
+                    msg.role === "assistant" && idx === messages.length - 1
+                  }
                 />
-              )
+              );
             })}
-            {isTyping && <TypingIndicator text={thinkingText} thoughtText={thoughtText} />}
+            {isTyping && (
+              <div className="inline-flex w-fit items-center gap-2 rounded-2xl border border-zinc-800/90 bg-[#141414] px-4 py-2.5">
+                <span className="flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:0ms]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:150ms]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:300ms]" />
+                </span>
+                {displayedStatus && (
+                  <span className="text-xs text-zinc-400">
+                    {displayedStatus}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      <div className={`relative z-10 border-t border-zinc-800/40 ${transparentBg ? 'bg-transparent' : 'bg-[#0a0a0a]'} px-3 py-3 sm:px-5`}>
+      <div
+        className={`relative z-10 border-t border-zinc-800/40 ${transparentBg ? "bg-transparent" : "bg-[#0a0a0a]"} px-3 py-3 sm:px-5`}
+      >
         <div className="mx-auto max-w-2xl">
-          
           <div className="mb-2 flex items-center gap-2">
             <VoiceButton
               onRecorded={onVoiceRecorded}
@@ -207,7 +267,13 @@ export function ConversationPage({
         </div>
       </div>
 
-      {fullScreen && <TalkingCharacter isSpeaking={isTyping} flipX={flipCharacter} rightOffset={characterRightOffset} />}
+      {fullScreen && (
+        <TalkingCharacter
+          isSpeaking={isTyping}
+          flipX={flipCharacter}
+          rightOffset={characterRightOffset}
+        />
+      )}
     </div>
-  )
+  );
 }
