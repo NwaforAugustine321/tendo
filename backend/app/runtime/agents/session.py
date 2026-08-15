@@ -233,14 +233,6 @@ class AgentSession:
 
             self._conversation_context = loaded
 
-        #
-        # Start a fresh execution while preserving:
-        #
-        # - ConversationContext
-        # - PromptState
-        # - Emitter
-        # - ContextMonitor
-        #
         self._run_context.start(
             message,
         )

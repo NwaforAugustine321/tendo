@@ -6,6 +6,11 @@ from langchain_core.messages.utils import (
     count_tokens_approximately,
 )
 
+from app.runtime.events.events import (
+    EventType,
+    Status,
+    StatusEvent,
+)
 from app.runtime.chat.message import ChatMessage
 from app.runtime.memory.builder import MemoryPromptBuilder
 from app.runtime.prompts.sections.conversation import (
@@ -258,8 +263,22 @@ class PromptBuilder:
         if agent.memory is None:
             return ""
 
+        await self._context.run_context.emitter.emit(
+            EventType.PROGRESS,
+            StatusEvent(
+                status=Status.RETRIEVING,
+            ),
+        )
+
         memory = await agent.memory.retrieve(
             self._context.run_context,
+        )
+
+        await self._context.run_context.emitter.emit(
+            EventType.PROGRESS,
+            StatusEvent(
+                status=Status.REASONING,
+            ),
         )
 
         return self._memory_builder.build(
@@ -275,8 +294,22 @@ class PromptBuilder:
         if agent.rag is None:
             return ""
 
+        await self._context.run_context.emitter.emit(
+            EventType.PROGRESS,
+            StatusEvent(
+                status=Status.RETRIEVING,
+            ),
+        )
+
         knowledge = await agent.rag.retrieve(
             self._context.run_context,
+        )
+
+        await self._context.run_context.emitter.emit(
+            EventType.PROGRESS,
+            StatusEvent(
+                status=Status.REASONING,
+            ),
         )
 
         return self._rag_builder.build(

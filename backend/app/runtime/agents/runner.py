@@ -69,9 +69,6 @@ class AgentRunner:
 
         reasoning_only_attempts = 0
 
-        if not self._tool_executor.proxy._initialized:
-            await self._tool_executor.proxy.setup()
-
         try:
 
             await run_context.emitter.emit(

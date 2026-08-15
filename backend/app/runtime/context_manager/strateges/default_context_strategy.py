@@ -7,6 +7,12 @@ from langchain_core.messages.utils import (
     count_tokens_approximately,
 )
 
+from app.runtime.events.events import (
+    EventType,
+    Status,
+    StatusEvent,
+)
+
 from app.runtime.chat.message import ChatMessage
 from app.runtime.context_manager.optimizers.default_optimizer import (
     DefaultConversationOptimizer,
@@ -155,7 +161,12 @@ class DefaultContextStrategy(
         optimized = False
 
         while current_tokens > optimization_target:
-
+            await run_context.emitter.emit(
+                EventType.PROGRESS,
+                StatusEvent(
+                    status=Status.SUMMARIZING,
+                ),
+            )
             await asyncio.sleep(0)
 
             tokens_before = current_tokens
@@ -273,4 +284,10 @@ class DefaultContextStrategy(
             current_tokens,
         )
 
+        await run_context.emitter.emit(
+            EventType.PROGRESS,
+            StatusEvent(
+                status=Status.SUMMARY_COMPLETE,
+            ),
+        )
         return optimized

@@ -192,7 +192,17 @@ class Status(str, Enum):
 
     RETRIEVING = (
         "retrieving",
-        "I'm retrieving the information I need...",
+        "I'm getting the information I need...",
+    )
+
+    SUMMARIZING = (
+        "summarizing_context",
+        "The conversation is getting long. I'm summarizing the context so I can continue.",
+    )
+
+    SUMMARY_COMPLETE = (
+        "context_summarized",
+        "The conversation context has been summarized. Continuing now.",
     )
 
     GENERATING = (
