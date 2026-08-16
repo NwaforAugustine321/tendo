@@ -17,7 +17,6 @@ function useStreamText(text: string, speed = 18) {
       return;
     }
 
-    // If same text, don't re-stream
     if (text === prevTextRef.current) return;
     prevTextRef.current = text;
 
@@ -104,11 +103,11 @@ export function SpeakingIndicator({ active, speaking, statusText }: Props) {
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      className="fixed  top-4 right-14 z-50 flex flex-col items-center gap-1.5 cursor-grab active:cursor-grabbing select-none touch-none"
+      className="fixed top-4 right-14 z-50 flex flex-col items-center gap-1.5 cursor-grab active:cursor-grabbing select-none touch-none"
       style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
     >
-      <div className="flex h-[35px] items-center gap-2.5 rounded-full bg-zinc-900/90 px-6 py-2 shadow-lg backdrop-blur-sm border border-zinc-700/50 min-w-[260px] justify-center">
-        <div className="flex items-center gap-[2.5px] h-[20px]">
+      <div className="flex items-center gap-3 rounded-full bg-zinc-900/90 px-5 py-2 shadow-lg backdrop-blur-sm border border-zinc-700/50 min-w-[200px] justify-center">
+        <div className="flex items-center justify-center gap-[3px] h-5 flex-1">
           {bars.slice(0, halfBars).map((height, i) => (
             <div
               key={`l-${i}`}
@@ -132,7 +131,7 @@ export function SpeakingIndicator({ active, speaking, statusText }: Props) {
           </span>
         </div>
 
-        <div className="flex items-center gap-[2.5px] h-5">
+        <div className="flex items-center justify-center gap-[3px] h-5 flex-1">
           {bars.slice(halfBars).map((height, i) => (
             <div
               key={`r-${i}`}

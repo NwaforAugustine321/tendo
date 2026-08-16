@@ -3,7 +3,6 @@ import { ConversationPage, type MessageItem } from "../components/containers";
 import type { InputSpec } from "../components/containers/ConversationPage";
 import { useVoiceStore } from "../store/voice";
 import { useEventReceiver } from "../hooks/useEmitReceiver";
-import { SpeakingIndicator } from "../components/SpeakingIndicator";
 import { useBusinessStore } from "../store/business";
 import { useWorkspaceStore } from "../store/workspace";
 import { connectSocket, disconnectSocket } from "../lib/ws";
@@ -257,11 +256,6 @@ export function Conversation({
 
   return (
     <>
-      <SpeakingIndicator
-        active={isListening || isSpeaking}
-        speaking={agentSpeaking}
-        statusText={voiceStatusText || undefined}
-      />
       <ConversationPage
         messages={messages}
         isTyping={thinking || isSpeaking}

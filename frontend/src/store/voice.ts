@@ -192,16 +192,130 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   },
 
   toggleMic: async () => {
-    const { micActive, connectionState } = get();
+    const { micActive, connectionState, session } = get();
 
-    if (!_client) return;
-    if (connectionState === "disconnected" || connectionState === "connecting")
-      return;
-
-    if (micActive) {
+    // If already listening, stop mic
+    if (micActive && _client) {
       _client.stopMic();
       set({ micActive: false, connectionState: "connected" });
-    } else {
+      return;
+    }
+
+    // If no client but we have session data (token/url/room), connect first
+    if (!_client && session?.token && session?.url) {
+      set({ connectionState: "connecting", errorMessage: "" });
+      const version = ++_connectVersion;
+
+      try {
+        const client = new LiveKitVoiceClient({
+          onConnected: () => {
+            if (_connectVersion === version) {
+              set({ connectionState: "connected" });
+            }
+          },
+          onDisconnected: () => {
+            if (_client === client) {
+              set({
+                connectionState: "disconnected",
+                micActive: false,
+                agentSpeaking: false,
+                userSpeaking: false,
+              });
+              _client = null;
+            }
+          },
+          onAgentReady: () => {
+            if (_connectVersion === version) {
+              set({ connectionState: "connected" });
+            }
+          },
+          onAgentLeft: () => {},
+          onUserSpeakingChange: (speaking) => set({ userSpeaking: speaking }),
+          onAgentSpeakingChange: (speaking) => {
+            set({ agentSpeaking: speaking });
+            if (speaking) {
+              set({ connectionState: "speaking", statusText: "" });
+            } else if (get().micActive) {
+              set({ connectionState: "listening" });
+            } else {
+              set({ connectionState: "connected" });
+            }
+          },
+          onMessage: (data: any) => {
+            if (data?.type === "progress" && data?.payload?.message) {
+              set({ statusText: data.payload.message });
+            }
+          },
+          onTranscript: () => {},
+          onTurnComplete: () => {
+            set({ agentSpeaking: false, statusText: "" });
+            if (get().micActive) set({ connectionState: "listening" });
+          },
+          onError: (err) => {
+            set({ errorMessage: err, connectionState: "error" });
+          },
+        });
+
+        await client.connect(session.url, session.token);
+
+        if (_connectVersion !== version) {
+          client.disconnect();
+          return;
+        }
+
+        _client = client;
+        set({ connectionState: "connected" });
+
+        // Now start mic
+        await _client.startMic();
+        set({ micActive: true, connectionState: "listening" });
+      } catch (err: any) {
+        const msg =
+          err?.name === "NotAllowedError"
+            ? "Microphone permission denied."
+            : "Could not connect voice.";
+        set({ errorMessage: msg, connectionState: "error" });
+      }
+      return;
+    }
+
+    // If no client and no session, call /voice/start/agent first
+    if (!_client && !session) {
+      // Need businessId from somewhere — use the import
+      const { useBusinessStore } = await import("./business");
+      const businessId = useBusinessStore.getState().currentProfile?.id || "";
+      if (!businessId) {
+        set({ errorMessage: "No business profile", connectionState: "error" });
+        return;
+      }
+
+      // startAgent will connect and set _client
+      await get().startAgent({ businessId });
+
+      // After startAgent completes, try to start mic
+      if (_client) {
+        try {
+          await _client.startMic();
+          set({ micActive: true, connectionState: "listening" });
+        } catch (err: any) {
+          const msg =
+            err?.name === "NotAllowedError"
+              ? "Microphone permission denied."
+              : "Could not access microphone.";
+          set({ errorMessage: msg, connectionState: "error" });
+        }
+      }
+      return;
+    }
+
+    // Client exists, just toggle mic on
+    if (_client && !micActive) {
+      if (
+        connectionState === "disconnected" ||
+        connectionState === "connecting"
+      )
+        return;
+
       try {
         await _client.startMic();
         set({ micActive: true, connectionState: "listening" });
