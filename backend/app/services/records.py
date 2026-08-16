@@ -8,7 +8,7 @@ from app.db.tools.records import (
 )
 from app.record_knowledge.record_agent import process_record_content
 from app.record_knowledge.models import RecordContentInput, ProcessingStatus
-from app.ws.socketio_server import sio
+from app.communication.ws.server import sio
 
 logger = logging.getLogger(__name__)
 

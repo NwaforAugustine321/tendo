@@ -4,7 +4,7 @@ import type { Socket } from "socket.io-client";
 
 export type RuntimeEvent = {
   type: string;
-  data: Record<string, unknown>;
+  payload: Record<string, unknown>;
 };
 
 export function useEventReceiver(events?: string[]) {
@@ -27,6 +27,11 @@ export function useEventReceiver(events?: string[]) {
 
       if (!event || typeof event.type !== "string") {
         return;
+      }
+
+      // Normalize: ensure payload exists
+      if (!event.payload && (event as any).data) {
+        event = { ...event, payload: (event as any).data };
       }
 
       setReceived((prev) => [...prev, event]);

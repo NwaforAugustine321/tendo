@@ -71,13 +71,6 @@ class AgentRunner:
 
         try:
 
-            await run_context.emitter.emit(
-                EventType.PROGRESS,
-                StatusEvent(
-                    status=Status.STARTING,
-                ),
-            )
-
             await run_context.middleware.dispatch(
                 MiddlewareEvent.BEFORE_RUN,
                 run_context,

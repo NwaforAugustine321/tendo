@@ -1,0 +1,410 @@
+from __future__ import annotations
+
+import logging
+from urllib.parse import parse_qs
+
+from app.communication.ws.models import (
+    SocketConnection,
+    SocketMessage,
+    SocketResponse,
+    SocketTextInput,
+)
+from app.communication.ws.server import (
+    connection_registry,
+    sio,
+    socket_dispatcher,
+)
+from app.graph.nodes.moa_orchestrator import moa_node
+from app.services.auth import COOKIE_NAME, handle_get_me
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Socket.IO connection
+# ---------------------------------------------------------------------------
+
+
+@sio.event
+async def connect(
+    sid,
+    environ,
+    auth,
+):
+    """Register a Socket.IO connection and join its session room."""
+
+    query_string = environ.get(
+        "QUERY_STRING",
+        "",
+    )
+
+    params = parse_qs(
+        query_string,
+        keep_blank_values=True,
+    )
+
+    session_id = params.get(
+        "session_id",
+        [""],
+    )[0]
+
+    business_id = params.get(
+        "business_id",
+        [""],
+    )[0]
+
+    # -----------------------------------------------------------------------
+    # Authentication
+    # -----------------------------------------------------------------------
+
+    cookies = environ.get(
+        "HTTP_COOKIE",
+        "",
+    )
+
+    token = None
+
+    for cookie in cookies.split(";"):
+        cookie = cookie.strip()
+
+        if cookie.startswith(
+            f"{COOKIE_NAME}=",
+        ):
+            token = cookie[
+                len(f"{COOKIE_NAME}="):
+            ]
+            break
+
+    user_id = ""
+
+    if token:
+        user = await handle_get_me(
+            token,
+        )
+
+        if user:
+            user_id = user["user_id"]
+
+    # -----------------------------------------------------------------------
+    # Connection registry
+    # -----------------------------------------------------------------------
+
+    connection = SocketConnection(
+        sid=sid,
+        session_id=session_id,
+        business_id=business_id,
+        user_id=user_id,
+    )
+
+    await connection_registry.register(
+        connection,
+    )
+
+    # -----------------------------------------------------------------------
+    # Session room
+    # -----------------------------------------------------------------------
+
+    if session_id:
+        await sio.enter_room(
+            sid,
+            session_id,
+        )
+
+        logger.info(
+            "Socket.IO joined session room: "
+            "sid=%s session_id=%s",
+            sid,
+            session_id,
+        )
+
+    if business_id:
+        await sio.enter_room(
+            sid,
+            business_id,
+        )
+
+        logger.info(
+            "Socket.IO joined business room: "
+            "sid=%s business_id=%s",
+            sid,
+            business_id,
+        )
+
+    logger.info(
+        "Socket.IO connected: "
+        "sid=%s user_id=%s business_id=%s session_id=%s",
+        sid,
+        user_id,
+        business_id,
+        session_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat
+# ---------------------------------------------------------------------------
+
+
+@sio.event
+async def socket_heartbeat(
+    sid,
+):
+    """
+    Refresh the Redis expiration for an active Socket.IO connection.
+
+    The frontend sends this periodically while the connection is
+    active. Redis automatically removes the SID when heartbeats stop.
+    """
+
+    refreshed = await connection_registry.refresh(
+        sid,
+    )
+
+    if not refreshed:
+        logger.debug(
+            "Socket heartbeat received for inactive SID: %s",
+            sid,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Messages
+# ---------------------------------------------------------------------------
+
+
+@sio.event
+async def message(
+    sid,
+    data,
+):
+    """Handle an incoming Socket.IO message."""
+
+    connection = await connection_registry.get(
+        sid,
+    )
+
+    if connection is None:
+        logger.warning(
+            "Message received from unknown Socket.IO connection: %s",
+            sid,
+        )
+        return
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+        await _emit_to_connection(
+            connection,
+            SocketMessage(
+                type="error",
+                payload=SocketResponse(
+                    content="Invalid message format",
+                ),
+            ),
+        )
+        return
+
+    message_type = data.get(
+        "type",
+        "",
+    )
+
+    if message_type != "text":
+        await _emit_to_connection(
+            connection,
+            SocketMessage(
+                type="error",
+                payload=SocketResponse(
+                    content="Invalid message type",
+                ),
+            ),
+        )
+        return
+
+    raw_payload = data.get(
+        "payload",
+    )
+
+    if not isinstance(
+        raw_payload,
+        dict,
+    ):
+        await _emit_to_connection(
+            connection,
+            SocketMessage(
+                type="error",
+                payload=SocketResponse(
+                    content="Invalid message payload",
+                ),
+            ),
+        )
+        return
+
+    text_input = SocketTextInput.from_dict(
+        raw_payload,
+    )
+
+    if not text_input.content.strip():
+        return
+
+    business_id = connection.business_id
+
+    session_id = (
+        text_input.session_id
+        or connection.session_id
+    )
+
+    user_id = connection.user_id
+
+    if not business_id:
+        await _emit_to_connection(
+            connection,
+            SocketMessage(
+                type="error",
+                payload=SocketResponse(
+                    content="Unauthorized, no business id",
+                ),
+            ),
+        )
+        return
+
+    if not session_id:
+        await _emit_to_connection(
+            connection,
+            SocketMessage(
+                type="error",
+                payload=SocketResponse(
+                    content="Unauthorized, no session id",
+                ),
+            ),
+        )
+        return
+
+    if not user_id:
+        await _emit_to_connection(
+            connection,
+            SocketMessage(
+                type="error",
+                payload=SocketResponse(
+                    content="Unauthorized, no user id",
+                ),
+            ),
+        )
+        return
+
+    logger.info(
+        "Chat message from %s: %s",
+        sid,
+        text_input.content[:100],
+    )
+
+    try:
+        graph_state = {
+            "text": text_input.content,
+            "record_id": text_input.record_id,
+            "business_id": business_id,
+            "thread_id": session_id,
+            "session_id": session_id,
+            "user_id": user_id,
+        }
+
+        result = await moa_node(
+            graph_state,
+        )
+
+        response = result.get(
+            "response",
+            {},
+        )
+
+        await socket_dispatcher.emit_to_user(
+            user_id=user_id,
+            event="message",
+            payload=SocketMessage(
+                type="message",
+                payload=SocketResponse(
+                    content=response.get(
+                        "text",
+                        "",
+                    ),
+                ),
+            ).to_dict(),
+        )
+
+    except Exception as exc:
+        logger.error(
+            "Chat error for %s: %s",
+            sid,
+            exc,
+            exc_info=True,
+        )
+
+        await _emit_to_connection(
+            connection,
+            SocketMessage(
+                type="message",
+                payload=SocketResponse(
+                    content=(
+                        "Something went wrong. "
+                        "Please try again."
+                    ),
+                ),
+            ),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Disconnect
+# ---------------------------------------------------------------------------
+
+
+@sio.event
+async def disconnect(
+    sid,
+):
+    """Remove a disconnected Socket.IO connection."""
+
+    connection = await connection_registry.get(
+        sid,
+    )
+
+    if connection is not None and connection.session_id:
+        await sio.leave_room(
+            sid,
+            connection.session_id,
+        )
+
+        logger.info(
+            "Socket.IO left session room: "
+            "sid=%s session_id=%s",
+            sid,
+            connection.session_id,
+        )
+
+    logger.info(
+        "Socket.IO disconnected: %s",
+        sid,
+    )
+
+    await connection_registry.remove(
+        sid,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Direct connection emission
+# ---------------------------------------------------------------------------
+
+
+async def _emit_to_connection(
+    connection: SocketConnection,
+    message: SocketMessage,
+) -> None:
+    """Emit a message to one known Socket.IO connection."""
+
+    await socket_dispatcher.emit_to_sid(
+        sid=connection.sid,
+        event="message",
+        payload=message.to_dict(),
+    )

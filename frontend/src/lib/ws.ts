@@ -1,180 +1,386 @@
-/**
- * Socket.IO client — singleton connection + reusable hook for components.
- */
+import { io, type Socket } from "socket.io-client";
+import { useEffect } from "react";
+import { useBusinessStore } from "../store/business";
 
-import { io, type Socket } from 'socket.io-client'
-import { useEffect } from 'react'
+const SOCKET_HEARTBEAT_INTERVAL = 30_000;
 
-// --- Singleton socket ---
+export type SocketPayload = Record<string, any>;
 
-let _socket: Socket | null = null
-let _refCount = 0
+export type WSMessage = {
+  type: string;
+  payload?: SocketPayload;
+};
+
+export type WSCallbacks = {
+  onMessage: (msg: WSMessage) => void;
+  onOpen?: () => void;
+  onClose?: () => void;
+  onError?: (error: string) => void;
+  onReconnecting?: (attempt: number, maxAttempts: number) => void;
+  onReconnected?: () => void;
+};
+
+class SocketHeartbeat {
+  private socket: Socket | null = null;
+  private timer: ReturnType<typeof setInterval> | null = null;
+
+  start(socket: Socket): void {
+    this.stop();
+
+    this.socket = socket;
+
+    if (!socket.connected) {
+      return;
+    }
+
+    this.emit();
+
+    this.timer = setInterval(() => {
+      this.emit();
+    }, SOCKET_HEARTBEAT_INTERVAL);
+  }
+
+  stop(): void {
+    if (this.timer !== null) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+
+    this.socket = null;
+  }
+
+  private emit(): void {
+    if (!this.socket?.connected) {
+      return;
+    }
+
+    this.socket.emit("socket_heartbeat");
+  }
+}
+
+let _socket: Socket | null = null;
+let _refCount = 0;
+let _heartbeat: SocketHeartbeat | null = null;
+let _currentBusinessId: string = "";
 
 function getBaseUrl(): string {
-  const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/session'
-  return wsUrl.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://').replace(/\/ws\/session$/, '')
+  const wsUrl = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws/session";
+
+  return wsUrl
+    .replace(/^ws:\/\//, "http://")
+    .replace(/^wss:\/\//, "https://")
+    .replace(/\/ws\/session$/, "");
+}
+
+function createSocket(businessId: string, autoConnect = true): Socket {
+  const baseUrl = getBaseUrl();
+
+  const socket = io(baseUrl, {
+    path: "/ws/session",
+    transports: ["websocket"],
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 2000,
+    reconnectionDelayMax: 30_000,
+    withCredentials: true,
+    autoConnect,
+    query: {
+      business_id: businessId,
+    },
+  });
+
+  return socket;
+}
+
+function setupSocketListeners(socket: Socket): void {
+  socket.on("connect", () => {
+    console.log("[ws] connected");
+
+    _heartbeat?.start(socket);
+  });
+
+  socket.on("disconnect", (reason) => {
+    console.log("[ws] disconnected:", reason);
+
+    _heartbeat?.stop();
+  });
+
+  socket.on("record_processing_status", (data: any) => {
+    window.dispatchEvent(
+      new CustomEvent("tendo:record-processing", {
+        detail: data,
+      }),
+    );
+  });
+
+  socket.on("snapshot_updated", (data: any) => {
+    window.dispatchEvent(
+      new CustomEvent("tendo:snapshot-updated", {
+        detail: data,
+      }),
+    );
+  });
 }
 
 function getSocket(): Socket {
-  if (!_socket) {
-    const baseUrl = getBaseUrl()
-    _socket = io(baseUrl, {
-      path: '/ws/session',
-      transports: ['websocket'],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 2000,
-      reconnectionDelayMax: 30000,
-      withCredentials: true,
-    })
-    _socket.on('connect', () => console.log('[ws] connected'))
-    _socket.on('disconnect', (reason) => console.log('[ws] disconnected:', reason))
+  const businessId = useBusinessStore.getState().currentProfile?.id || "";
 
-    // Global events dispatched as CustomEvents for legacy listeners
-    _socket.on('record_processing_status', (data: any) => {
-      window.dispatchEvent(new CustomEvent('tendo:record-processing', { detail: data }))
-    })
-    _socket.on('snapshot_updated', (data: any) => {
-      window.dispatchEvent(new CustomEvent('tendo:snapshot-updated', { detail: data }))
-    })
+  // If socket exists but business changed, reconnect
+  if (_socket && businessId && businessId !== _currentBusinessId) {
+    _heartbeat?.stop();
+    _socket.disconnect();
+    _socket = null;
+    _heartbeat = null;
   }
-  return _socket
+
+  if (!_socket) {
+    _currentBusinessId = businessId;
+    // Only auto-connect if we have a business ID
+    _socket = createSocket(businessId, !!businessId);
+    _heartbeat = new SocketHeartbeat();
+    setupSocketListeners(_socket);
+  }
+
+  return _socket;
 }
 
+/**
+ * Force reconnect the socket with new business context.
+ * Called when the user switches business profiles.
+ */
+export function reconnectSocket(): void {
+  const businessId = useBusinessStore.getState().currentProfile?.id || "";
+
+  if (!businessId) {
+    return;
+  }
+
+  if (businessId === _currentBusinessId && _socket?.connected) {
+    return;
+  }
+
+  // Tear down existing connection
+  if (_socket) {
+    _heartbeat?.stop();
+    _socket.disconnect();
+    _socket = null;
+    _heartbeat = null;
+  }
+
+  // Create new connection with updated business_id
+  _currentBusinessId = businessId;
+  _socket = createSocket(businessId, true);
+  _heartbeat = new SocketHeartbeat();
+  setupSocketListeners(_socket);
+}
+
+// Auto-reconnect when business profile changes
+useBusinessStore.subscribe((state, prevState) => {
+  const newId = state.currentProfile?.id || "";
+  const oldId = prevState.currentProfile?.id || "";
+
+  if (newId !== oldId && newId) {
+    reconnectSocket();
+  }
+});
+
 export function connectSocket(): Socket {
-  _refCount++
-  return getSocket()
+  _refCount++;
+
+  return getSocket();
 }
 
 export function disconnectSocket(): void {
-  _refCount--
+  _refCount--;
+
   if (_refCount <= 0 && _socket) {
-    _socket.disconnect()
-    _socket = null
-    _refCount = 0
+    _heartbeat?.stop();
+
+    _socket.disconnect();
+
+    _socket = null;
+    _heartbeat = null;
+    _refCount = 0;
   }
 }
 
 export function emitEvent(event: string, data: any): void {
-  const socket = getSocket()
+  const socket = getSocket();
+
   if (socket.connected) {
-    socket.emit(event, data)
+    socket.emit(event, data);
   }
 }
 
 export function onEvent(event: string, handler: (data: any) => void): void {
-  getSocket().on(event, handler)
+  getSocket().on(event, handler);
 }
 
 export function offEvent(event: string, handler: (data: any) => void): void {
-  getSocket().off(event, handler)
+  getSocket().off(event, handler);
 }
 
-// --- React hook ---
-
-export function useSocketEvent(event: string, handler: (data: any) => void, deps: any[] = []) {
+export function useSocketEvent(
+  event: string,
+  handler: (data: any) => void,
+  deps: any[] = [],
+): void {
   useEffect(() => {
-    const socket = connectSocket()
-    socket.on(event, handler)
+    const socket = connectSocket();
+
+    socket.on(event, handler);
+
     return () => {
-      socket.off(event, handler)
-      disconnectSocket()
-    }
-  }, deps)
-}
+      socket.off(event, handler);
 
-// --- WSClient (used by ChatPanel for per-session connections) ---
-
-export type WSMessage = {
-  type: string
-  data?: any
-}
-
-export type WSCallbacks = {
-  onMessage: (msg: WSMessage) => void
-  onOpen?: () => void
-  onClose?: () => void
-  onError?: (error: string) => void
-  onReconnecting?: (attempt: number, maxAttempts: number) => void
-  onReconnected?: () => void
+      disconnectSocket();
+    };
+  }, deps);
 }
 
 export class WSClient {
-  private socket: Socket | null = null
-  private callbacks: WSCallbacks
+  private socket: Socket | null = null;
+  private callbacks: WSCallbacks;
+  private heartbeat: SocketHeartbeat | null = null;
+  private connectPromise: Promise<void> | null = null;
 
   constructor(callbacks: WSCallbacks) {
-    this.callbacks = callbacks
+    this.callbacks = callbacks;
   }
 
   async connect(url: string): Promise<void> {
-    const httpUrl = url.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://')
-    const urlObj = new URL(httpUrl)
-    const path = urlObj.pathname
-    const params = new URLSearchParams(urlObj.search)
-    const query: Record<string, string> = {}
-    params.forEach((v, k) => { query[k] = v })
+    if (this.socket?.connected) {
+      return;
+    }
 
-    return new Promise((resolve, reject) => {
-      this.socket = io(urlObj.origin, {
+    if (this.connectPromise) {
+      return this.connectPromise;
+    }
+
+    const httpUrl = url
+      .replace(/^ws:\/\//, "http://")
+      .replace(/^wss:\/\//, "https://");
+
+    const urlObj = new URL(httpUrl);
+
+    const path = urlObj.pathname;
+
+    const params = new URLSearchParams(urlObj.search);
+
+    const query: Record<string, string> = {};
+
+    params.forEach((value, key) => {
+      query[key] = value;
+    });
+
+    this.connectPromise = new Promise((resolve, reject) => {
+      const socket = io(urlObj.origin, {
         path,
         query,
-        transports: ['websocket'],
+        transports: ["websocket"],
         reconnection: true,
         reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,
-        reconnectionDelayMax: 30000,
-        timeout: 10000,
+        reconnectionDelayMax: 30_000,
+        timeout: 10_000,
         withCredentials: true,
-      })
+      });
 
-      this.socket.on('connect', () => {
-        this.callbacks.onOpen?.()
-        resolve()
-      })
+      this.socket = socket;
 
-      this.socket.on('message', (data: any) => {
-        const msg = typeof data === 'string' ? JSON.parse(data) : data
-        this.callbacks.onMessage(msg)
-      })
+      this.heartbeat = new SocketHeartbeat();
 
-      this.socket.on('disconnect', () => {
-        this.callbacks.onClose?.()
-      })
+      let settled = false;
 
-      this.socket.on('connect_error', (err) => {
-        if (!this.socket?.connected) {
-          this.callbacks.onError?.('Connecting...')
-          reject(new Error(err.message))
+      socket.on("connect", () => {
+        console.log("[ws] connected:", socket.id);
+
+        this.heartbeat?.start(socket);
+
+        this.callbacks.onOpen?.();
+
+        if (!settled) {
+          settled = true;
+          resolve();
         }
-      })
+      });
 
-      this.socket.io.on('reconnect_attempt', (attempt) => {
-        this.callbacks.onReconnecting?.(attempt, Infinity)
-      })
+      socket.on("message", (data: unknown) => {
+        try {
+          const msg = typeof data === "string" ? JSON.parse(data) : data;
 
-      this.socket.io.on('reconnect', () => {
-        this.callbacks.onReconnected?.()
-      })
-    })
+          if (!msg || typeof msg !== "object") {
+            return;
+          }
+
+          this.callbacks.onMessage(msg as WSMessage);
+        } catch (error) {
+          console.error("[ws] invalid message:", error);
+
+          this.callbacks.onError?.("Invalid server message");
+        }
+      });
+
+      socket.on("disconnect", (reason) => {
+        console.log("[ws] disconnected:", reason);
+
+        this.heartbeat?.stop();
+
+        this.callbacks.onClose?.();
+      });
+
+      socket.on("connect_error", (error) => {
+        console.error("[ws] connection error:", error.message);
+
+        this.callbacks.onError?.("Connecting...");
+
+        if (!settled) {
+          settled = true;
+          reject(new Error(error.message));
+        }
+      });
+
+      socket.io.on("reconnect_attempt", (attempt) => {
+        this.callbacks.onReconnecting?.(attempt, Infinity);
+      });
+
+      socket.io.on("reconnect", () => {
+        console.log("[ws] reconnected:", socket.id);
+
+        this.callbacks.onReconnected?.();
+      });
+    });
+
+    try {
+      await this.connectPromise;
+    } finally {
+      this.connectPromise = null;
+    }
   }
 
   send(msg: WSMessage): boolean {
-    if (this.socket?.connected) {
-      this.socket.emit('message', msg)
-      return true
+    if (!this.socket?.connected) {
+      return false;
     }
-    return false
+
+    this.socket.emit("message", msg);
+
+    return true;
   }
 
   isOpen(): boolean {
-    return this.socket?.connected ?? false
+    return this.socket?.connected ?? false;
   }
 
   close(): void {
+    this.heartbeat?.stop();
+    this.heartbeat = null;
+
     if (this.socket) {
-      this.socket.disconnect()
-      this.socket = null
+      this.socket.disconnect();
+      this.socket = null;
     }
+
+    this.connectPromise = null;
   }
 }

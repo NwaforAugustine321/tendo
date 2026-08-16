@@ -1,7 +1,6 @@
 """Graph state definition."""
 
 import operator
-from collections.abc import Callable
 from typing import Annotated, Any, Literal, TypedDict
 
 

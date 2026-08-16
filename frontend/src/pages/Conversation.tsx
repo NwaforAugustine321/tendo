@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { ConversationPage, type MessageItem } from "../components/containers";
 import type { InputSpec } from "../components/containers/ConversationPage";
-import { useVoiceSession } from "../hooks/useVoiceSession";
+import { useVoiceStore } from "../store/voice";
 import { useEventReceiver } from "../hooks/useEmitReceiver";
 import { SpeakingIndicator } from "../components/SpeakingIndicator";
 import { useBusinessStore } from "../store/business";
 import { useWorkspaceStore } from "../store/workspace";
-import { resumeSession } from "../lib/services/business";
 
 type Props = {
   initialMessages?: MessageItem[];
@@ -39,10 +38,26 @@ export function Conversation({
   const [thinking, setThinking] = useState(false);
   const [wakeActive, setWakeActive] = useState(false);
   const { currentProfile } = useBusinessStore();
-  const voice = useVoiceSession();
+  const {
+    connectionState,
+    micActive,
+    agentSpeaking,
+    statusText: voiceStatusText,
+    startAgent,
+    stopAgent,
+    toggleMic,
+    setStatusText,
+  } = useVoiceStore();
   const { events: statusEvents, clear: clearStatus } = useEventReceiver([
     "progress",
   ]);
+
+  const isConnected =
+    connectionState === "connected" ||
+    connectionState === "listening" ||
+    connectionState === "speaking";
+  const isListening = connectionState === "listening";
+  const isSpeaking = connectionState === "speaking";
 
   // Sync initialMessages when they change (e.g., switching sessions)
   useEffect(() => {
@@ -50,136 +65,65 @@ export function Conversation({
       setMessages(initialMessages);
     }
   }, [initialMessages]);
-  const connected = useRef(false);
-  const lastMsgId = useRef("");
-  const currentBusinessId = useRef<string | null>(null);
 
+  // Sync Socket.IO progress events into the voice store
   useEffect(() => {
-    const bizId = currentProfile?.id;
-    if (bizId) {
-      voice.warmConnect({ sessionId, businessId: bizId });
+    if (statusEvents.length > 0) {
+      const latest = statusEvents[statusEvents.length - 1];
+      const msg =
+        (latest.payload as any)?.message ||
+        (latest.payload as any)?.payload?.message ||
+        "";
+      if (msg) setStatusText(msg);
     }
-    return () => {
-      voice.disconnect();
-    };
+  }, [statusEvents]);
+
+  const lastMsgId = useRef("");
+
+  // Voice agent is managed by WorkspaceLayout (start/stop on mount/unmount).
+  // This component just uses the already-connected store.
+  useEffect(() => {
+    // If workspace layout hasn't started the agent yet (e.g., direct navigation),
+    // start it here as a fallback.
+    const bizId = currentProfile?.id;
+    if (bizId && connectionState === "disconnected") {
+      startAgent({ businessId: bizId, sessionId, recordId });
+    }
   }, [currentProfile?.id, sessionId]);
 
+  // Listen for external voice toggle events
   useEffect(() => {
     const handleVoiceToggleEvent = async () => {
-      if (voice.isListening) {
-        voice.disconnect();
+      if (micActive) {
+        await toggleMic();
         setWakeActive(false);
       } else {
-        const bizId = currentProfile?.id;
-        if (!bizId) return;
-        if (!voice.isConnected) {
-          await voice.connect({ sessionId, businessId: bizId });
-        }
-        await voice.startListening();
+        await toggleMic();
         setWakeActive(true);
       }
       window.dispatchEvent(
         new CustomEvent("tendo:recording-state", {
-          detail: { recording: !voice.isListening },
+          detail: { recording: !micActive },
         }),
       );
     };
     window.addEventListener("tendo:voice-toggle", handleVoiceToggleEvent);
     return () =>
       window.removeEventListener("tendo:voice-toggle", handleVoiceToggleEvent);
-  }, [voice.isListening, voice.isConnected]);
+  }, [micActive]);
 
   // When voice connects successfully, mark as active
   useEffect(() => {
-    if (voice.isConnected) {
+    if (isConnected && micActive) {
       setWakeActive(true);
-    } else if (!voice.isSpeaking && !voice.isListening) {
+    } else if (!isSpeaking && !isListening) {
       setWakeActive(false);
     }
-  }, [voice.isConnected, voice.isSpeaking, voice.isListening]);
-
-  // When a voice transcript arrives, show it as a user message and trigger thinking
-  const lastTranscriptRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!voice.lastTranscript) return;
-    if (voice.lastTranscript === lastTranscriptRef.current) return;
-    lastTranscriptRef.current = voice.lastTranscript;
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `user-voice-${Date.now()}`,
-        role: "user",
-        content: voice.lastTranscript!,
-        type: "text",
-      },
-    ]);
-    setThinking(true);
-  }, [voice.lastTranscript]);
-
-  // Display agent messages when they arrive
-  useEffect(() => {
-    if (!voice.lastMessage) return;
-    if (voice.lastMessage.id === lastMsgId.current) return;
-    lastMsgId.current = voice.lastMessage.id;
-    setThinking(false);
-    clearStatus();
-
-    console.log("[Conversation] lastMessage:", voice.lastMessage);
-
-    const { response, msgType, questions } = voice.lastMessage;
-
-    // Add the text response as a message bubble
-    if (response) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `text-${voice.lastMessage!.id}`,
-          role: "assistant",
-          content: response,
-          type: "text",
-        },
-      ]);
-    }
-
-    // If type is "question", add the input card below the text
-    if (msgType === "question" && questions) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `input-${voice.lastMessage!.id}`,
-          role: "assistant",
-          content: "",
-          type: "input",
-          inputSpec: questions as InputSpec,
-        },
-      ]);
-    }
-  }, [voice.lastMessage]);
-
-  useEffect(() => {
-    if (voice.errorMessage) {
-      console.warn("[Voice] error:", voice.errorMessage);
-    }
-  }, [voice.errorMessage]);
+  }, [isConnected, isSpeaking, isListening, micActive]);
 
   const handleSendText = (text: string) => {
-    // Find option context if this was a radio select
     const optionContext = findOptionContext(text);
     const displayText = optionContext?.label || text;
-
-    let sendText: string;
-    if (optionContext) {
-      sendText = `label: ${optionContext.label}, answer: ${optionContext.id}, description: ${optionContext.description || ""}`;
-    } else {
-      // Check if there's a pending question — format as reply to that question
-      const pendingQuestion = findPendingQuestion();
-      if (pendingQuestion) {
-        sendText = `${pendingQuestion}: ${text}`;
-      } else {
-        sendText = text;
-      }
-    }
 
     setMessages((prev) => [
       ...prev,
@@ -192,14 +136,6 @@ export function Conversation({
     ]);
     setThinking(true);
     if (onFirstMessage && messages.length === 0) onFirstMessage();
-    const scope = recordId ? "record" : undefined;
-    voice.sendText(
-      sendText,
-      undefined,
-      currentProfile?.id,
-      recordId,
-      sessionId,
-    );
   };
 
   const pendingMsg = useWorkspaceStore((s) => s.pendingChatMessage);
@@ -231,17 +167,8 @@ export function Conversation({
   };
 
   const handleVoiceToggle = async () => {
-    if (voice.isListening || voice.isSpeaking) {
-      voice.stopListening();
-      setWakeActive(false);
-    } else {
-      const bizId = currentProfile?.id;
-      if (!bizId) {
-        return;
-      }
-      await voice.connect({ sessionId, businessId: bizId });
-      setWakeActive(true);
-    }
+    await toggleMic();
+    setWakeActive(!micActive);
   };
 
   const handleOptionSelect = (optionId: string) => {
@@ -273,27 +200,19 @@ export function Conversation({
   return (
     <>
       <SpeakingIndicator
-        active={voice.state === "listening" || voice.state === "speaking"}
-        speaking={voice.agentSpeaking}
-        statusText={
-          statusEvents.length > 0
-            ? (statusEvents[statusEvents.length - 1].data as any)?.message
-            : undefined
-        }
+        active={isListening || isSpeaking}
+        speaking={agentSpeaking}
+        statusText={voiceStatusText || undefined}
       />
       <ConversationPage
         messages={messages}
-        isTyping={thinking || voice.isSpeaking}
-        statusText={
-          statusEvents.length > 0
-            ? (statusEvents[statusEvents.length - 1].data as any)?.message
-            : undefined
-        }
+        isTyping={thinking || isSpeaking}
+        statusText={voiceStatusText || undefined}
         onSendText={handleSendText}
         onVoiceRecorded={() => {}}
         onVoiceToggle={handleVoiceToggle}
-        isListening={voice.isListening || voice.isSpeaking}
-        voiceLoading={voice.state === "connecting" || voice.state === "warming"}
+        isListening={isListening || isSpeaking}
+        voiceLoading={connectionState === "connecting"}
         onOptionSelect={handleOptionSelect}
         onConfirm={() => handleOptionSelect("confirm")}
         onModify={() => {}}
@@ -308,16 +227,8 @@ export function Conversation({
         characterRightOffset={characterRightOffset}
         wakeActive={wakeActive}
         onWakeToggle={async () => {
-          if (wakeActive) {
-            voice.disconnect();
-            setWakeActive(false);
-          } else {
-            const bizId = currentProfile?.id;
-            if (!bizId) return;
-            await voice.connect({ sessionId, businessId: bizId });
-            await voice.startListening();
-            setWakeActive(true);
-          }
+          await toggleMic();
+          setWakeActive(!micActive);
         }}
       />
     </>

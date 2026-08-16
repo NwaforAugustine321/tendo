@@ -1,4 +1,6 @@
-import { Calendar, StickyNote, Mic } from "lucide-react";
+import { Calendar, StickyNote, Mic, MicOff } from "lucide-react";
+import { useVoiceStore } from "../../store/voice";
+import { SpeakingIndicator } from "../SpeakingIndicator";
 
 /**
  * Right sidebar rail — thin vertical strip with icon buttons.
@@ -11,35 +13,70 @@ const RAIL_ITEMS = [
 ];
 
 export function RightRail() {
+  const { connectionState, micActive, agentSpeaking, statusText, toggleMic } =
+    useVoiceStore();
+
+  const isActive = micActive || agentSpeaking || !!statusText;
+
+  const handleMicClick = async () => {
+    await toggleMic();
+  };
+
+  const displayStatus =
+    statusText ||
+    (agentSpeaking ? "Tendo is speaking..." : micActive ? "Listening..." : "");
+
   return (
-    <aside
-      className="hidden md:flex h-full w-[52px] flex-col items-center border-l border-zinc-800/60 bg-[#0f0f0f] py-3 gap-2"
-      aria-label="Side panel"
-    >
-      {RAIL_ITEMS.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-300"
-          aria-label={item.label}
-          title={item.label}
-        >
-          {item.icon}
-        </button>
-      ))}
+    <>
+      {/* Speaking indicator — top right when voice is active */}
+      <SpeakingIndicator
+        active={isActive}
+        speaking={agentSpeaking}
+        statusText={displayStatus}
+      />
 
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* Mic button — starts voice communication */}
-      <button
-        type="button"
-        className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-300"
-        aria-label="Start voice communication with Tendo"
-        title="Start voice communication with Tendo"
+      <aside
+        className="hidden md:flex h-full w-[52px] flex-col items-center border-l border-zinc-800/60 bg-[#0f0f0f] py-3 gap-2"
+        aria-label="Side panel"
       >
-        <Mic size={20} />
-      </button>
-    </aside>
+        {RAIL_ITEMS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-300"
+            aria-label={item.label}
+            title={item.label}
+          >
+            {item.icon}
+          </button>
+        ))}
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Mic button — toggles voice communication */}
+        <button
+          type="button"
+          onClick={handleMicClick}
+          className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
+            micActive
+              ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
+              : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+          }`}
+          aria-label={
+            micActive
+              ? "Stop voice communication"
+              : "Start voice communication with Tendo"
+          }
+          title={
+            micActive
+              ? "Stop voice communication"
+              : "Start voice communication with Tendo"
+          }
+        >
+          {micActive ? <MicOff size={20} /> : <Mic size={20} />}
+        </button>
+      </aside>
+    </>
   );
 }

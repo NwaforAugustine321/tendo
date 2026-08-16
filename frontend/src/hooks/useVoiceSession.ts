@@ -29,6 +29,7 @@ type PreWarmData = {
   token: string;
   url: string;
   room: string;
+  session_id: string;
 };
 
 const MAX_RECONNECT_ATTEMPTS = 3;
@@ -59,18 +60,18 @@ export function useVoiceSession() {
 
       socket.on("message", (data: any) => {
         const msg = typeof data === "string" ? JSON.parse(data) : data;
-        if (msg.type === "message" && msg.data) {
-          const { response, msg_type, questions, extracted } = msg.data;
+        if (msg.type === "message" && msg.payload) {
+          const { content, msg_type, questions, extracted } = msg.payload;
           msgCounter.current++;
           setLastMessage({
             id: `msg-${msgCounter.current}`,
-            response: response || "",
+            response: content || "",
             msgType: msg_type || "answer",
             questions: questions || undefined,
             extracted: extracted || undefined,
           });
-        } else if (msg.type === "error") {
-          setErrorMessage(msg.data || "Something went wrong");
+        } else if (msg.type === "error" && msg.payload) {
+          setErrorMessage(msg.payload.content || "Something went wrong");
         }
       });
     }
@@ -180,7 +181,7 @@ export function useVoiceSession() {
       if (!businessId || !userId) return;
 
       try {
-        const warmData = await request<PreWarmData>("/voice/token", {
+        const warmData = await request<PreWarmData>("/voice/start/agent", {
           method: "POST",
           body: { session_id: params.sessionId || "", business_id: businessId },
           silent: true,
@@ -235,7 +236,7 @@ export function useVoiceSession() {
       let warmData = preWarmRef.current;
       if (!warmData) {
         try {
-          warmData = await request<PreWarmData>("/voice/token", {
+          warmData = await request<PreWarmData>("/voice/start/agent", {
             method: "POST",
             body: {
               session_id: params?.sessionId || "",
@@ -283,6 +284,7 @@ export function useVoiceSession() {
     disconnectingRef.current = true;
     const client = clientRef.current;
     const room = preWarmRef.current?.room;
+    const sessionId = preWarmRef.current?.session_id;
 
     if (client) {
       client.stopMic();
@@ -296,11 +298,11 @@ export function useVoiceSession() {
     setState("disconnected");
     preWarmRef.current = null;
 
-    if (room) {
+    if (room && sessionId) {
       try {
-        await request("/voice/stop", {
+        await request("/voice/stop/agent", {
           method: "POST",
-          body: { room },
+          body: { room, session_id: sessionId },
           silent: true,
         });
       } catch {}
@@ -338,14 +340,13 @@ export function useVoiceSession() {
       sessionId?: string,
     ) => {
       const socket = ensureSocket();
-      const storeBusinessId =
-        businessId || useBusinessStore.getState().currentProfile?.id || "";
       socket.emit("message", {
         type: "text",
-        data: text,
-        business_id: storeBusinessId,
-        session_id: sessionId || "",
-        record_id: recordId || "",
+        payload: {
+          content: text,
+          session_id: sessionId || "",
+          record_id: recordId || "",
+        },
       });
     },
     [ensureSocket],

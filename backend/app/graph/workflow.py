@@ -4,10 +4,10 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from app.planner import Planner
-from langgraph.config import get_config
 from langgraph.config import get_stream_writer
 from langgraph.runtime import Runtime
 from langchain_core.runnables import RunnableConfig
+from app.communication.ws.server import socket_dispatcher
 
 
 logger = logging.getLogger(__name__)
@@ -18,26 +18,25 @@ class State(TypedDict):
     business_id: str
     session_id: str
     user_id: str
-    emit_event: Callable
     thread_id: str
     record_id: str
 
 
 async def planner_node(state: State, config: RunnableConfig, runtime: Runtime):
     writer = get_stream_writer()
-    # config = get_config()
     context = runtime.context
 
+    user_id = context.get("user_id", "")
+    payload = context["payload"]
+
     session = {
-        "vc_session": context['vc_session'],
-        "business_id": context["business_id"],
-        "emit_event": context["emit_event"],
-        "session_id": context["session_id"],
-        "user_id": context['user_id'],
-        "record_id": context["record_id"]
+        "vc_session": context['session'],
+        "business_id":  payload.get("business_id", ""),
+        "session_id":  payload.get("session_id", ""),
+        "user_id":  payload.get("user_id", ""),
+        "record_id":  payload.get("record_id", "")
     }
 
-    emit_event = context.get("emit_event")
     planner = Planner(session=session)
     messages = state["messages"]
 
@@ -50,18 +49,29 @@ async def planner_node(state: State, config: RunnableConfig, runtime: Runtime):
         writer("I didn't catch that. Could you repeat?")
         return {"messages": []}
 
-    if emit_event and user_message:
-        await emit_event("transcript", {
-            "type": "transcript",
-            "data": user_message,
-        })
+    if user_id and user_message:
+        await socket_dispatcher.emit_to_user(
+            user_id=user_id,
+            event="transcript",
+            payload={
+                "type": "transcript",
+                "payload": {"content": user_message},
+            },
+        )
+
     response = await planner.run(user_message=user_message, messages=messages)
     writer(response or "")
-    if emit_event and response:
-        await emit_event("message", {
-            "type": "message",
-            "data": {"response": response, "msg_type": "answer"},
-        })
+
+    if user_id and response:
+        await socket_dispatcher.emit_to_user(
+            user_id=user_id,
+            event="message",
+            payload={
+                "type": "message",
+                "payload": {"content": user_message},
+            },
+        )
+
     return {"messages": []}
 
 

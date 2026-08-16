@@ -156,7 +156,7 @@ async def _run_extraction(
 
         # Emit record_processing_status with actual summary
         try:
-            from app.ws.socketio_server import sio
+            from app.communication.ws.server import sio
             await sio.emit("record_processing_status", {
                 "status": "completed",
                 "record_id": record_id,
@@ -168,7 +168,7 @@ async def _run_extraction(
 
         # Emit updated record with summary content to frontend
         try:
-            from app.ws.socketio_server import sio
+            from app.communication.ws.server import sio
             await sio.emit("record_updated", {
                 "id": record_id,
                 "business_id": business_id,
@@ -186,7 +186,7 @@ async def _run_extraction(
             suggestions = understanding.get(
                 "suggestions", []) if understanding else []
             if insight:
-                from app.ws.socketio_server import sio
+                from app.communication.ws.server import sio
                 await sio.emit("record_understanding", {
                     "record_id": record_id,
                     "insight": insight,

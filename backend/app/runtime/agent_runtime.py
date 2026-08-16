@@ -4,23 +4,17 @@ import logging
 import re
 import time
 from app.lib.tool_schema import tools_schema_and_description
-from app.runtime.tool_result import ToolResult
 from typing import Any, TYPE_CHECKING
 from app.llm.client import get_client
-from app.execution.models import (
-    ReflectionOutput,
-)
 from app.lib.text_utils import strip_internal_reasoning
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage as LCAIMessage
 from app.lib.context_handler import handle_context_length, is_context_length_exceeded
 from app.lib.i18n import _get_i18n
 from app.lib.json_parser import parse_json_output
-from app.lib.tool_schema import tools_schema_and_description
 from app.runtime.tool_binder import ToolBinder
 from app.lib.prompts import prepare_system_prompt, prepare_planner_task_prompt, format_conversation
 from app.lib.prompts import prepare_task_prompt
-from langchain_core.runnables import RunnableLambda, RunnableConfig
 
 
 if TYPE_CHECKING:
@@ -199,20 +193,6 @@ class AgentRuntime:
         await self._tool_binder.release()
         return strip_internal_reasoning(raw) if raw else ""
 
-    def _build_agent_system_prompt(self, domain_agent: Any = None) -> str:
-        from app.lib.prompts import prepare_system_prompt
-
-        # domain_agent should already have goal, role, backstory pre-loaded
-        prompt_result, _ = prepare_system_prompt(
-            agent=domain_agent,
-            tools=self._tools,
-            use_system_prompt=True,
-        )
-
-        if hasattr(prompt_result, 'system') and prompt_result.system:
-            return prompt_result.system
-        return prompt_result.prompt
-
     @staticmethod
     def _parse_tool_input(raw_input: str) -> dict[str, Any] | None:
         try:
@@ -222,10 +202,6 @@ class AgentRuntime:
         except (json.JSONDecodeError, ValueError, TypeError):
             pass
         return None
-
-    def _is_waiting_for_user(self, raw: str) -> bool:
-        """Check if the agent output indicates it's waiting for user input."""
-        return bool(WAITING_USER_INPUT_REGEX.search(raw))
 
     async def _execute_tool(self, tool_call: dict[str, Any]) -> str:
         tool_name = tool_call.get("name", "").strip()

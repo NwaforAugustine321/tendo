@@ -117,7 +117,7 @@ export function SpeakingIndicator({ active, speaking, statusText }: Props) {
       </div>
 
       {streamedStatus && (
-        <span className="text-[10px] text-zinc-400 max-w-[160px] truncate">
+        <span className="text-[10px] text-zinc-300 max-w-[160px] truncate bg-zinc-900/90 px-2 py-0.5 rounded-full backdrop-blur-sm border border-zinc-700/50">
           {streamedStatus}
         </span>
       )}

@@ -1,18 +1,13 @@
 from __future__ import annotations
 
+
 import asyncio
 import logging
 from pydantic import BaseModel, Field
 from langchain_core.tools import tool
-from langchain_core.messages import AIMessage
-from app.runtime import AgentRuntime, ToolBinder
 from app.agents.specs.domain import TransactionsAgent, InventoryAgent, KnowledgeAgent
-from app.db.tools.messages import save_messages
-from app.memory.memory import Memory
 from app.runtime.agents.agent import Agent
 from app.runtime.middlewares.middleware import AgentMiddleware
-from app.runtime.toolsets.executor import ToolExecutionResult
-from app.runtime.toolsets import function_tool
 from app.llm.client import get_client
 from app.runtime.llm_vendors.langchain import LangChainLLM
 from app.runtime.memory.factory import (
@@ -27,8 +22,9 @@ from app.runtime.conversation.factory import (
 )
 from app.runtime.utils.spec_loader import LoaderAgentSpec
 from app.runtime.events.default_emitter import DefaultEmitter
-from app.runtime.events.emit_forwarder import EmitForwarder
-
+from app.communication.ws.server import socket_dispatcher
+from app.communication.events import ApplicationEvent
+from app.communication.event_bus import get_event_bus
 
 specialist_info = {
     "planner": LoaderAgentSpec.from_spec(name='Planner Specialist', path='planner'),
@@ -49,19 +45,51 @@ planner_system_prompt = (
 )
 
 
-def _create_emitter(emit_event=None):
+emitter = DefaultEmitter()
 
-    forwarder = EmitForwarder(emit_fn=emit_event)
-    emitter = DefaultEmitter()
 
-    async def progress_callback(event: StatusEvent):
-        await forwarder.emit("progress", {
-            "status": event.status.value,
-            "message": event.message,
-        })
+def _create_callbacks(
+    user_id: str = "",
+    session_id: str = "",
+    business_id: str = "",
+):
+    async def progress_callback(
+        event: StatusEvent,
+    ) -> None:
 
-    emitter.on(EventType.PROGRESS, [progress_callback])
-    return emitter
+        if not user_id:
+            return
+
+        payload = {
+            "type": "progress",
+            "payload": {
+                "status": event.status.value,
+                "message": event.message,
+            },
+        }
+
+        await socket_dispatcher.emit_to_user(
+            user_id=user_id,
+            event="progress",
+            payload=payload,
+        )
+
+        await get_event_bus().publish(
+            ApplicationEvent(
+                event="progress",
+                source="voice-agent",
+                correlation_id=session_id,
+                data={
+                    **payload,
+                    "user_id": user_id,
+                    "business_id": business_id,
+                },
+            ),
+        )
+
+    return [
+        progress_callback,
+    ]
 
 
 _llm_instance = None
@@ -75,12 +103,6 @@ def _get_llm():
 
 
 logger = logging.getLogger(__name__)
-
-try:
-    from app.agents.models import Agent as AgentModel
-    agent_spec = AgentModel.from_spec("planner")
-except Exception:
-    agent_spec = None
 
 
 @tool
@@ -145,15 +167,6 @@ class PlanningError(Exception):
         self.manifest = manifest
 
 
-global registry
-
-registry = {
-    "transaction_agent": TransactionsAgent(),
-    "inventory_agent": InventoryAgent(),
-    "general_information_agent": KnowledgeAgent(),
-}
-
-
 def delegate_to_agents(session: dict | None = {}):
 
     @tool
@@ -207,9 +220,8 @@ async def _run_parallel(specialists: list[dict], shared_constraints: str, sessio
     business_id = session.get("business_id", "")
     session_id = session.get('session_id', "")
     record_id = session.get('record_id', '')
-    emit_event = session.get("emit_event")
+    user_id = session.get("user_id", "")
     vc_session = session.get("vc_session")
-    emitter = _create_emitter(emit_event)
 
     async def run_one(specialist: dict) -> str:
         print("running specialist >>>>>>>>>>>.: " + str(specialist))
@@ -264,11 +276,15 @@ async def _run_parallel(specialists: list[dict], shared_constraints: str, sessio
     results = await asyncio.gather(*tasks)
     specialists_response = "\n\n".join(r for r in results if r)
 
-    if emit_event and specialists_response:
-        await emit_event("message", {
-            "type": "message",
-            "data": {"response": specialists_response, "msg_type": "answer"},
-        })
+    if user_id and specialists_response:
+        await socket_dispatcher.emit_to_user(
+            user_id=user_id,
+            event="message",
+            payload={
+                "type": "message",
+                "payload": {"content": specialists_response, "msg_type": "answer"},
+            },
+        )
 
     if vc_session and specialists_response:
         await vc_session.say(specialists_response, allow_interruptions=True)
@@ -282,9 +298,8 @@ async def _run_sequential(specialists: list[dict], shared_constraints: str, sess
         business_id = session.get("business_id", "")
         session_id = session.get('session_id', "")
         record_id = session.get('record_id', '')
-        emit_event = session.get("emit_event")
+        user_id = session.get("user_id", "")
         vc_session = session.get("vc_session")
-        emitter = _create_emitter(emit_event)
 
         for specialist in specialists:
             selected_specailist_id = specialist.get("specialist_id", "")
@@ -333,11 +348,15 @@ async def _run_sequential(specialists: list[dict], shared_constraints: str, sess
 
         all_response = "\n\n".join(r for r in results if r)
 
-        if emit_event and all_response:
-            await emit_event("message", {
-                "type": "message",
-                "data": {"response": all_response, "msg_type": "answer"},
-            })
+        if user_id and all_response:
+            await socket_dispatcher.emit_to_user(
+                user_id=user_id,
+                event="message",
+                payload={
+                    "type": "message",
+                    "payload": {"content": all_response, "msg_type": "answer"},
+                },
+            )
 
         if vc_session and all_response:
             await vc_session.say(all_response, allow_interruptions=True)
@@ -355,7 +374,8 @@ class Planner:
         self._session_id = self._session.get("session_id", "")
         self._business_id = self._session.get("business_id", "")
         self._record_id = self._session.get("record_id", "")
-        emit_event = self._session.get("emit_event")
+        self._user_id = self._session.get("user_id", "")
+        print('user id found>>>>>>>>>>>>', self._user_id)
 
         scopes = [f"business/{self._business_id}"]
 
@@ -363,7 +383,8 @@ class Planner:
             scopes.append(
                 f"business/{self._business_id}/record/{self._record_id}")
 
-        emitter = _create_emitter(emit_event)
+        emitter.on(EventType.PROGRESS, _create_callbacks(
+            self._user_id, session_id=self._session_id or self._business_id, business_id=self._business_id))
 
         agent = Agent(
             name="Assistant",
@@ -391,9 +412,6 @@ class Planner:
             session_id=self._session_id,
             emitter=emitter,
         )
-
-    async def _save_msg(self, messages: list[dict]):
-        await save_messages(self._business_id, self._session_id, messages, record_id=self._record_id)
 
     async def run(self, user_message: str, conversation_history: list[dict] = [], messages: list | None = None):
 

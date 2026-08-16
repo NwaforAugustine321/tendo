@@ -110,7 +110,6 @@ async def tendo_session(ctx: JobContext):
         "record_id": record_id,
         "business_id": business_id,
         "session_id": session_id,
-        "emit_event": _voice_emit,
         "user_id": user_id,
     }
 
