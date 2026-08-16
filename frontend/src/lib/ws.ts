@@ -1,6 +1,5 @@
 import { io, type Socket } from "socket.io-client";
 import { useEffect } from "react";
-import { useBusinessStore } from "../store/business";
 
 const SOCKET_HEARTBEAT_INTERVAL = 30_000;
 
@@ -61,7 +60,6 @@ class SocketHeartbeat {
 let _socket: Socket | null = null;
 let _refCount = 0;
 let _heartbeat: SocketHeartbeat | null = null;
-let _currentBusinessId: string = "";
 
 function getBaseUrl(): string {
   const wsUrl = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws/session";
@@ -72,7 +70,7 @@ function getBaseUrl(): string {
     .replace(/\/ws\/session$/, "");
 }
 
-function createSocket(businessId: string, autoConnect = true): Socket {
+function createSocket(autoConnect = true): Socket {
   const baseUrl = getBaseUrl();
 
   const socket = io(baseUrl, {
@@ -84,9 +82,6 @@ function createSocket(businessId: string, autoConnect = true): Socket {
     reconnectionDelayMax: 30_000,
     withCredentials: true,
     autoConnect,
-    query: {
-      business_id: businessId,
-    },
   });
 
   return socket;
@@ -94,14 +89,10 @@ function createSocket(businessId: string, autoConnect = true): Socket {
 
 function setupSocketListeners(socket: Socket): void {
   socket.on("connect", () => {
-    console.log("[ws] connected");
-
     _heartbeat?.start(socket);
   });
 
-  socket.on("disconnect", (reason) => {
-    console.log("[ws] disconnected:", reason);
-
+  socket.on("disconnect", () => {
     _heartbeat?.stop();
   });
 
@@ -123,66 +114,14 @@ function setupSocketListeners(socket: Socket): void {
 }
 
 function getSocket(): Socket {
-  const businessId = useBusinessStore.getState().currentProfile?.id || "";
-
-  // If socket exists but business changed, reconnect
-  if (_socket && businessId && businessId !== _currentBusinessId) {
-    _heartbeat?.stop();
-    _socket.disconnect();
-    _socket = null;
-    _heartbeat = null;
-  }
-
   if (!_socket) {
-    _currentBusinessId = businessId;
-    // Only auto-connect if we have a business ID
-    _socket = createSocket(businessId, !!businessId);
+    _socket = createSocket(true);
     _heartbeat = new SocketHeartbeat();
     setupSocketListeners(_socket);
   }
 
   return _socket;
 }
-
-/**
- * Force reconnect the socket with new business context.
- * Called when the user switches business profiles.
- */
-export function reconnectSocket(): void {
-  const businessId = useBusinessStore.getState().currentProfile?.id || "";
-
-  if (!businessId) {
-    return;
-  }
-
-  if (businessId === _currentBusinessId && _socket?.connected) {
-    return;
-  }
-
-  // Tear down existing connection
-  if (_socket) {
-    _heartbeat?.stop();
-    _socket.disconnect();
-    _socket = null;
-    _heartbeat = null;
-  }
-
-  // Create new connection with updated business_id
-  _currentBusinessId = businessId;
-  _socket = createSocket(businessId, true);
-  _heartbeat = new SocketHeartbeat();
-  setupSocketListeners(_socket);
-}
-
-// Auto-reconnect when business profile changes
-useBusinessStore.subscribe((state, prevState) => {
-  const newId = state.currentProfile?.id || "";
-  const oldId = prevState.currentProfile?.id || "";
-
-  if (newId !== oldId && newId) {
-    reconnectSocket();
-  }
-});
 
 export function connectSocket(): Socket {
   _refCount++;
@@ -293,8 +232,6 @@ export class WSClient {
       let settled = false;
 
       socket.on("connect", () => {
-        console.log("[ws] connected:", socket.id);
-
         this.heartbeat?.start(socket);
 
         this.callbacks.onOpen?.();
@@ -314,24 +251,18 @@ export class WSClient {
           }
 
           this.callbacks.onMessage(msg as WSMessage);
-        } catch (error) {
-          console.error("[ws] invalid message:", error);
-
+        } catch {
           this.callbacks.onError?.("Invalid server message");
         }
       });
 
-      socket.on("disconnect", (reason) => {
-        console.log("[ws] disconnected:", reason);
-
+      socket.on("disconnect", () => {
         this.heartbeat?.stop();
 
         this.callbacks.onClose?.();
       });
 
       socket.on("connect_error", (error) => {
-        console.error("[ws] connection error:", error.message);
-
         this.callbacks.onError?.("Connecting...");
 
         if (!settled) {
@@ -345,8 +276,6 @@ export class WSClient {
       });
 
       socket.io.on("reconnect", () => {
-        console.log("[ws] reconnected:", socket.id);
-
         this.callbacks.onReconnected?.();
       });
     });

@@ -73,11 +73,45 @@ class SocketDispatcher:
                 )
 
             except Exception:
-                # The SID may have disconnected after Redis returned
-                # the active connection list.
-                #
-                # Remove it from the connection store so subsequent
-                # dispatches do not continue targeting a stale SID.
+                await self._connection_store.remove_socket(
+                    user_id=user_id,
+                    sid=sid,
+                )
+
+    async def emit_to_room(
+        self,
+        *,
+        user_id: str,
+        data: dict[str, Any],
+    ) -> None:
+        """
+        Emit to a room.
+        """
+
+        if not user_id:
+            return
+
+        event = data.get("event", "")
+
+        if not event:
+            return
+
+        sids = await self._connection_store.get_sockets(
+            user_id=user_id,
+        )
+
+        if not sids:
+            return
+
+        for sid in sids:
+            try:
+                await self._transport.emit(
+                    event,
+                    sid,
+                    data,
+                )
+
+            except Exception:
                 await self._connection_store.remove_socket(
                     user_id=user_id,
                     sid=sid,

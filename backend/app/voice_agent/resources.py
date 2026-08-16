@@ -8,34 +8,43 @@ from app.config.settings import settings
 
 
 class VoiceResources:
-    """Warm resources shared by  voice sessions."""
+    """Provides resources for voice sessions."""
 
     def __init__(self) -> None:
         self._graph: Any = None
-        self._stt: Any = None
-        self._tts: Any = None
 
-    def get(self) -> tuple[Any, Any, Any]:
-        """Return initialized graph, STT, and TTS resources."""
+    def get_graph(self) -> Any:
+        """Return the shared graph instance."""
 
         if self._graph is None:
             from app.graph.workflow import get_graph
 
             self._graph = get_graph()
 
-        self._stt = nvidia.STT(
+        return self._graph
+
+    def get_stt(self) -> Any:
+        """Create a fresh NVIDIA STT instance."""
+
+        return nvidia.STT(
             api_key=settings.nvidia_api_key,
             language_code="en-US",
         )
 
-        self._tts = nvidia.TTS(
+    def get_tts(self) -> Any:
+        """Create a fresh NVIDIA TTS instance."""
+
+        return nvidia.TTS(
             api_key=settings.nvidia_api_key,
             voice="Magpie-Multilingual.EN-US.Jason",
             language_code="en-US",
         )
 
+    def get(self) -> tuple[Any, Any, Any]:
+        """Return graph and fresh STT/TTS resources."""
+
         return (
-            self._graph,
-            self._stt,
-            self._tts,
+            self.get_graph(),
+            self.get_stt(),
+            self.get_tts(),
         )

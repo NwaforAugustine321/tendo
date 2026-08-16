@@ -34,17 +34,30 @@ export function WorkspaceLayout() {
     };
   }, [currentProfile?.id]);
 
-  // Listen for progress events from Socket.IO and forward to voice store
+  // Listen for progress events from Socket.IO and forward to voice store.
   useEffect(() => {
     const socket = connectSocket();
 
     const handler = (raw: any) => {
       const event = typeof raw === "string" ? JSON.parse(raw) : raw;
+      const status =
+        event?.data?.payload?.status || event?.payload?.status || "";
       const message =
+        event?.data?.payload?.message ||
         event?.payload?.message ||
         event?.payload?.payload?.message ||
         event?.message ||
         "";
+
+      if (
+        status === "completed" ||
+        status === "failed" ||
+        status === "cancelled"
+      ) {
+        setStatusText("");
+        return;
+      }
+
       if (message) {
         setStatusText(message);
       }

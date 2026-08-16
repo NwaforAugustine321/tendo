@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from urllib.parse import parse_qs
 
 from app.communication.ws.models import (
     SocketConnection,
@@ -26,27 +25,13 @@ async def connect(
     environ,
     auth,
 ):
-    """Register a Socket.IO connection and join its session room."""
+    """
+    Register a Socket.IO connection.
 
-    query_string = environ.get(
-        "QUERY_STRING",
-        "",
-    )
-
-    params = parse_qs(
-        query_string,
-        keep_blank_values=True,
-    )
-
-    session_id = params.get(
-        "session_id",
-        [""],
-    )[0]
-
-    business_id = params.get(
-        "business_id",
-        [""],
-    )[0]
+    The socket connects at login time. Only user identity (from the
+    auth cookie) is resolved here. Business and session context are
+    provided per-message by the chat panel.
+    """
 
     cookies = environ.get(
         "HTTP_COOKIE",
@@ -69,17 +54,22 @@ async def connect(
     user_id = ""
 
     if token:
-        user = await handle_get_me(
-            token,
-        )
+        try:
+            user = await handle_get_me(
+                token,
+            )
 
-        if user:
-            user_id = user["user_id"]
+            if user:
+                user_id = user["user_id"]
+        except Exception as exc:
+            logger.error(
+                "Socket.IO connect: failed to resolve user from token: %s",
+                exc,
+            )
+            user_id = ""
 
     connection = SocketConnection(
         sid=sid,
-        session_id=session_id,
-        business_id=business_id,
         user_id=user_id,
     )
 
@@ -87,39 +77,11 @@ async def connect(
         connection,
     )
 
-    if session_id:
-        await sio.enter_room(
-            sid,
-            session_id,
-        )
-
-        logger.info(
-            "Socket.IO joined session room: "
-            "sid=%s session_id=%s",
-            sid,
-            session_id,
-        )
-
-    if business_id:
-        await sio.enter_room(
-            sid,
-            business_id,
-        )
-
-        logger.info(
-            "Socket.IO joined business room: "
-            "sid=%s business_id=%s",
-            sid,
-            business_id,
-        )
-
     logger.info(
-        "Socket.IO connected: "
-        "sid=%s user_id=%s business_id=%s session_id=%s",
+        "Socket.IO connected and registered: "
+        "sid=%s user_id=%s",
         sid,
         user_id,
-        business_id,
-        session_id,
     )
 
 
@@ -152,13 +114,18 @@ async def message(
 ):
     """Handle an incoming Socket.IO message."""
 
+    logger.info(
+        "Socket.IO message event received: sid=%s",
+        sid,
+    )
+
     connection = await connection_registry.get(
         sid,
     )
 
     if connection is None:
-        logger.warning(
-            "Message received from unknown Socket.IO connection: %s",
+        logger.error(
+            "Message received from unregistered connection: sid=%s",
             sid,
         )
         return
@@ -168,7 +135,7 @@ async def message(
         dict,
     ):
         await socket_dispatcher.emit_to_sid(
-            sid=connection.sid,
+            sid=sid,
             event="message",
             payload=SocketMessage(
                 type="error",
@@ -186,7 +153,7 @@ async def message(
 
     if message_type != "text":
         await socket_dispatcher.emit_to_sid(
-            sid=connection.sid,
+            sid=sid,
             event="message",
             payload=SocketMessage(
                 type="error",
@@ -206,7 +173,7 @@ async def message(
         dict,
     ):
         await socket_dispatcher.emit_to_sid(
-            sid=connection.sid,
+            sid=sid,
             event="message",
             payload=SocketMessage(
                 type="error",
@@ -224,18 +191,27 @@ async def message(
     if not text_input.content.strip():
         return
 
-    business_id = connection.business_id
-
-    session_id = (
-        text_input.session_id
-        or connection.session_id
-    )
-
+    # business_id and session_id come from the message payload.
+    business_id = text_input.business_id
+    session_id = text_input.session_id
     user_id = connection.user_id
+
+    if not user_id:
+        await socket_dispatcher.emit_to_sid(
+            sid=sid,
+            event="message",
+            payload=SocketMessage(
+                type="error",
+                payload=SocketResponse(
+                    content="Unauthorized, no user id",
+                ),
+            ).to_dict()
+        )
+        return
 
     if not business_id:
         await socket_dispatcher.emit_to_sid(
-            sid=connection.sid,
+            sid=sid,
             event="message",
             payload=SocketMessage(
                 type="error",
@@ -248,7 +224,7 @@ async def message(
 
     if not session_id:
         await socket_dispatcher.emit_to_sid(
-            sid=connection.sid,
+            sid=sid,
             event="message",
             payload=SocketMessage(
                 type="error",
@@ -257,20 +233,6 @@ async def message(
                 ),
             ).to_dict()
         )
-        return
-
-    if not user_id:
-        await socket_dispatcher.emit_to_sid(
-            sid=connection.sid,
-            event="message",
-            payload=SocketMessage(
-                type="error",
-                payload=SocketResponse(
-                    content="Unauthorized, no user id",
-                ),
-            ).to_dict()
-        )
-
         return
 
     logger.info(
@@ -321,7 +283,7 @@ async def message(
         )
 
         await socket_dispatcher.emit_to_sid(
-            sid=connection.sid,
+            sid=sid,
             event="message",
             payload=SocketMessage(
                 type="message",
@@ -340,23 +302,6 @@ async def disconnect(
     sid,
 ):
     """Remove a disconnected Socket.IO connection."""
-
-    connection = await connection_registry.get(
-        sid,
-    )
-
-    if connection is not None and connection.session_id:
-        await sio.leave_room(
-            sid,
-            connection.session_id,
-        )
-
-        logger.info(
-            "Socket.IO left session room: "
-            "sid=%s session_id=%s",
-            sid,
-            connection.session_id,
-        )
 
     logger.info(
         "Socket.IO disconnected: %s",

@@ -6,13 +6,21 @@ type Props = {
   statusText?: string;
 };
 
-function useStreamText(text: string, speed = 20) {
+function useStreamText(text: string, speed = 18) {
   const [displayed, setDisplayed] = useState("");
+  const prevTextRef = useRef("");
+
   useEffect(() => {
     if (!text) {
       setDisplayed("");
+      prevTextRef.current = "";
       return;
     }
+
+    // If same text, don't re-stream
+    if (text === prevTextRef.current) return;
+    prevTextRef.current = text;
+
     let i = 0;
     setDisplayed("");
     const interval = setInterval(() => {
@@ -26,27 +34,47 @@ function useStreamText(text: string, speed = 20) {
     }, speed);
     return () => clearInterval(interval);
   }, [text, speed]);
+
   return displayed;
 }
 
+const NUM_BARS = 16;
+const IDLE_BARS = Array.from({ length: NUM_BARS }, () => 0.25);
+
 export function SpeakingIndicator({ active, speaking, statusText }: Props) {
-  const [bars, setBars] = useState([0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3]);
+  const [bars, setBars] = useState(IDLE_BARS);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const dragging = useRef(false);
   const offset = useRef({ x: 0, y: 0 });
   const elRef = useRef<HTMLDivElement>(null);
-  const streamedStatus = useStreamText(statusText || "");
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const streamedText = useStreamText(statusText || "");
 
   useEffect(() => {
-    if (!speaking) {
-      setBars([0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3]);
-      return;
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
-    const interval = setInterval(() => {
-      setBars((prev) => prev.map(() => 0.3 + Math.random() * 0.7));
-    }, 100);
-    return () => clearInterval(interval);
-  }, [speaking]);
+
+    if (speaking) {
+      intervalRef.current = setInterval(() => {
+        setBars((prev) => prev.map(() => 0.25 + Math.random() * 0.75));
+      }, 120);
+    } else if (active) {
+      intervalRef.current = setInterval(() => {
+        setBars((prev) => prev.map(() => 0.2 + Math.random() * 0.2));
+      }, 300);
+    } else {
+      setBars(IDLE_BARS);
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [speaking, active]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     dragging.current = true;
@@ -68,31 +96,33 @@ export function SpeakingIndicator({ active, speaking, statusText }: Props) {
 
   if (!active) return null;
 
+  const halfBars = Math.floor(NUM_BARS / 2);
+
   return (
     <div
       ref={elRef}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      className="fixed top-4 right-4 z-50 flex flex-col items-center gap-1 cursor-grab active:cursor-grabbing select-none touch-none"
+      className="fixed  top-4 right-14 z-50 flex flex-col items-center gap-1.5 cursor-grab active:cursor-grabbing select-none touch-none"
       style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
     >
-      <div className="flex items-center gap-2 rounded-full bg-zinc-900/90 px-3 py-2 shadow-lg backdrop-blur-sm border border-zinc-700/50">
-        <div className="flex items-center gap-[2px] h-5">
-          {bars.slice(0, 3).map((height, i) => (
+      <div className="flex h-[35px] items-center gap-2.5 rounded-full bg-zinc-900/90 px-6 py-2 shadow-lg backdrop-blur-sm border border-zinc-700/50 min-w-[260px] justify-center">
+        <div className="flex items-center gap-[2.5px] h-[20px]">
+          {bars.slice(0, halfBars).map((height, i) => (
             <div
               key={`l-${i}`}
               className="w-[3px] rounded-full bg-emerald-400"
               style={{
-                height: speaking ? `${height * 100}%` : "30%",
-                transition: speaking ? "height 80ms" : "height 300ms",
+                height: `${height * 100}%`,
+                transition: "height 120ms ease-out",
               }}
             />
           ))}
         </div>
 
-        <div className="w-8 h-8 rounded-full bg-white border border-zinc-700 flex items-center justify-center">
-          <span className="flex items-center gap-[2px]">
+        <div className="w-8 h-8 rounded-full bg-white border border-zinc-700 flex items-center justify-center shrink-0">
+          <span className="flex items-center gap-[3px]">
             <span
               className={`h-[4px] w-[4px] rounded-full bg-purple-600 ${speaking ? "animate-pulse" : ""}`}
             />
@@ -102,23 +132,23 @@ export function SpeakingIndicator({ active, speaking, statusText }: Props) {
           </span>
         </div>
 
-        <div className="flex items-center gap-[2px] h-5">
-          {bars.slice(3).map((height, i) => (
+        <div className="flex items-center gap-[2.5px] h-5">
+          {bars.slice(halfBars).map((height, i) => (
             <div
               key={`r-${i}`}
               className="w-[3px] rounded-full bg-emerald-400"
               style={{
-                height: speaking ? `${height * 100}%` : "30%",
-                transition: speaking ? "height 80ms" : "height 300ms",
+                height: `${height * 100}%`,
+                transition: "height 120ms ease-out",
               }}
             />
           ))}
         </div>
       </div>
 
-      {streamedStatus && (
-        <span className="text-[10px] text-zinc-300 max-w-[160px] truncate bg-zinc-900/90 px-2 py-0.5 rounded-full backdrop-blur-sm border border-zinc-700/50">
-          {streamedStatus}
+      {streamedText && (
+        <span className="text-[10px] text-zinc-300 max-w-[300px] text-center truncate bg-zinc-900/90 px-3 py-0.5 rounded-full backdrop-blur-sm border border-zinc-700/50 whitespace-nowrap">
+          {streamedText}
         </span>
       )}
     </div>

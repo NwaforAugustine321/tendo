@@ -25,7 +25,9 @@ from app.runtime.events.default_emitter import DefaultEmitter
 from app.communication.ws.server import socket_dispatcher
 from app.communication.events import ApplicationEvent
 from app.communication.event_bus import get_event_bus
-
+from app.communication.events import (
+    EventDelivery,
+)
 specialist_info = {
     "planner": LoaderAgentSpec.from_spec(name='Planner Specialist', path='planner'),
     "knowledge": LoaderAgentSpec.from_spec(name='Knowledge  Specialist', path='domain/knowledge'),
@@ -48,6 +50,46 @@ planner_system_prompt = (
 emitter = DefaultEmitter()
 
 
+# def _create_callbacks(
+#     user_id: str = "",
+# ):
+#     async def progress_callback(
+#         event: StatusEvent,
+#     ) -> None:
+
+#         if not user_id:
+#             return
+
+#         payload = {
+#             "type": "progress",
+#             "payload": {
+#                 "status": event.status.value,
+#                 "message": event.message,
+#             },
+#         }
+
+#         await socket_dispatcher.emit_to_user(
+#             user_id=user_id,
+#             event="progress",
+#             payload=payload,
+#         )
+
+#         await get_event_bus().publish(
+#             ApplicationEvent(
+#                 event="progress",
+#                 source="voice-agent",
+#                 correlation_id=user_id,
+#                 data={
+#                     **payload
+#                 },
+#             ),
+#         )
+
+#     return [
+#         progress_callback,
+#     ]
+
+
 def _create_callbacks(
     user_id: str = "",
 ):
@@ -64,22 +106,16 @@ def _create_callbacks(
                 "status": event.status.value,
                 "message": event.message,
             },
+            "user_id": user_id,
+            "event": "progress"
         }
-
-        await socket_dispatcher.emit_to_user(
-            user_id=user_id,
-            event="progress",
-            payload=payload,
-        )
 
         await get_event_bus().publish(
             ApplicationEvent(
                 event="progress",
                 source="voice-agent",
-                correlation_id=user_id,
-                data={
-                    **payload
-                },
+                delivery=EventDelivery.APP,
+                data=payload,
             ),
         )
 

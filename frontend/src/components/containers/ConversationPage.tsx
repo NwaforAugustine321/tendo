@@ -138,9 +138,11 @@ export function ConversationPage({
     const observer = new ResizeObserver(() => {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     });
+    // Observe the inner content wrapper so that streaming text
+    // (which grows the element height) triggers auto-scroll.
     if (el.firstElementChild) observer.observe(el.firstElementChild);
     return () => observer.disconnect();
-  }, []);
+  }, [messages.length]);
 
   useEffect(() => {
     if (scrollRef.current) {

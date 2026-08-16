@@ -16,15 +16,22 @@ export function RightRail() {
   const { connectionState, micActive, agentSpeaking, statusText, toggleMic } =
     useVoiceStore();
 
-  const isActive = micActive || agentSpeaking || !!statusText;
+  const isActive = micActive || agentSpeaking;
 
   const handleMicClick = async () => {
     await toggleMic();
   };
 
-  const displayStatus =
-    statusText ||
-    (agentSpeaking ? "Tendo is speaking..." : micActive ? "Listening..." : "");
+  // When speaking: show speaking text. When listening: show listening.
+  // Only show progress statusText during processing (not speaking/listening).
+  let displayStatus = "";
+  if (agentSpeaking) {
+    displayStatus = "Tendo is speaking...";
+  } else if (statusText) {
+    displayStatus = statusText;
+  } else if (micActive) {
+    displayStatus = "Listening...";
+  }
 
   return (
     <>

@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Plus, History, X, Sparkles, Lightbulb } from "lucide-react";
 import clsx from "clsx";
-import { io, type Socket } from "socket.io-client";
 import { Conversation } from "../../pages/Conversation";
 import { useBusinessStore } from "../../store/business";
 import { useWorkspaceStore } from "../../store/workspace";
@@ -27,36 +26,9 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
   const { currentProfile } = useBusinessStore();
   const businessId = currentProfile?.id || "";
 
-  // Connect to Socket.IO for real-time processing events
-  const socketRef = useRef<Socket | null>(null);
-
-  useEffect(() => {
-    if (!recordId) return;
-
-    const wsUrl = import.meta.env.VITE_WS_URL || "http://localhost:8000";
-    const baseUrl = wsUrl
-      .replace(/^ws:\/\//, "http://")
-      .replace(/^wss:\/\//, "https://")
-      .replace(/\/ws\/session$/, "");
-
-    const socket = io(baseUrl, {
-      path: "/ws/session",
-      transports: ["websocket"],
-      reconnection: true,
-      reconnectionAttempts: 5,
-      withCredentials: true,
-    });
-
-    socket.on("record_processing_status", (data: any) => {
-      // Processing events handled by RecordFloatingPanel
-    });
-
-    socketRef.current = socket;
-    return () => {
-      socket.disconnect();
-      socketRef.current = null;
-    };
-  }, [recordId]);
+  // Record processing events are received on the shared socket
+  // via setupSocketListeners in ws.ts (dispatches window events).
+  // No separate socket connection needed here.
 
   // Load sessions and messages on mount or business/record change
   useEffect(() => {

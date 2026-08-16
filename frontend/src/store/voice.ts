@@ -112,9 +112,13 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         onUserSpeakingChange: (speaking) => set({ userSpeaking: speaking }),
         onAgentSpeakingChange: (speaking) => {
           set({ agentSpeaking: speaking });
-          if (speaking) set({ connectionState: "speaking" });
-          else if (get().micActive) set({ connectionState: "listening" });
-          else set({ connectionState: "connected" });
+          if (speaking) {
+            set({ connectionState: "speaking", statusText: "" });
+          } else if (get().micActive) {
+            set({ connectionState: "listening" });
+          } else {
+            set({ connectionState: "connected" });
+          }
         },
         onMessage: (data: any) => {
           if (data?.type === "progress" && data?.payload?.message) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { ConversationPage, type MessageItem } from "../components/containers";
 import type { InputSpec } from "../components/containers/ConversationPage";
 import { useVoiceStore } from "../store/voice";
@@ -6,6 +6,7 @@ import { useEventReceiver } from "../hooks/useEmitReceiver";
 import { SpeakingIndicator } from "../components/SpeakingIndicator";
 import { useBusinessStore } from "../store/business";
 import { useWorkspaceStore } from "../store/workspace";
+import { connectSocket, disconnectSocket } from "../lib/ws";
 
 type Props = {
   initialMessages?: MessageItem[];
@@ -38,6 +39,7 @@ export function Conversation({
   const [thinking, setThinking] = useState(false);
   const [wakeActive, setWakeActive] = useState(false);
   const { currentProfile } = useBusinessStore();
+  const businessId = currentProfile?.id || "";
   const {
     connectionState,
     micActive,
@@ -48,9 +50,7 @@ export function Conversation({
     toggleMic,
     setStatusText,
   } = useVoiceStore();
-  const { events: statusEvents, clear: clearStatus } = useEventReceiver([
-    "progress",
-  ]);
+  const { events: statusEvents } = useEventReceiver(["progress"]);
 
   const isConnected =
     connectionState === "connected" ||
@@ -59,7 +59,77 @@ export function Conversation({
   const isListening = connectionState === "listening";
   const isSpeaking = connectionState === "speaking";
 
+  // ---------------------------------------------------------------
+  // Chat text via Socket.IO (completely separate from voice)
+  // ---------------------------------------------------------------
+
+  useEffect(() => {
+    const socket = connectSocket();
+
+    const handler = (raw: any) => {
+      const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
+
+      if (msg.type === "message" && msg.payload) {
+        const content = msg.payload.content || "";
+        if (content) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              content,
+              type: "text",
+            },
+          ]);
+        }
+        setThinking(false);
+        setStatusText("");
+      } else if (msg.type === "error" && msg.payload) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `error-${Date.now()}`,
+            role: "assistant",
+            content: msg.payload.content || "Something went wrong.",
+            type: "text",
+          },
+        ]);
+        setThinking(false);
+        setStatusText("");
+        setThinking(false);
+      }
+    };
+
+    socket.on("message", handler);
+
+    return () => {
+      socket.off("message", handler);
+      disconnectSocket();
+    };
+  }, []);
+
+  const sendChatText = useCallback(
+    (text: string) => {
+      if (!text.trim() || !businessId || !sessionId) return;
+
+      const socket = connectSocket();
+      socket.emit("message", {
+        type: "text",
+        payload: {
+          content: text,
+          business_id: businessId,
+          session_id: sessionId,
+          record_id: recordId || "",
+        },
+      });
+    },
+    [businessId, sessionId, recordId],
+  );
+
+  // ---------------------------------------------------------------
   // Sync initialMessages when they change (e.g., switching sessions)
+  // ---------------------------------------------------------------
+
   useEffect(() => {
     if (initialMessages && initialMessages.length > 0) {
       setMessages(initialMessages);
@@ -78,13 +148,11 @@ export function Conversation({
     }
   }, [statusEvents]);
 
-  const lastMsgId = useRef("");
+  // ---------------------------------------------------------------
+  // Voice agent (LiveKit) — separate from text chat
+  // ---------------------------------------------------------------
 
-  // Voice agent is managed by WorkspaceLayout (start/stop on mount/unmount).
-  // This component just uses the already-connected store.
   useEffect(() => {
-    // If workspace layout hasn't started the agent yet (e.g., direct navigation),
-    // start it here as a fallback.
     const bizId = currentProfile?.id;
     if (bizId && connectionState === "disconnected") {
       startAgent({ businessId: bizId, sessionId, recordId });
@@ -112,7 +180,6 @@ export function Conversation({
       window.removeEventListener("tendo:voice-toggle", handleVoiceToggleEvent);
   }, [micActive]);
 
-  // When voice connects successfully, mark as active
   useEffect(() => {
     if (isConnected && micActive) {
       setWakeActive(true);
@@ -120,6 +187,10 @@ export function Conversation({
       setWakeActive(false);
     }
   }, [isConnected, isSpeaking, isListening, micActive]);
+
+  // ---------------------------------------------------------------
+  // Send text handler — sends via socket, not voice
+  // ---------------------------------------------------------------
 
   const handleSendText = (text: string) => {
     const optionContext = findOptionContext(text);
@@ -135,6 +206,10 @@ export function Conversation({
       },
     ]);
     setThinking(true);
+
+    // Send to backend via Socket.IO
+    sendChatText(text);
+
     if (onFirstMessage && messages.length === 0) onFirstMessage();
   };
 
@@ -148,23 +223,6 @@ export function Conversation({
       useWorkspaceStore.getState().setPendingChatMessage(null);
     }
   }, [pendingMsg]);
-
-  const findPendingQuestion = (): string | null => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg.role === "user") break;
-      if (msg.type === "input" && msg.inputSpec?.fields) {
-        const field = msg.inputSpec.fields[0];
-        if (field.type === "text") {
-          return field.description || field.name || null;
-        }
-        if (field.type === "radio") {
-          return field.options?.[0]?.name || null;
-        }
-      }
-    }
-    return null;
-  };
 
   const handleVoiceToggle = async () => {
     await toggleMic();

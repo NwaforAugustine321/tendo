@@ -9,7 +9,12 @@ import {
   LocalAudioTrack,
   createLocalAudioTrack,
   ConnectionState,
+  LogLevel,
+  setLogLevel,
 } from "livekit-client";
+
+// Suppress verbose LiveKit SDK logs in the browser console.
+setLogLevel(LogLevel.warn);
 
 export type VoiceCallbacks = {
   onConnected: () => void;

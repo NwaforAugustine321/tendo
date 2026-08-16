@@ -20,6 +20,7 @@ class SocketTextInput:
 
     content: str
     session_id: str = ""
+    business_id: str = ""
     record_id: str = ""
 
     @classmethod
@@ -38,6 +39,10 @@ class SocketTextInput:
                 "session_id",
                 "",
             ),
+            business_id=payload.get(
+                "business_id",
+                "",
+            ),
             record_id=payload.get(
                 "record_id",
                 "",
@@ -50,6 +55,7 @@ class SocketTextInput:
         return {
             "content": self.content,
             "session_id": self.session_id,
+            "business_id": self.business_id,
             "record_id": self.record_id,
         }
 

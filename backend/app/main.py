@@ -14,10 +14,9 @@ from app.communication.event_bus import (
     clear_event_bus,
     set_event_bus,
 )
-from app.communication.events import ApplicationEvent
 from app.communication.provider import EventBusProvider
-from app.communication.subscribers.subscriber import (
-    ApplicationEventSubscriber,
+from app.communication.setup import (
+    create_application_event_manager,
 )
 from app.communication.ws.server import sio
 from app.config import settings
@@ -31,19 +30,9 @@ from app.routes.records import router as records_router
 from app.routes.snapshot import router as snapshot_router
 from app.routes.upload import router as upload_router
 from app.routes.voice import router as voice_router
-from app.voice_agent.lifecycle import (
-    voice_lifecycle_service,
-)
-from app.voice_agent.subscriber import (
-    VoiceLifecycleSubscriber,
-)
 
 import app.communication.ws.chat_handler
 
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,59 +56,6 @@ logger = logging.getLogger(
 )
 
 
-# ---------------------------------------------------------------------------
-# Application event handler
-# ---------------------------------------------------------------------------
-
-
-async def handle_application_event(
-    event: ApplicationEvent,
-) -> None:
-    """
-    Forward application events to the appropriate frontend
-    Socket.IO room.
-
-    Uses business_id from event data as the room target when available,
-    falling back to correlation_id (session_id).
-    """
-
-    if not event.correlation_id:
-        logger.debug(
-            "Ignoring application event without correlation_id: %s",
-            event.event,
-        )
-        return
-
-    # Determine the room: prefer business_id (client always joins that room),
-    # fall back to correlation_id (session_id).
-    room = event.correlation_id
-    if isinstance(event.data, dict):
-        business_id = event.data.get("business_id", "")
-        if business_id:
-            room = business_id
-
-    print('reaching me here >>>', event)
-    try:
-        await sio.emit(
-            event.event,
-            event.to_dict(),
-            room=room,
-        )
-
-        logger.debug(
-            "Forwarded application event: "
-            "event=%s room=%s",
-            event.event,
-            room,
-        )
-
-    except Exception:
-        logger.exception(
-            "Failed to forward application event: %s",
-            event.event,
-        )
-
-
 @asynccontextmanager
 async def lifespan(
     app: FastAPI,
@@ -127,29 +63,16 @@ async def lifespan(
     """
     Initialize and shut down application-wide resources.
 
-    Resources created here are shared by the FastAPI process:
+    main.py is responsible only for application composition.
 
-        EventBus
-            ├── ApplicationEventSubscriber
-            │       └── Frontend Socket.IO events
-            │
-            └── VoiceLifecycleSubscriber
-                    └── LiveKit agent lifecycle
-
-    The EventBus is also registered through the general application
-    EventBus accessor so any application component can use:
-
-        get_event_bus()
+    Event handlers and subscribers are created by the communication
+    setup layer.
     """
 
     from app.scheduler import (
         start_scheduler,
         stop_scheduler,
     )
-
-    # -----------------------------------------------------------------------
-    # EventBus
-    # -----------------------------------------------------------------------
 
     event_bus_provider = EventBusProvider(
         EventBusConfig(
@@ -162,50 +85,22 @@ async def lifespan(
 
     event_bus = event_bus_provider.get()
 
-    # -----------------------------------------------------------------------
-    # Register process-local EventBus
-    # -----------------------------------------------------------------------
-
-    # This makes the EventBus available to application code through:
-    #
-    #     from app.communication.event_bus import get_event_bus
-    #
-    # The EventBus itself is still backed by Redis and is not shared
-    # as a Python object between processes.
     set_event_bus(
         event_bus,
     )
 
-    event_subscriber = ApplicationEventSubscriber(
-        event_bus=event_bus,
-        handler=handle_application_event,
-    )
-
-    voice_lifecycle_subscriber = (
-        VoiceLifecycleSubscriber(
-            event_bus=event_bus,
-            service=voice_lifecycle_service,
+    event_manager = (
+        create_application_event_manager(
+            event_bus,
         )
     )
 
     try:
-        # -------------------------------------------------------------------
-        # Start application services
-        # -------------------------------------------------------------------
 
         start_scheduler()
 
-        event_subscriber.start()
+        event_manager.start()
 
-        voice_lifecycle_subscriber.start()
-
-        # -------------------------------------------------------------------
-        # Expose resources through FastAPI app state
-        # -------------------------------------------------------------------
-
-        # Keep these available for components that explicitly use
-        # app.state, although normal application code should prefer
-        # get_event_bus().
         app.state.event_bus_provider = (
             event_bus_provider
         )
@@ -214,12 +109,8 @@ async def lifespan(
             event_bus
         )
 
-        app.state.event_subscriber = (
-            event_subscriber
-        )
-
-        app.state.voice_lifecycle_subscriber = (
-            voice_lifecycle_subscriber
+        app.state.event_manager = (
+            event_manager
         )
 
         logger.info(
@@ -238,33 +129,14 @@ async def lifespan(
         raise
 
     finally:
-        # -------------------------------------------------------------------
-        # Shutdown lifecycle subscriber
-        # -------------------------------------------------------------------
 
         try:
-            await voice_lifecycle_subscriber.close()
+            await event_manager.close()
 
         except Exception:
             logger.exception(
-                "Failed to close voice lifecycle subscriber.",
+                "Failed to close application event manager.",
             )
-
-        # -------------------------------------------------------------------
-        # Shutdown application event subscriber
-        # -------------------------------------------------------------------
-
-        try:
-            await event_subscriber.close()
-
-        except Exception:
-            logger.exception(
-                "Failed to close application event subscriber.",
-            )
-
-        # -------------------------------------------------------------------
-        # Close EventBus
-        # -------------------------------------------------------------------
 
         try:
             await event_bus.close()
@@ -275,13 +147,7 @@ async def lifespan(
             )
 
         finally:
-            # Remove the process-local reference after the EventBus
-            # has been closed.
             clear_event_bus()
-
-        # -------------------------------------------------------------------
-        # Stop scheduler
-        # -------------------------------------------------------------------
 
         try:
             stop_scheduler()
@@ -295,10 +161,6 @@ async def lifespan(
             "Application shutdown — connections closed",
         )
 
-
-# ---------------------------------------------------------------------------
-# FastAPI application
-# ---------------------------------------------------------------------------
 
 app = FastAPI(
     title="Tendo",

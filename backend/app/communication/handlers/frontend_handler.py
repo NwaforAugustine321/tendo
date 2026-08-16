@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+import logging
+
+from app.communication.events import ApplicationEvent
+from app.communication.ws.server import (
+    socket_dispatcher,
+)
+
+logger = logging.getLogger(__name__)
+
+
+async def handle_frontend_event(
+    event: ApplicationEvent,
+) -> None:
+    """
+    Deliver an application event to the frontend.
+
+    Uses the event name from the ApplicationEvent as the Socket.IO
+    event name so the frontend can listen on specific channels
+    (e.g., "progress", "message", etc.).
+    """
+
+    user_id = ""
+
+    if isinstance(
+        event.data,
+        dict,
+    ):
+        user_id = event.data.get(
+            "user_id",
+            "",
+        )
+
+    if not user_id:
+        logger.warning(
+            "Frontend event has no user_id: "
+            "event=%s correlation_id=%s",
+            event.event,
+            event.correlation_id,
+        )
+        return
+
+    await socket_dispatcher.emit_to_room(
+        user_id=user_id,
+        data=event.to_dict(),
+    )
+
+    logger.debug(
+        "Frontend event delivered: "
+        "event=%s user_id=%s correlation_id=%s",
+        event.event,
+        user_id,
+        event.correlation_id,
+    )

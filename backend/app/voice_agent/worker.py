@@ -83,51 +83,24 @@ sys.path.insert(
 )
 
 
-# ---------------------------------------------------------------------------
-# LiveKit server
-# ---------------------------------------------------------------------------
-
 server = AgentServer(
     num_idle_processes=2,
 )
 
 
-# ---------------------------------------------------------------------------
-# Process initialization
-# ---------------------------------------------------------------------------
-
-
 def prewarm(
     proc: JobProcess,
 ) -> None:
-    """
-    Initialize resources owned by a LiveKit worker process.
-
-    No asynchronous tasks are started here.
-
-    The lifecycle event that dispatches the LiveKit agent is handled
-    by the FastAPI application EventBus lifecycle.
-
-    This worker only prepares resources required once LiveKit starts
-    an actual voice session.
-    """
+    """Initialize resources owned by a LiveKit worker process."""
 
     logger.info(
         "Initializing voice worker process: pid=%s",
         os.getpid(),
     )
 
-    # -----------------------------------------------------------------------
-    # Voice resources
-    # -----------------------------------------------------------------------
-
     resources = VoiceResources()
 
     metadata_parser = VoiceSessionMetadataParser()
-
-    # -----------------------------------------------------------------------
-    # EventBus
-    # -----------------------------------------------------------------------
 
     event_bus_provider = EventBusProvider(
         EventBusConfig(
@@ -140,20 +113,11 @@ def prewarm(
 
     event_bus = event_bus_provider.get()
 
-    # Make the EventBus available via the global accessor so that
-    # components like the planner can publish events without needing
-    # a direct reference.
-    set_event_bus(event_bus)
-
-    # -----------------------------------------------------------------------
-    # Voice session registry
-    # -----------------------------------------------------------------------
+    set_event_bus(
+        event_bus,
+    )
 
     session_registry = VoiceSessionRegistry()
-
-    # -----------------------------------------------------------------------
-    # Runtime event routing
-    # -----------------------------------------------------------------------
 
     event_router = VoiceAgentEventRouter(
         registry=session_registry,
@@ -164,31 +128,12 @@ def prewarm(
         handler=event_router.handle,
     )
 
-    # -----------------------------------------------------------------------
-    # Process state
-    # -----------------------------------------------------------------------
-
     proc.userdata["resources"] = resources
-
-    proc.userdata["metadata_parser"] = (
-        metadata_parser
-    )
-
-    proc.userdata["event_bus_provider"] = (
-        event_bus_provider
-    )
-
-    proc.userdata["event_bus"] = (
-        event_bus
-    )
-
-    proc.userdata["session_registry"] = (
-        session_registry
-    )
-
-    proc.userdata["event_subscriber"] = (
-        event_subscriber
-    )
+    proc.userdata["metadata_parser"] = metadata_parser
+    proc.userdata["event_bus_provider"] = event_bus_provider
+    proc.userdata["event_bus"] = event_bus
+    proc.userdata["session_registry"] = session_registry
+    proc.userdata["event_subscriber"] = event_subscriber
 
     logger.info(
         "Voice worker process initialized: pid=%s",
@@ -199,27 +144,19 @@ def prewarm(
 server.setup_fnc = prewarm
 
 
-# ---------------------------------------------------------------------------
-# Voice session
-# ---------------------------------------------------------------------------
-
-
 @server.rtc_session(
     agent_name="tendo-voice",
 )
 async def tendo_session(
     ctx: JobContext,
 ) -> None:
-    """
-    Create and run a voice session.
+    """Create and run a voice session."""
 
-    This function is called by LiveKit after the FastAPI application
-    has requested a `tendo-voice` agent dispatch.
-    """
-
-    resources: VoiceResources = ctx.proc.userdata[
-        "resources"
-    ]
+    resources: VoiceResources = (
+        ctx.proc.userdata[
+            "resources"
+        ]
+    )
 
     metadata_parser: VoiceSessionMetadataParser = (
         ctx.proc.userdata[
@@ -243,26 +180,7 @@ async def tendo_session(
         ]
     )
 
-    # -----------------------------------------------------------------------
-    # Start application-event subscriber
-    # -----------------------------------------------------------------------
-
-    # Safe here because rtc_session executes inside the
-    # LiveKit asyncio runtime.
-    #
-    # This subscriber handles application events destined for
-    # the active voice session.
     event_subscriber.start()
-
-    # -----------------------------------------------------------------------
-    # Voice resources
-    # -----------------------------------------------------------------------
-
-    graph, stt, tts = resources.get()
-
-    # -----------------------------------------------------------------------
-    # Session metadata
-    # -----------------------------------------------------------------------
 
     metadata = (
         ctx.job.metadata
@@ -276,7 +194,7 @@ async def tendo_session(
 
     except InvalidVoiceSessionMetadata as exc:
         logger.error(
-            "[tendo_session] %s",
+            "[tendo_session] Invalid voice session metadata: %s",
             exc,
         )
 
@@ -284,18 +202,26 @@ async def tendo_session(
         return
 
     logger.info(
-        "[tendo_session] "
-        "metadata_id=%s",
-        str(session_data)
+        "[tendo_session] Voice session metadata parsed: "
+        "room=%s business_id=%s session_id=%s "
+        "user_id=%s record_id=%s",
+        ctx.room.name,
+        session_data.business_id,
+        session_data.session_id,
+        session_data.user_id,
+        session_data.record_id,
     )
 
     ctx.log_context_fields = {
         "room": ctx.room.name,
+        "session_id": session_data.session_id,
+        "user_id": session_data.user_id,
+        "business_id": session_data.business_id,
     }
 
-    # -----------------------------------------------------------------------
-    # Voice session service
-    # -----------------------------------------------------------------------
+    graph, stt, tts = resources.get()
+
+    session_handlers = VoiceSessionHandlers()
 
     session_service = VoiceSessionService(
         event_bus=event_bus,
@@ -303,32 +229,80 @@ async def tendo_session(
         graph=graph,
         stt=stt,
         tts=tts,
+        handlers=session_handlers,
     )
 
-    session = await session_service.start(
-        ctx=ctx,
-        data=session_data,
-    )
+    session = None
 
-    VoiceSessionHandlers().register(
-        session,
-    )
+    try:
+        session = await session_service.start(
+            ctx=ctx,
+            data=session_data,
+            resources=resources,
+        )
 
-    # -----------------------------------------------------------------------
-    # Connect to LiveKit
-    # -----------------------------------------------------------------------
+        logger.info(
+            "[tendo_session] Voice session started: "
+            "room=%s session_id=%s user_id=%s",
+            ctx.room.name,
+            session_data.session_id,
+            session_data.user_id,
+        )
 
-    await ctx.connect()
+        await ctx.connect()
 
-    # -----------------------------------------------------------------------
-    # Shutdown
-    # -----------------------------------------------------------------------
+        logger.info(
+            "[tendo_session] Connected to LiveKit: "
+            "room=%s session_id=%s",
+            ctx.room.name,
+            session_data.session_id,
+        )
+
+    except Exception:
+        logger.exception(
+            "[tendo_session] Voice session failed: "
+            "room=%s session_id=%s",
+            ctx.room.name,
+            session_data.session_id,
+        )
+
+        if session is not None:
+            try:
+                await session_service.close(
+                    session_id=session_data.session_id,
+                    session=session,
+                )
+            except Exception:
+                logger.exception(
+                    "[tendo_session] Failed to close failed "
+                    "voice session: session_id=%s",
+                    session_data.session_id,
+                )
+
+        raise
 
     async def _shutdown() -> None:
+        logger.info(
+            "[tendo_session] Shutting down voice session: "
+            "room=%s session_id=%s",
+            ctx.room.name,
+            session_data.session_id,
+        )
+
+        if session is None:
+            return
+
         try:
             await session_service.close(
                 session_id=session_data.session_id,
                 session=session,
+            )
+
+        except Exception:
+            logger.exception(
+                "[tendo_session] Failed to close voice session: "
+                "session_id=%s",
+                session_data.session_id,
             )
 
         finally:
@@ -339,11 +313,6 @@ async def tendo_session(
     ctx.add_shutdown_callback(
         _shutdown,
     )
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 
 if __name__ == "__main__":

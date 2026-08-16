@@ -465,6 +465,13 @@ class AgentRunner:
 
         finally:
 
+            await run_context.emitter.emit(
+                EventType.PROGRESS,
+                StatusEvent(
+                    status=Status.COMPLETED,
+                ),
+            )
+
             await run_context.middleware.dispatch(
                 MiddlewareEvent.AFTER_RUN,
                 run_context,
