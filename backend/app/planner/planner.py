@@ -50,8 +50,6 @@ emitter = DefaultEmitter()
 
 def _create_callbacks(
     user_id: str = "",
-    session_id: str = "",
-    business_id: str = "",
 ):
     async def progress_callback(
         event: StatusEvent,
@@ -78,11 +76,9 @@ def _create_callbacks(
             ApplicationEvent(
                 event="progress",
                 source="voice-agent",
-                correlation_id=session_id,
+                correlation_id=user_id,
                 data={
-                    **payload,
-                    "user_id": user_id,
-                    "business_id": business_id,
+                    **payload
                 },
             ),
         )
@@ -384,7 +380,7 @@ class Planner:
                 f"business/{self._business_id}/record/{self._record_id}")
 
         emitter.on(EventType.PROGRESS, _create_callbacks(
-            self._user_id, session_id=self._session_id or self._business_id, business_id=self._business_id))
+            self._user_id))
 
         agent = Agent(
             name="Assistant",

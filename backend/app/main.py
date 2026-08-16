@@ -98,6 +98,7 @@ async def handle_application_event(
         if business_id:
             room = business_id
 
+    print('reaching me here >>>', event)
     try:
         await sio.emit(
             event.event,
@@ -117,11 +118,6 @@ async def handle_application_event(
             "Failed to forward application event: %s",
             event.event,
         )
-
-
-# ---------------------------------------------------------------------------
-# Application lifespan
-# ---------------------------------------------------------------------------
 
 
 @asynccontextmanager
@@ -180,18 +176,10 @@ async def lifespan(
         event_bus,
     )
 
-    # -----------------------------------------------------------------------
-    # Frontend application-event subscriber
-    # -----------------------------------------------------------------------
-
     event_subscriber = ApplicationEventSubscriber(
         event_bus=event_bus,
         handler=handle_application_event,
     )
-
-    # -----------------------------------------------------------------------
-    # Voice lifecycle subscriber
-    # -----------------------------------------------------------------------
 
     voice_lifecycle_subscriber = (
         VoiceLifecycleSubscriber(

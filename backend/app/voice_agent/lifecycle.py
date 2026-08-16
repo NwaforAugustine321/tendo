@@ -13,51 +13,32 @@ from livekit.protocol.room import (
     ListParticipantsRequest,
     RoomParticipantIdentity,
 )
-from livekit.protocol.agent_dispatch import (
-    CreateAgentDispatchRequest,
-)
-from livekit.protocol.agent import JobStatus
+
 from app.communication.events import ApplicationEvent
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
 VOICE_AGENT_NAME = "tendo-voice"
 
 ACTIVE_JOB_STATUSES = frozenset(
     {
-        JobStatus.JS_PENDING,
-        JobStatus.JS_RUNNING,
-    }
+        "JS_PENDING",
+        "JS_RUNNING",
+    },
 )
-
-
-# ---------------------------------------------------------------------------
-# Service
-# ---------------------------------------------------------------------------
 
 
 class VoiceLifecycleService:
     """Handles LiveKit voice-agent lifecycle operations."""
 
     def __init__(self) -> None:
-        # Prevent duplicate dispatch requests while a dispatch operation
-        # is already running inside this FastAPI process.
-        #
-        # This is only a local guard. LiveKit dispatch state is checked
-        # separately before creating a dispatch.
-        self._dispatching_sessions: set[str] = set()
+        # Prevent duplicate dispatch requests for the same user
+        # while a dispatch operation is already running.
+        self._dispatching_users: set[str] = set()
 
         self._lock = asyncio.Lock()
-
-    # -----------------------------------------------------------------------
-    # Event router
-    # -----------------------------------------------------------------------
 
     async def handle(
         self,
@@ -82,26 +63,16 @@ class VoiceLifecycleService:
             event.event,
         )
 
-    # -----------------------------------------------------------------------
-    # Dispatch
-    # -----------------------------------------------------------------------
-
     async def dispatch_agent(
         self,
         event: ApplicationEvent,
     ) -> None:
         """
-        Dispatch the registered voice agent to a LiveKit room.
+        Ensure that the user's voice agent is running.
 
-        Existing dispatches are inspected before creating a new one.
+        The dispatch/job state is the source of truth.
 
-        A dispatch is reused only when it has an active job:
-
-            JS_PENDING
-            JS_RUNNING
-
-        Completed or failed jobs are not considered active and therefore
-        allow a new dispatch to be created.
+        A stale participant in the room does not block a new dispatch.
         """
 
         data = event.data
@@ -115,33 +86,13 @@ class VoiceLifecycleService:
             )
             return
 
-        room_name = str(
-            data.get(
-                "room",
-                "",
-            )
-        ).strip()
+        room_name = self._string(
+            data.get("room"),
+        )
 
-        session_id = str(
-            data.get(
-                "session_id",
-                "",
-            )
-        ).strip()
-
-        user_id = str(
-            data.get(
-                "user_id",
-                "",
-            )
-        ).strip()
-
-        business_id = str(
-            data.get(
-                "business_id",
-                "",
-            )
-        ).strip()
+        user_id = self._string(
+            data.get("user_id"),
+        )
 
         if not room_name:
             logger.warning(
@@ -149,52 +100,49 @@ class VoiceLifecycleService:
             )
             return
 
-        if not session_id:
+        if not user_id:
             logger.warning(
-                "Voice session request has no session_id: "
-                "room=%s",
+                "Voice session request has no user_id: room=%s",
                 room_name,
             )
             return
 
-        # -------------------------------------------------------------------
-        # Local idempotency
-        # -------------------------------------------------------------------
+        agent_identity = self.agent_identity(
+            user_id,
+        )
 
         async with self._lock:
-            if session_id in self._dispatching_sessions:
+            if user_id in self._dispatching_users:
                 logger.info(
                     "Voice agent dispatch already in progress: "
-                    "session_id=%s room=%s",
-                    session_id,
+                    "room=%s user_id=%s",
                     room_name,
+                    user_id,
                 )
                 return
 
-            self._dispatching_sessions.add(
-                session_id,
+            self._dispatching_users.add(
+                user_id,
             )
 
         try:
             metadata = json.dumps(
                 {
+                    **data,
                     "room": room_name,
                     "user_id": user_id,
-                    "business_id": business_id,
-                    "session_id": session_id,
-                    "record_id": data.get(
-                        "record_id",
-                        "",
-                    ),
-                }
+                    "agent_identity": agent_identity,
+                },
             )
 
             logger.info(
                 "Preparing voice agent dispatch: "
-                "room=%s session_id=%s user_id=%s",
+                "agent=%s identity=%s room=%s user_id=%s ",
+                VOICE_AGENT_NAME,
+                agent_identity,
                 room_name,
-                session_id,
                 user_id,
+
             )
 
             async with LiveKitAPI(
@@ -203,46 +151,45 @@ class VoiceLifecycleService:
                 api_secret=settings.livekit_api_secret,
             ) as api:
 
-                # -----------------------------------------------------------
-                # Check existing dispatches
-                # -----------------------------------------------------------
-
                 dispatches = (
                     await api.agent_dispatch.list_dispatch(
                         room_name,
                     )
                 )
 
-                for existing in dispatches:
+                active_dispatch_found = False
 
+                for dispatch in dispatches:
                     if (
-                        existing.agent_name
+                        getattr(
+                            dispatch,
+                            "agent_name",
+                            "",
+                        )
                         != VOICE_AGENT_NAME
                     ):
                         continue
 
+                    dispatch_user_id = (
+                        self._get_dispatch_user_id(
+                            dispatch,
+                        )
+                    )
+
+                    if dispatch_user_id != user_id:
+                        continue
+
                     dispatch_id = getattr(
-                        existing,
+                        dispatch,
                         "id",
                         None,
                     )
 
                     state = getattr(
-                        existing,
+                        dispatch,
                         "state",
                         None,
                     )
-
-                    logger.info(
-                        "Existing voice dispatch found: "
-                        "room=%s dispatch_id=%s",
-                        room_name,
-                        dispatch_id,
-                    )
-
-                    # -------------------------------------------------------
-                    # Inspect jobs associated with the dispatch
-                    # -------------------------------------------------------
 
                     jobs = getattr(
                         state,
@@ -250,17 +197,13 @@ class VoiceLifecycleService:
                         [],
                     )
 
-                    if not jobs:
-                        logger.info(
-                            "Existing dispatch has no jobs yet: "
-                            "room=%s dispatch_id=%s",
-                            room_name,
-                            dispatch_id,
-                        )
-
-                        continue
-
-                    active_job_found = False
+                    logger.info(
+                        "Existing voice dispatch found: "
+                        "room=%s user_id=%s dispatch_id=%s",
+                        room_name,
+                        user_id,
+                        dispatch_id,
+                    )
 
                     for job in jobs:
                         job_state = getattr(
@@ -281,11 +224,10 @@ class VoiceLifecycleService:
 
                         logger.info(
                             "Voice dispatch job: "
-                            "room=%s "
-                            "dispatch_id=%s "
-                            "job_id=%s "
-                            "status=%s",
+                            "room=%s user_id=%s dispatch_id=%s "
+                            "job_id=%s status=%s",
                             room_name,
+                            user_id,
                             dispatch_id,
                             getattr(
                                 job,
@@ -296,15 +238,14 @@ class VoiceLifecycleService:
                         )
 
                         if status_name in ACTIVE_JOB_STATUSES:
-                            active_job_found = True
+                            active_dispatch_found = True
 
                             logger.info(
-                                "Voice agent already active: "
-                                "room=%s "
-                                "dispatch_id=%s "
-                                "job_id=%s "
-                                "status=%s",
+                                "Voice agent is already active: "
+                                "room=%s user_id=%s "
+                                "dispatch_id=%s job_id=%s status=%s",
                                 room_name,
+                                user_id,
                                 dispatch_id,
                                 getattr(
                                     job,
@@ -316,23 +257,35 @@ class VoiceLifecycleService:
 
                             break
 
-                    if active_job_found:
-                        return
+                    if active_dispatch_found:
+                        break
 
-                    # -------------------------------------------------------
-                    # Existing dispatch is stale/completed/failed
-                    # -------------------------------------------------------
+                    if dispatch_id:
+                        try:
+                            await api.agent_dispatch.delete_dispatch(
+                                dispatch_id,
+                                room_name,
+                            )
 
-                    logger.info(
-                        "Existing voice dispatch is not active: "
-                        "room=%s dispatch_id=%s",
-                        room_name,
-                        dispatch_id,
-                    )
+                            logger.info(
+                                "Removed stale voice dispatch: "
+                                "room=%s user_id=%s dispatch_id=%s",
+                                room_name,
+                                user_id,
+                                dispatch_id,
+                            )
 
-                # -----------------------------------------------------------
-                # Check connected Agent participants
-                # -----------------------------------------------------------
+                        except Exception:
+                            logger.exception(
+                                "Failed to remove stale voice dispatch: "
+                                "room=%s user_id=%s dispatch_id=%s",
+                                room_name,
+                                user_id,
+                                dispatch_id,
+                            )
+
+                if active_dispatch_found:
+                    return
 
                 participants = (
                     await api.room.list_participants(
@@ -342,32 +295,73 @@ class VoiceLifecycleService:
                     )
                 )
 
-                for participant in participants.participants:
+                stale_agent_found = False
 
-                    if not self._is_agent_participant(
-                        participant,
-                    ):
-                        continue
-
-                    logger.info(
-                        "Voice agent already connected: "
-                        "room=%s identity=%s",
-                        room_name,
+                for participant in (
+                    participants.participants
+                ):
+                    identity = self._string(
                         participant.identity,
                     )
 
-                    return
+                    if identity != agent_identity:
+                        continue
+
+                    stale_agent_found = True
+
+                    logger.warning(
+                        "Found stale voice agent participant: "
+                        "room=%s user_id=%s identity=%s",
+                        room_name,
+                        user_id,
+                        identity,
+                    )
+
+                    # -------------------------------------------------------
+                    # IMPORTANT:
+                    #
+                    # We only remove the exact agent identity.
+                    # The user's participant is untouched.
+                    # -------------------------------------------------------
+
+                    try:
+                        await api.room.remove_participant(
+                            RoomParticipantIdentity(
+                                room=room_name,
+                                identity=identity,
+                            ),
+                        )
+
+                        logger.info(
+                            "Removed stale voice agent participant: "
+                            "room=%s user_id=%s identity=%s",
+                            room_name,
+                            user_id,
+                            identity,
+                        )
+
+                    except Exception:
+                        logger.exception(
+                            "Failed to remove stale voice agent participant: "
+                            "room=%s user_id=%s identity=%s",
+                            room_name,
+                            user_id,
+                            identity,
+                        )
 
                 # -----------------------------------------------------------
-                # Create new LiveKit dispatch
+                # 3. Dispatch fresh agent
                 # -----------------------------------------------------------
 
                 logger.info(
-                    "Dispatching voice agent: "
-                    "agent=%s room=%s session_id=%s",
+                    "Dispatching fresh voice agent: "
+                    "agent=%s identity=%s room=%s "
+                    "user_id=%s",
                     VOICE_AGENT_NAME,
+                    agent_identity,
                     room_name,
-                    session_id,
+                    user_id,
+
                 )
 
                 dispatch = (
@@ -388,44 +382,40 @@ class VoiceLifecycleService:
 
                 logger.info(
                     "Voice agent dispatched successfully: "
-                    "room=%s session_id=%s dispatch_id=%s",
+                    "room=%s user_id=%s identity=%s "
+                    " dispatch_id=%s",
                     room_name,
-                    session_id,
+                    user_id,
+                    agent_identity,
+
                     dispatch_id,
                 )
 
         except Exception:
             logger.exception(
                 "Failed to dispatch voice agent: "
-                "room=%s session_id=%s",
+                "room=%s user_id=%s",
                 room_name,
-                session_id,
+                user_id,
+
             )
 
-            # Allow a later EventBus event to retry.
             raise
 
         finally:
             async with self._lock:
-                self._dispatching_sessions.discard(
-                    session_id,
+                self._dispatching_users.discard(
+                    user_id,
                 )
-
-    # -----------------------------------------------------------------------
-    # Stop
-    # -----------------------------------------------------------------------
 
     async def stop_agent(
         self,
         event: ApplicationEvent,
     ) -> None:
         """
-        Stop the active voice agent.
+        Stop the voice agent belonging to the user.
 
-        The explicit LiveKit dispatch is deleted and any connected
-        LiveKit Agent participant is removed.
-
-        The user's participant is never removed.
+        Only the user's agent identity is removed.
         """
 
         data = event.data
@@ -439,41 +429,37 @@ class VoiceLifecycleService:
             )
             return
 
-        room_name = str(
-            data.get(
-                "room",
-                "",
-            )
-        ).strip()
+        room_name = self._string(
+            data.get("room"),
+        )
 
-        session_id = str(
-            data.get(
-                "session_id",
-                event.correlation_id or "",
-            )
-        ).strip()
-
-        user_id = str(
-            data.get(
-                "user_id",
-                "",
-            )
-        ).strip()
+        user_id = self._string(
+            data.get("user_id"),
+        )
 
         if not room_name:
             logger.warning(
-                "Voice stop request has no room: "
-                "session_id=%s",
-                session_id,
+                "Voice stop request has no room.",
             )
             return
 
+        if not user_id:
+            logger.warning(
+                "Voice stop request has no user_id.",
+            )
+            return
+
+        agent_identity = self.agent_identity(
+            user_id,
+        )
+
         logger.info(
             "Stopping voice agent: "
-            "room=%s session_id=%s user_id=%s",
+            "room=%s user_id=%s identity=%s",
             room_name,
-            session_id,
             user_id,
+            agent_identity,
+
         )
 
         try:
@@ -484,7 +470,7 @@ class VoiceLifecycleService:
             ) as api:
 
                 # -----------------------------------------------------------
-                # Delete explicit dispatches
+                # Delete user's dispatches
                 # -----------------------------------------------------------
 
                 dispatches = (
@@ -494,11 +480,23 @@ class VoiceLifecycleService:
                 )
 
                 for dispatch in dispatches:
-
                     if (
-                        dispatch.agent_name
+                        getattr(
+                            dispatch,
+                            "agent_name",
+                            "",
+                        )
                         != VOICE_AGENT_NAME
                     ):
+                        continue
+
+                    dispatch_user_id = (
+                        self._get_dispatch_user_id(
+                            dispatch,
+                        )
+                    )
+
+                    if dispatch_user_id != user_id:
                         continue
 
                     dispatch_id = getattr(
@@ -518,21 +516,23 @@ class VoiceLifecycleService:
 
                         logger.info(
                             "Voice agent dispatch deleted: "
-                            "room=%s dispatch_id=%s",
+                            "room=%s user_id=%s dispatch_id=%s",
                             room_name,
+                            user_id,
                             dispatch_id,
                         )
 
                     except Exception:
                         logger.exception(
                             "Failed to delete voice dispatch: "
-                            "room=%s dispatch_id=%s",
+                            "room=%s user_id=%s dispatch_id=%s",
                             room_name,
+                            user_id,
                             dispatch_id,
                         )
 
                 # -----------------------------------------------------------
-                # Find connected Agent participants
+                # Remove only this user's agent participant
                 # -----------------------------------------------------------
 
                 participants = (
@@ -543,76 +543,110 @@ class VoiceLifecycleService:
                     )
                 )
 
-                for participant in participants.participants:
+                for participant in (
+                    participants.participants
+                ):
+                    identity = self._string(
+                        participant.identity,
+                    )
 
-                    # Never remove the user's participant.
-                    if (
-                        user_id
-                        and participant.identity
-                        == user_id
-                    ):
-                        continue
-
-                    # Only remove actual LiveKit Agent participants.
-                    if not self._is_agent_participant(
-                        participant,
-                    ):
+                    if identity != agent_identity:
                         continue
 
                     try:
                         await api.room.remove_participant(
                             RoomParticipantIdentity(
                                 room=room_name,
-                                identity=participant.identity,
+                                identity=identity,
                             ),
                         )
 
                         logger.info(
                             "Voice agent participant removed: "
-                            "room=%s identity=%s",
+                            "room=%s user_id=%s identity=%s",
                             room_name,
-                            participant.identity,
+                            user_id,
+                            identity,
                         )
 
                     except Exception:
                         logger.exception(
-                            "Failed to remove voice agent "
-                            "participant: "
-                            "room=%s identity=%s",
+                            "Failed to remove voice agent participant: "
+                            "room=%s user_id=%s identity=%s",
                             room_name,
-                            participant.identity,
+                            user_id,
+                            identity,
                         )
 
         except Exception:
             logger.exception(
                 "Failed to stop voice agent: "
-                "room=%s session_id=%s",
+                "room=%s user_id=%s ",
                 room_name,
-                session_id,
+                user_id,
+
             )
 
             raise
 
         logger.info(
             "Voice agent stopped: "
-            "room=%s session_id=%s",
+            "room=%s user_id=%s identity=%s",
             room_name,
-            session_id,
+            user_id,
+            agent_identity,
+
         )
 
-    # -----------------------------------------------------------------------
-    # Helpers
-    # -----------------------------------------------------------------------
+    @staticmethod
+    def agent_identity(
+        user_id: str,
+    ) -> str:
+        """Return the LiveKit identity belonging to a user."""
+
+        return f"voice-agent-{user_id}"
+
+    @staticmethod
+    def _get_dispatch_user_id(
+        dispatch: Any,
+    ) -> str:
+        """Extract user_id from dispatch metadata."""
+
+        metadata = getattr(
+            dispatch,
+            "metadata",
+            "",
+        )
+
+        if not metadata:
+            return ""
+
+        try:
+            payload = json.loads(
+                metadata,
+            )
+
+        except (
+            json.JSONDecodeError,
+            TypeError,
+        ):
+            return ""
+
+        if not isinstance(
+            payload,
+            dict,
+        ):
+            return ""
+
+        return VoiceLifecycleService._string(
+            payload.get("user_id"),
+        )
 
     @staticmethod
     def _enum_name(
         value: Any,
     ) -> str:
-        """
-        Return a stable enum name for protobuf enum values.
-
-        Handles both generated enum values and string-like values.
-        """
+        """Return a stable enum name."""
 
         if value is None:
             return ""
@@ -632,14 +666,6 @@ class VoiceLifecycleService:
             value,
         ).upper()
 
-        # Protobuf string representations can sometimes look like:
-        #
-        #     JS_RUNNING
-        #
-        # or:
-        #
-        #     JobStatus.JS_RUNNING
-        #
         if "." in value_string:
             value_string = value_string.rsplit(
                 ".",
@@ -649,53 +675,17 @@ class VoiceLifecycleService:
         return value_string
 
     @staticmethod
-    def _is_agent_participant(
-        participant: Any,
-    ) -> bool:
-        """
-        Return True when a LiveKit participant is an Agent.
+    def _string(
+        value: Any,
+    ) -> str:
+        """Normalize a value to a trimmed string."""
 
-        LiveKit exposes the participant kind through ParticipantInfo.Kind.
-        The current protocol value for AGENT is 4.
-        """
+        if value is None:
+            return ""
 
-        kind = getattr(
-            participant,
-            "kind",
-            None,
-        )
+        return str(
+            value,
+        ).strip()
 
-        if kind is None:
-            return False
-
-        # Prefer enum name when available.
-        kind_name = getattr(
-            kind,
-            "name",
-            None,
-        )
-
-        if kind_name:
-            return str(
-                kind_name,
-            ).upper().endswith(
-                "AGENT",
-            )
-
-        try:
-            return int(
-                kind,
-            ) == 4
-
-        except (
-            TypeError,
-            ValueError,
-        ):
-            return False
-
-
-# ---------------------------------------------------------------------------
-# Shared service
-# ---------------------------------------------------------------------------
 
 voice_lifecycle_service = VoiceLifecycleService()

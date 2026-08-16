@@ -23,18 +23,16 @@ class VoiceResources:
 
             self._graph = get_graph()
 
-        if self._stt is None:
-            self._stt = nvidia.STT(
-                api_key=settings.nvidia_api_key,
-                language_code="en-US",
-            )
+        self._stt = nvidia.STT(
+            api_key=settings.nvidia_api_key,
+            language_code="en-US",
+        )
 
-        if self._tts is None:
-            self._tts = nvidia.TTS(
-                api_key=settings.nvidia_api_key,
-                voice="Magpie-Multilingual.EN-US.Jason",
-                language_code="en-US",
-            )
+        self._tts = nvidia.TTS(
+            api_key=settings.nvidia_api_key,
+            voice="Magpie-Multilingual.EN-US.Jason",
+            language_code="en-US",
+        )
 
         return (
             self._graph,

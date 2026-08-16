@@ -68,7 +68,7 @@ async def start_voice_agent(
     )
 
     room_name = (
-        f"tendo-{business_id}"
+        f"tendo-{user_id}"
     )
 
     record_id = body.get(

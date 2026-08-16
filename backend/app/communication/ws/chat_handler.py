@@ -20,11 +20,6 @@ from app.services.auth import COOKIE_NAME, handle_get_me
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Socket.IO connection
-# ---------------------------------------------------------------------------
-
-
 @sio.event
 async def connect(
     sid,
@@ -52,10 +47,6 @@ async def connect(
         "business_id",
         [""],
     )[0]
-
-    # -----------------------------------------------------------------------
-    # Authentication
-    # -----------------------------------------------------------------------
 
     cookies = environ.get(
         "HTTP_COOKIE",
@@ -85,10 +76,6 @@ async def connect(
         if user:
             user_id = user["user_id"]
 
-    # -----------------------------------------------------------------------
-    # Connection registry
-    # -----------------------------------------------------------------------
-
     connection = SocketConnection(
         sid=sid,
         session_id=session_id,
@@ -99,10 +86,6 @@ async def connect(
     await connection_registry.register(
         connection,
     )
-
-    # -----------------------------------------------------------------------
-    # Session room
-    # -----------------------------------------------------------------------
 
     if session_id:
         await sio.enter_room(
@@ -140,11 +123,6 @@ async def connect(
     )
 
 
-# ---------------------------------------------------------------------------
-# Heartbeat
-# ---------------------------------------------------------------------------
-
-
 @sio.event
 async def socket_heartbeat(
     sid,
@@ -165,11 +143,6 @@ async def socket_heartbeat(
             "Socket heartbeat received for inactive SID: %s",
             sid,
         )
-
-
-# ---------------------------------------------------------------------------
-# Messages
-# ---------------------------------------------------------------------------
 
 
 @sio.event
@@ -194,14 +167,15 @@ async def message(
         data,
         dict,
     ):
-        await _emit_to_connection(
-            connection,
-            SocketMessage(
+        await socket_dispatcher.emit_to_sid(
+            sid=connection.sid,
+            event="message",
+            payload=SocketMessage(
                 type="error",
                 payload=SocketResponse(
                     content="Invalid message format",
                 ),
-            ),
+            ).to_dict()
         )
         return
 
@@ -211,14 +185,15 @@ async def message(
     )
 
     if message_type != "text":
-        await _emit_to_connection(
-            connection,
-            SocketMessage(
+        await socket_dispatcher.emit_to_sid(
+            sid=connection.sid,
+            event="message",
+            payload=SocketMessage(
                 type="error",
                 payload=SocketResponse(
                     content="Invalid message type",
                 ),
-            ),
+            ).to_dict()
         )
         return
 
@@ -230,14 +205,15 @@ async def message(
         raw_payload,
         dict,
     ):
-        await _emit_to_connection(
-            connection,
-            SocketMessage(
+        await socket_dispatcher.emit_to_sid(
+            sid=connection.sid,
+            event="message",
+            payload=SocketMessage(
                 type="error",
                 payload=SocketResponse(
                     content="Invalid message payload",
                 ),
-            ),
+            ).to_dict()
         )
         return
 
@@ -258,39 +234,43 @@ async def message(
     user_id = connection.user_id
 
     if not business_id:
-        await _emit_to_connection(
-            connection,
-            SocketMessage(
+        await socket_dispatcher.emit_to_sid(
+            sid=connection.sid,
+            event="message",
+            payload=SocketMessage(
                 type="error",
                 payload=SocketResponse(
                     content="Unauthorized, no business id",
                 ),
-            ),
+            ).to_dict()
         )
         return
 
     if not session_id:
-        await _emit_to_connection(
-            connection,
-            SocketMessage(
+        await socket_dispatcher.emit_to_sid(
+            sid=connection.sid,
+            event="message",
+            payload=SocketMessage(
                 type="error",
                 payload=SocketResponse(
                     content="Unauthorized, no session id",
                 ),
-            ),
+            ).to_dict()
         )
         return
 
     if not user_id:
-        await _emit_to_connection(
-            connection,
-            SocketMessage(
+        await socket_dispatcher.emit_to_sid(
+            sid=connection.sid,
+            event="message",
+            payload=SocketMessage(
                 type="error",
                 payload=SocketResponse(
                     content="Unauthorized, no user id",
                 ),
-            ),
+            ).to_dict()
         )
+
         return
 
     logger.info(
@@ -340,9 +320,10 @@ async def message(
             exc_info=True,
         )
 
-        await _emit_to_connection(
-            connection,
-            SocketMessage(
+        await socket_dispatcher.emit_to_sid(
+            sid=connection.sid,
+            event="message",
+            payload=SocketMessage(
                 type="message",
                 payload=SocketResponse(
                     content=(
@@ -350,13 +331,8 @@ async def message(
                         "Please try again."
                     ),
                 ),
-            ),
+            ).to_dict()
         )
-
-
-# ---------------------------------------------------------------------------
-# Disconnect
-# ---------------------------------------------------------------------------
 
 
 @sio.event
@@ -389,22 +365,4 @@ async def disconnect(
 
     await connection_registry.remove(
         sid,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Direct connection emission
-# ---------------------------------------------------------------------------
-
-
-async def _emit_to_connection(
-    connection: SocketConnection,
-    message: SocketMessage,
-) -> None:
-    """Emit a message to one known Socket.IO connection."""
-
-    await socket_dispatcher.emit_to_sid(
-        sid=connection.sid,
-        event="message",
-        payload=message.to_dict(),
     )

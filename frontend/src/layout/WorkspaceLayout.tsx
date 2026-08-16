@@ -86,10 +86,8 @@ export function WorkspaceLayout() {
           </div>
         </main>
 
-        {/* Gmail-style right sidebar rail */}
         <RightRail />
 
-        {/* Record floating panel — independent, draggable */}
         <RecordFloatingPanel />
       </div>
 
