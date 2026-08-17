@@ -4,6 +4,14 @@ from pathlib import Path
 from typing import Any
 
 from app.runtime.agents.run_context import RunContext
+from app.runtime.conversation.context import ConversationContext
+from app.runtime.context_manager.optimizers.default_optimizer import (
+    DefaultConversationOptimizer,
+)
+from app.runtime.context_manager.optimizers.optimizer import (
+    ContextOptimizer as Optimizer,
+    OptimizationResult,
+)
 
 from .context import RAGContext
 from .ingestion.pipeline import (
@@ -13,13 +21,6 @@ from .ingestion.pipeline import (
 from .models import RAGDocument
 from .retrieval import RetrievalEngine
 from .store import RAGStore
-from app.runtime.context_manager.optimizers.optimizer import (
-    ContextOptimizer as Optimizer,
-    OptimizationResult,
-)
-from app.runtime.context_manager.optimizers.default_optimizer import (
-    DefaultConversationOptimizer,
-)
 
 
 class RAGProvider:
@@ -59,9 +60,7 @@ class RAGProvider:
     def store(
         self,
     ) -> RAGStore:
-        """
-        Underlying document store.
-        """
+        """Underlying document store."""
 
         return self._store
 
@@ -69,9 +68,7 @@ class RAGProvider:
     def retrieval(
         self,
     ) -> RetrievalEngine:
-        """
-        Retrieval engine.
-        """
+        """Retrieval engine."""
 
         return self._retrieval
 
@@ -79,9 +76,7 @@ class RAGProvider:
     def ingestion(
         self,
     ) -> DocumentIngestionPipeline | None:
-        """
-        Optional document ingestion pipeline.
-        """
+        """Optional document ingestion pipeline."""
 
         return self._ingestion
 
@@ -102,16 +97,24 @@ class RAGProvider:
     async def retrieve(
         self,
         ctx: RunContext,
+        query: str | None = None,
     ) -> RAGContext:
         """
         Retrieve documents relevant to the current run.
+
+        When an explicit query is provided, it is used directly.
+        Otherwise the retrieval engine builds a query from the
+        current RunContext.
         """
 
-        query = await self._retrieval.build_query(
-            ctx,
-        )
+        if query is None:
+            query = await self._retrieval.build_query(
+                ctx,
+            )
 
-        if not query.strip():
+        query = query.strip()
+
+        if not query:
             return RAGContext()
 
         return await self._store.retrieve(
@@ -123,14 +126,11 @@ class RAGProvider:
         *,
         source: str | Path | Any,
     ) -> IngestionResult:
-        """
-        Load, split and index a document.
-        """
+        """Load, split and index a document."""
 
         if self._ingestion is None:
-
             raise RuntimeError(
-                "RAG ingestion pipeline is not configured."
+                "RAG ingestion pipeline is not configured.",
             )
 
         return await self._ingestion.ingest(
@@ -142,9 +142,7 @@ class RAGProvider:
         *,
         documents: list[RAGDocument],
     ) -> None:
-        """
-        Add documents directly to the knowledge store.
-        """
+        """Add documents directly to the knowledge store."""
 
         await self._store.add(
             documents=documents,
@@ -155,9 +153,7 @@ class RAGProvider:
         *,
         document_id: str,
     ) -> None:
-        """
-        Delete a document from the knowledge store.
-        """
+        """Delete a document from the knowledge store."""
 
         await self._store.delete(
             document_id=document_id,

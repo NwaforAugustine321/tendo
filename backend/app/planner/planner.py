@@ -50,46 +50,6 @@ planner_system_prompt = (
 emitter = DefaultEmitter()
 
 
-# def _create_callbacks(
-#     user_id: str = "",
-# ):
-#     async def progress_callback(
-#         event: StatusEvent,
-#     ) -> None:
-
-#         if not user_id:
-#             return
-
-#         payload = {
-#             "type": "progress",
-#             "payload": {
-#                 "status": event.status.value,
-#                 "message": event.message,
-#             },
-#         }
-
-#         await socket_dispatcher.emit_to_user(
-#             user_id=user_id,
-#             event="progress",
-#             payload=payload,
-#         )
-
-#         await get_event_bus().publish(
-#             ApplicationEvent(
-#                 event="progress",
-#                 source="voice-agent",
-#                 correlation_id=user_id,
-#                 data={
-#                     **payload
-#                 },
-#             ),
-#         )
-
-#     return [
-#         progress_callback,
-#     ]
-
-
 def _create_callbacks(
     user_id: str = "",
 ):
@@ -135,28 +95,6 @@ def _get_llm():
 
 
 logger = logging.getLogger(__name__)
-
-
-@tool
-async def get_weather(
-    city: str,
-) -> str:
-    """
-    Get the weather for a city.
-    """
-
-    return f"{city}: Sunny"
-
-
-@tool
-async def get_temperature(
-    city: str,
-) -> str:
-    """
-    Get the temperature of city.
-    """
-
-    return f"{city}: 50°C "
 
 
 class ToolLoggingMiddleware(AgentMiddleware):
@@ -407,7 +345,6 @@ class Planner:
         self._business_id = self._session.get("business_id", "")
         self._record_id = self._session.get("record_id", "")
         self._user_id = self._session.get("user_id", "")
-        print('user id found>>>>>>>>>>>>', self._user_id)
 
         scopes = [f"business/{self._business_id}"]
 
@@ -431,9 +368,8 @@ class Planner:
             instructions=planner_system_prompt,
 
             tools=[
-                get_temperature,
-                get_weather,
-                delegate_to_agents(session)
+
+                # delegate_to_agents(session)
             ],
 
             middleware=[

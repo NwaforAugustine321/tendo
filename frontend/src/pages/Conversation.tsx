@@ -101,8 +101,29 @@ export function Conversation({
 
     socket.on("message", handler);
 
+    const transcriptHandler = (raw: any) => {
+      const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
+      const content =
+        msg?.payload?.content || msg?.data?.payload?.content || "";
+      if (content) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `user-${Date.now()}`,
+            role: "user",
+            content,
+            type: "text",
+          },
+        ]);
+        setThinking(true);
+      }
+    };
+
+    socket.on("transcript", transcriptHandler);
+
     return () => {
       socket.off("message", handler);
+      socket.off("transcript", transcriptHandler);
       disconnectSocket();
     };
   }, []);

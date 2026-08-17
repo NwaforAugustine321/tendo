@@ -260,8 +260,8 @@ async def message(
             {},
         )
 
-        await socket_dispatcher.emit_to_user(
-            user_id=user_id,
+        await socket_dispatcher.emit_to_sid(
+            sid=sid,
             event="message",
             payload=SocketMessage(
                 type="message",

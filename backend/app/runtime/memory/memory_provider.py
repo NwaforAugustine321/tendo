@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 from app.runtime.agents.run_context import RunContext
-
-from .context import MemoryContext
-from .reflection import MemoryReflectionEngine
-from .store import MemoryStore
+from app.runtime.conversation.context import ConversationContext
+from app.runtime.context_manager.optimizers.default_optimizer import (
+    DefaultConversationOptimizer,
+)
 from app.runtime.context_manager.optimizers.optimizer import (
     ContextOptimizer as Optimizer,
     OptimizationResult,
 )
-from app.runtime.context_manager.optimizers.default_optimizer import (
-    DefaultConversationOptimizer,
-)
+
+from .context import MemoryContext
+from .reflection import MemoryReflectionEngine
+from .store import MemoryStore
 
 
 class MemoryProvider:
@@ -47,14 +48,12 @@ class MemoryProvider:
     def store(
         self,
     ) -> MemoryStore:
-
         return self._store
 
     @property
     def reflection(
         self,
     ) -> MemoryReflectionEngine:
-
         return self._reflection
 
     async def optimize(
@@ -74,7 +73,6 @@ class MemoryProvider:
     def middleware(
         self,
     ) -> list:
-
         return []
 
     def build_query(
@@ -82,7 +80,7 @@ class MemoryProvider:
         ctx: RunContext,
     ) -> str:
         """
-        Build the memory retrieval query from user request.
+        Build the memory retrieval query from the current run.
         """
 
         return ctx.user_request.strip()
@@ -92,8 +90,7 @@ class MemoryProvider:
         query: str,
     ) -> str:
         """
-        Use a small LLM call to rewrite the user query
-        into a better search phrase for memory retrieval.
+        Rewrite a query into focused memory search phrases.
         """
 
         from app.llm.client import get_client
@@ -117,31 +114,61 @@ class MemoryProvider:
         ]
 
         try:
-            response = await llm.ainvoke(messages)
-            content = getattr(response, "content", str(response))
-            if isinstance(content, list):
-                content = "".join(str(p) for p in content)
-            rewritten = str(content).strip()
-            return rewritten if rewritten else query
+            response = await llm.ainvoke(
+                messages,
+            )
+
+            content = getattr(
+                response,
+                "content",
+                str(response),
+            )
+
+            if isinstance(
+                content,
+                list,
+            ):
+                content = "".join(
+                    str(part)
+                    for part in content
+                )
+
+            rewritten = str(
+                content,
+            ).strip()
+
+            return (
+                rewritten
+                if rewritten
+                else query
+            )
+
         except Exception:
             return query
 
     async def retrieve(
         self,
         ctx: RunContext,
+        query: str | None = None,
     ) -> MemoryContext:
+        """
+        Retrieve relevant memories.
 
-        query = self.build_query(
-            ctx,
-        )
+        If an explicit query is provided, it is used directly.
+        Otherwise the query is built from the RunContext.
+        """
+
+        if query is None:
+            query = self.build_query(
+                ctx,
+            )
+
+        query = query.strip()
 
         if not query:
             return MemoryContext()
 
-        # Rewrite query for better semantic search.
-        # rewritten = await self._rewrite_query(query)
-
-        return await self.store.retrieve(
+        return await self._store.retrieve(
             query=query,
             limit=5,
         )
@@ -151,13 +178,13 @@ class MemoryProvider:
         ctx: RunContext,
     ) -> None:
 
-        reflection = await self.reflection.reflect(
+        reflection = await self._reflection.reflect(
             ctx,
         )
 
         if reflection.empty:
             return
 
-        await self.store.save(
+        await self._store.save(
             reflection=reflection,
         )

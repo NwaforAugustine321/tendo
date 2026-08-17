@@ -248,7 +248,11 @@ class AgentSession:
             message,
         )
 
-        return await self._agent.runner.run(
+        runner = self._agent.create_runner(
+            self._run_context,
+        )
+
+        return await runner.run(
             self,
         )
 

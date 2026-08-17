@@ -138,26 +138,26 @@ class PromptBuilder:
         #
         # Memory
         #
-        prompt = await (
-            self._build_memory_prompt()
-        )
+        # prompt = await (
+        #     self._build_memory_prompt()
+        # )
 
-        if prompt:
-            parts.append(
-                prompt,
-            )
+        # if prompt:
+        #     parts.append(
+        #         prompt,
+        #     )
 
         #
         # Retrieved knowledge
         #
-        prompt = await (
-            self._build_rag_prompt()
-        )
+        # prompt = await (
+        #     self._build_rag_prompt()
+        # )
 
-        if prompt:
-            parts.append(
-                prompt,
-            )
+        # if prompt:
+        #     parts.append(
+        #         prompt,
+        #     )
 
         #
         # Structured output

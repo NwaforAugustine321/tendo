@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.runtime.context_manager.manager import (
     ContextManager,
 )
 from app.runtime.conversation.provider import (
     ConversationProvider,
+)
+from app.runtime.events.emitter import (
+    Emitter,
 )
 from app.runtime.guardrails.manager import (
     GuardrailManager,
@@ -33,7 +36,12 @@ from app.runtime.rag.provider import (
 from app.runtime.toolsets.tool_context import (
     ToolContext,
 )
-from app.runtime.events.emitter import Emitter
+
+from ..tools.default import (
+    create_memory_tool,
+    create_rag_tool,
+)
+
 if TYPE_CHECKING:
     from .runner import AgentRunner
     from .session import AgentSession
@@ -75,7 +83,7 @@ class Agent:
         memory: MemoryProvider | None = None,
         conversation: ConversationProvider | None = None,
         rag: RAGProvider | None = None,
-        max_iteration: int = 20
+        max_iteration: int = 20,
     ) -> None:
 
         self._name = name
@@ -89,8 +97,30 @@ class Agent:
         self._rag = rag
         self._max_iterations = max_iteration
 
+        self._tools = list(
+            tools or [],
+        )
+
+        runtime_tools = [
+            *self._tools,
+        ]
+
+        if self._memory is not None:
+            runtime_tools.append(
+                create_memory_tool(
+                    agent=self,
+                ),
+            )
+
+        if self._rag is not None:
+            runtime_tools.append(
+                create_rag_tool(
+                    agent=self,
+                ),
+            )
+
         self._tool_context = ToolContext.from_tools(
-            tools,
+            runtime_tools,
         )
 
         self._metadata = metadata or {}
@@ -116,17 +146,11 @@ class Agent:
 
         self._middleware = MiddlewareManager()
 
-        #
-        # User middleware.
-        #
         if middleware:
             self._middleware.extend(
                 middleware,
             )
 
-        #
-        # Provider middleware.
-        #
         if self._conversation is not None:
             self._middleware.extend(
                 self._conversation.middleware(),
@@ -221,12 +245,40 @@ class Agent:
     ) -> type | None:
         return self._output_type
 
+    def create_runner(
+        self,
+        run_context: RunContext,
+    ) -> AgentRunner:
+        """
+        Create a runner for the current execution.
+
+        The tools are created once when the Agent is initialized.
+        The current RunContext is supplied by the tool execution
+        layer when a runtime-dependent tool is called.
+        """
+
+        from app.runtime.toolsets.executor import (
+            ToolExecutor,
+        )
+        from .runner import AgentRunner
+
+        return AgentRunner(
+            tool_executor=ToolExecutor(
+                self._tool_context.proxy,
+                run_context=run_context,
+            ),
+            max_iterations=self._max_iterations,
+        )
+
     @property
     def runner(
         self,
     ) -> AgentRunner:
         """
-        Lazily create the runner.
+        Lazily create the static runner.
+
+        This runner is retained for callers that do not require
+        runtime-dependent execution context.
         """
 
         if not hasattr(
@@ -242,7 +294,7 @@ class Agent:
                 tool_executor=ToolExecutor(
                     self._tool_context.proxy,
                 ),
-                max_iterations=self._max_iterations
+                max_iterations=self._max_iterations,
             )
 
         return self._runner
@@ -261,5 +313,5 @@ class Agent:
         return AgentSession(
             agent=self,
             session_id=session_id,
-            emitter=emitter
+            emitter=emitter,
         )

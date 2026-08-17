@@ -18,7 +18,7 @@ class SocketConnectionRegistry:
         self,
         *,
         connection_store: SocketConnectionStore,
-        ttl: timedelta = timedelta(minutes=2),
+        ttl: timedelta = timedelta(minutes=60),
     ) -> None:
         self._connection_store = connection_store
         self._ttl = ttl

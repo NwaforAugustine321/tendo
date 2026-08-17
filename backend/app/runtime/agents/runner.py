@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING
 
@@ -22,6 +23,7 @@ from app.runtime.middlewares.middleware import (
 from app.runtime.prompts.builder import PromptBuilder
 from app.runtime.prompts.context import PromptContext
 from app.runtime.toolsets.executor import ToolExecutor
+from app.runtime.toolsets.tool_use_call import ToolUseCall
 
 from .activity import AgentActivity
 from .session import AgentSession
@@ -51,11 +53,7 @@ class AgentRunner:
         self._tool_executor = tool_executor
         self._max_iterations = max_iterations
 
-        # Maximum number of consecutive LLM responses that contain
-        # neither user-facing text nor tool calls.
         self._max_reasoning_only_attempts = 2
-
-        # Maximum attempts when forcing the final response.
         self._max_final_response_attempts = 2
 
     async def run(
@@ -68,6 +66,10 @@ class AgentRunner:
         response: LLMResponse | None = None
 
         reasoning_only_attempts = 0
+
+        tool_usage = ToolUseCall()
+
+        pending_tools: list[str] = []
 
         try:
 
@@ -83,6 +85,7 @@ class AgentRunner:
                 try:
 
                     current_step = iteration + 1
+
                     remaining_steps = (
                         self._max_iterations - current_step
                     )
@@ -96,6 +99,7 @@ class AgentRunner:
                     #
                     # Request guardrails.
                     #
+
                     blocked = (
                         await run_context.guardrails.check_request(
                             run_context,
@@ -124,6 +128,7 @@ class AgentRunner:
                     #
                     # Context preparation.
                     #
+
                     builder = PromptBuilder(
                         context=PromptContext(
                             agent=session.agent,
@@ -168,6 +173,7 @@ class AgentRunner:
                     #
                     # LLM execution.
                     #
+
                     await run_context.emitter.emit(
                         EventType.PROGRESS,
                         StatusEvent(
@@ -203,13 +209,17 @@ class AgentRunner:
                     )
 
                     try:
+
                         response = await activity.wait()
+
                     finally:
+
                         session.clear_activity()
 
                     #
                     # Response guardrails.
                     #
+
                     checked_response = (
                         await run_context.guardrails.check_response(
                             run_context,
@@ -273,67 +283,94 @@ class AgentRunner:
                     #
                     # No tool call.
                     #
+
                     if not response.has_tool_calls:
+
+                        #
+                        # The LLM produced a final response.
+                        #
+                        # Any tool results still pending at this point
+                        # were sufficient for the model to complete the
+                        # task.
+                        #
+
+                        if response.text:
+
+                            reasoning_only_attempts = 0
+
+                            for tool_name in pending_tools:
+
+                                tool_usage.record_result(
+                                    tool_name,
+                                    tool_usage.last_tool_result,
+                                    useful=True,
+                                )
+
+                            pending_tools.clear()
+
+                            return response
 
                         #
                         # Model produced neither text nor tools.
                         #
-                        if not response.text:
 
-                            reasoning_only_attempts += 1
+                        reasoning_only_attempts += 1
+
+                        logger.warning(
+                            "[RUNNER] Reasoning-only response. "
+                            "Attempt %d/%d at interaction step %d/%d.",
+                            reasoning_only_attempts,
+                            self._max_reasoning_only_attempts,
+                            current_step,
+                            self._max_iterations,
+                        )
+
+                        if (
+                            reasoning_only_attempts
+                            >= self._max_reasoning_only_attempts
+                        ):
 
                             logger.warning(
-                                "[RUNNER] Reasoning-only response. "
-                                "Attempt %d/%d at interaction step %d/%d.",
-                                reasoning_only_attempts,
-                                self._max_reasoning_only_attempts,
-                                current_step,
-                                self._max_iterations,
+                                "[RUNNER] Reasoning-only limit reached. "
+                                "Forcing final response.",
                             )
 
-                            #
-                            # Do not allow reasoning-only responses
-                            # to consume the entire interaction budget.
-                            #
-                            if (
-                                reasoning_only_attempts
-                                >= self._max_reasoning_only_attempts
-                            ):
+                            break
 
-                                logger.warning(
-                                    "[RUNNER] Reasoning-only limit reached. "
-                                    "Forcing final response.",
-                                )
+                        run_context.add_message(
+                            ChatMessage.system(
+                                f"REASONING RECOVERY ATTEMPT "
+                                f"{reasoning_only_attempts}/"
+                                f"{self._max_reasoning_only_attempts}.\n"
+                                f"You have {remaining_steps} interaction "
+                                "steps remaining.\n"
+                                "You have not produced a response or tool call. "
+                                "Do not continue reasoning without producing output. "
+                                "Either execute the next required action or provide "
+                                "the user-facing final response."
+                            ),
+                        )
 
-                                break
-
-                            run_context.add_message(
-                                ChatMessage.system(
-                                    f"REASONING RECOVERY ATTEMPT "
-                                    f"{reasoning_only_attempts}/"
-                                    f"{self._max_reasoning_only_attempts}.\n"
-                                    f"You have {remaining_steps} interaction "
-                                    f"steps remaining.\n"
-                                    "You have not produced a response or tool call. "
-                                    "Do not continue reasoning without producing output. "
-                                    "Either execute the next required action or provide "
-                                    "the user-facing final response."
-                                ),
-                            )
-
-                            continue
-
-                        #
-                        # Successful user-facing response.
-                        #
-                        reasoning_only_attempts = 0
-
-                        return response
+                        continue
 
                     #
-                    # A tool call was produced.
+                    # The LLM produced another tool call.
                     #
+                    # This means the previous tool result was not enough
+                    # to complete the task.
+                    #
+
                     reasoning_only_attempts = 0
+
+                    for tool_name in pending_tools:
+
+                        tool_usage.record_result(
+                            tool_name,
+                            tool_usage.last_tool_result,
+                            useful=False,
+                        )
+
+                    pending_tools.clear()
 
                     await run_context.emitter.emit(
                         EventType.PROGRESS,
@@ -350,12 +387,161 @@ class AgentRunner:
                         ),
                     )
 
-                    results = (
-                        await self._tool_executor.execute(
-                            tool_calls=response.tool_calls,
-                            ctx=run_context,
+                    #
+                    # Validate and execute tool calls.
+                    #
+
+                    executable_calls = []
+                    blocked_calls = []
+
+                    for tool_call in response.tool_calls:
+
+                        tracking_name = (
+                            tool_usage.tracking_tool_name(
+                                tool_call.name,
+                                tool_call.arguments,
+                            )
                         )
-                    )
+
+                        tracking_arguments = (
+                            tool_usage.tracking_arguments(
+                                tool_call.name,
+                                tool_call.arguments,
+                            )
+                        )
+
+                        #
+                        # tool_search has a separate query limit.
+                        #
+
+                        if tool_call.name == "tool_search":
+
+                            query = tool_usage.extract_search_query(
+                                tool_call.arguments,
+                            )
+
+                            #
+                            # Once discovery has returned executable tools,
+                            # do not spend another iteration rediscovering them.
+                            # The LLM must use call_tool with the discovered
+                            # capability instead.
+                            #
+                            if tool_usage.discovered_tools:
+                                logger.warning(
+                                    "[RUNNER] tool_search blocked after "
+                                    "tools were discovered: query=%r tools=%s",
+                                    query,
+                                    sorted(
+                                        tool_usage.discovered_tools,
+                                    ),
+                                )
+
+                                blocked_calls.append(
+                                    (
+                                        tool_call,
+                                        (
+                                            "Tool discovery has already "
+                                            "completed for this request. "
+                                            "Use call_tool to execute one "
+                                            "of the discovered tools instead "
+                                            "of calling tool_search again. "
+                                            "If a previous tool result was "
+                                            "insufficient, change the query "
+                                            "or use another discovered tool."
+                                        ),
+                                    ),
+                                )
+
+                                continue
+
+                            if not tool_usage.can_search(
+                                query,
+                            ):
+
+                                logger.warning(
+                                    "[RUNNER] tool_search blocked: "
+                                    "query=%r search_count=%d",
+                                    query,
+                                    tool_usage.search_count(query),
+                                )
+
+                                blocked_calls.append(
+                                    (
+                                        tool_call,
+                                        (
+                                            "Tool search limit reached for "
+                                            "this query. Do not repeat the "
+                                            "same search. Use the tools that "
+                                            "have already been discovered or "
+                                            "change the search query."
+                                        ),
+                                    ),
+                                )
+
+                                continue
+
+                            tool_usage.record_search(
+                                query,
+                            )
+
+                        #
+                        # Prevent exact duplicate tool execution.
+                        #
+
+                        if tool_usage.has_executed(
+                            tracking_name,
+                            tracking_arguments,
+                        ):
+
+                            logger.warning(
+                                "[RUNNER] Duplicate tool execution blocked: "
+                                "tool=%s arguments=%s",
+                                tracking_name,
+                                tracking_arguments,
+                            )
+
+                            blocked_calls.append(
+                                (
+                                    tool_call,
+                                    (
+                                        "This exact tool call has already "
+                                        "been executed. Do not repeat the "
+                                        "same tool with the same arguments. "
+                                        "Change the query or use another "
+                                        "available tool."
+                                    ),
+                                ),
+                            )
+
+                            continue
+
+                        tool_usage.record_execution(
+                            tracking_name,
+                            tracking_arguments,
+                        )
+
+                        executable_calls.append(
+                            tool_call,
+                        )
+
+                    #
+                    # Execute allowed calls.
+                    #
+
+                    results = []
+
+                    if executable_calls:
+
+                        results = (
+                            await self._tool_executor.execute(
+                                tool_calls=executable_calls,
+                                ctx=run_context,
+                            )
+                        )
+
+                    #
+                    # Build normal tool messages.
+                    #
 
                     tool_messages = (
                         self._tool_executor.build_tool_messages(
@@ -363,9 +549,65 @@ class AgentRunner:
                         )
                     )
 
+                    #
+                    # Build messages for blocked duplicate/limited calls.
+                    #
+
+                    for tool_call, message in blocked_calls:
+
+                        tool_messages.append(
+                            ChatMessage.tool(
+                                tool_call_id=tool_call.id,
+                                name=tool_call.name,
+                                content=message,
+                            )
+                        )
+
                     run_context.add_messages(
                         tool_messages,
                     )
+
+                    #
+                    # Track discovered capabilities and tools whose results
+                    # are now pending evaluation by the LLM.
+                    #
+
+                    for result in results:
+
+                        if result.tool_call.name == "tool_search":
+
+                            discovered_tools = (
+                                tool_usage.extract_discovered_tools(
+                                    result.output,
+                                )
+                            )
+
+                            if discovered_tools:
+                                tool_usage.record_discovered_tools(
+                                    discovered_tools,
+                                )
+
+                                logger.info(
+                                    "[RUNNER] Discovered tools: %s",
+                                    sorted(
+                                        tool_usage.discovered_tools,
+                                    ),
+                                )
+
+                        tracking_name = (
+                            tool_usage.tracking_tool_name(
+                                result.tool_call.name,
+                                result.tool_call.arguments,
+                            )
+                        )
+
+                        pending_tools.append(
+                            tracking_name,
+                        )
+
+                        tool_usage.last_tool_result = (
+                            result.output
+                        )
 
                     await run_context.middleware.dispatch(
                         MiddlewareEvent.AFTER_TOOLS,
@@ -377,41 +619,25 @@ class AgentRunner:
                     )
 
                     #
+                    # Tool-use guidance.
+                    #
+
+                    run_context.add_message(
+                        ChatMessage.system(
+                            tool_usage.build_tool_usage_guidance(),
+                        ),
+                    )
+
+                    #
                     # Runtime step guidance.
                     #
-                    if remaining_steps <= (
-                        self._max_iterations * 0.5
-                    ):
 
-                        if remaining_steps <= 1:
+                    urgency = tool_usage.runtime_step_guidance(
+                        remaining_steps=remaining_steps,
+                        max_iterations=self._max_iterations,
+                    )
 
-                            urgency = (
-                                f"You have {remaining_steps} interaction "
-                                "step remaining.\n"
-                                "Complete the task now. If no further tool "
-                                "action is essential, provide the final "
-                                "user-facing response."
-                            )
-
-                        elif remaining_steps <= (
-                            self._max_iterations * 0.3
-                        ):
-
-                            urgency = (
-                                f"You have {remaining_steps} interaction "
-                                "steps remaining.\n"
-                                "Prioritize the most important remaining "
-                                "action and prepare to finish the task."
-                            )
-
-                        else:
-
-                            urgency = (
-                                f"You have {remaining_steps} interaction "
-                                "steps remaining.\n"
-                                "Use them efficiently to complete the task."
-                            )
-
+                    if urgency:
                         run_context.add_message(
                             ChatMessage.system(
                                 urgency,
@@ -437,6 +663,7 @@ class AgentRunner:
             #
             # Maximum iterations or reasoning-only limit reached.
             #
+
             await run_context.emitter.emit(
                 EventType.PROGRESS,
                 StatusEvent(
@@ -586,13 +813,17 @@ class AgentRunner:
             )
 
             try:
+
                 response = await activity.wait()
+
             finally:
+
                 session.clear_activity()
 
             #
             # Never execute tools during finalization.
             #
+
             if response.has_tool_calls:
 
                 logger.warning(
@@ -612,6 +843,7 @@ class AgentRunner:
             #
             # Successful final response.
             #
+
             if response.text:
 
                 assistant_message = (
@@ -645,4 +877,5 @@ class AgentRunner:
         # Last response object is still returned so the caller
         # receives the model response rather than hanging.
         #
+
         return response

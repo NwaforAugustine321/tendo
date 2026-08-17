@@ -1,0 +1,181 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from contextvars import ContextVar, Token
+from typing import TYPE_CHECKING
+
+from langchain_core.tools import tool
+
+from ..agents.run_context import RunContext
+from ..memory.context import MemoryContext
+from ..rag.context import RAGContext
+
+if TYPE_CHECKING:
+    from ..agents.agent import Agent
+
+
+_current_run_context: ContextVar[
+    RunContext | None
+] = ContextVar(
+    "current_run_context",
+    default=None,
+)
+
+
+def set_run_context(
+    ctx: RunContext,
+) -> Token[RunContext | None]:
+    return _current_run_context.set(
+        ctx,
+    )
+
+
+def reset_run_context(
+    token: Token[RunContext | None],
+) -> None:
+    _current_run_context.reset(
+        token,
+    )
+
+
+def get_run_context() -> RunContext:
+    ctx = _current_run_context.get()
+
+    if ctx is None:
+        raise RuntimeError(
+            "No active RunContext is available.",
+        )
+
+    return ctx
+
+
+MEMORY_HEADER = (
+    "## Long-Term Memory:\n"
+    "Use this memory as a source of relevant context when performing the task. "
+    "It contains accumulated knowledge of the business, including facts, history, "
+    "preferences, decisions, insights, patterns, relationships, past history, "
+    "and prior observations. "
+    "Use relevant memory to inform your reasoning and response. "
+    "Do not ignore relevant memory, but do not invent or assume information "
+    "that is not supported by the memory."
+)
+
+
+RAG_HEADER = (
+    "## Central Knowledge:\n"
+    "Use this knowledge as a central source of business information when "
+    "reasoning about and performing the task. It represents the accumulated "
+    "understanding of the business, including its operations, activities, "
+    "processes, data, entities, relationships, facts, evidence, findings, "
+    "decisions, goals, insights, observations, patterns, assumptions, "
+    "perspectives, and other relevant business knowledge.\n"
+    "Use relevant knowledge to inform your reasoning, decisions, and responses. "
+    "Distinguish established information from interpretations and assumptions, "
+    "and do not invent unsupported information."
+)
+
+
+def _format_memory(
+    context: MemoryContext,
+) -> str:
+    if not context.entries:
+        return "No relevant long-term memory was found."
+
+    lines = [
+        MEMORY_HEADER,
+    ]
+
+    for entry in context.entries:
+        lines.append(
+            f"- {entry.text}",
+        )
+
+    return "\n".join(
+        lines,
+    )
+
+
+def _format_knowledge(
+    context: RAGContext,
+) -> str:
+    if not context.documents:
+        return "No relevant central knowledge was found."
+
+    lines = [
+        RAG_HEADER,
+    ]
+
+    for document in context.documents:
+        lines.append(
+            f"- {document.content}",
+        )
+
+    return "\n".join(
+        lines,
+    )
+
+
+def create_memory_tool(
+    *,
+    agent: Agent,
+) -> Callable:
+    @tool
+    async def search_memory(
+        query: str,
+    ) -> str:
+        """
+        Search long-term memory for information relevant to the request.
+
+        Use this when the task requires prior facts, history, preferences,
+        decisions, observations, relationships, or previously learned
+        information.
+        """
+
+        if agent.memory is None:
+            return "Long-term memory is not available."
+
+        run_context = get_run_context()
+
+        context = await agent.memory.retrieve(
+            run_context,
+            query=query,
+        )
+
+        return _format_memory(
+            context,
+        )
+
+    return search_memory
+
+
+def create_rag_tool(
+    *,
+    agent: Agent,
+) -> Callable:
+    @tool
+    async def search_knowledge(
+        query: str,
+    ) -> str:
+        """
+        Search central business knowledge for information relevant to the request.
+
+        Use this when the task requires business facts, documents, operations,
+        processes, entities, evidence, findings, goals, decisions, or other
+        accumulated business knowledge.
+        """
+
+        if agent.rag is None:
+            return "Central knowledge is not available."
+
+        run_context = get_run_context()
+
+        context = await agent.rag.retrieve(
+            run_context,
+            query=query,
+        )
+
+        return _format_knowledge(
+            context,
+        )
+
+    return search_knowledge

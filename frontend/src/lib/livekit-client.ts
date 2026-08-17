@@ -167,20 +167,27 @@ export class LiveKitVoiceClient {
   async startMic() {
     if (!this.room) throw new Error("Not connected");
 
-    if (!this.localTrack) {
-      this.localTrack = await createLocalAudioTrack({
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      });
+    // Always create a fresh track to avoid stale media stream issues
+    if (this.localTrack) {
+      try {
+        this.room.localParticipant.unpublishTrack(this.localTrack);
+      } catch {}
+      this.localTrack.stop();
+      this.localTrack = null;
     }
+
+    this.localTrack = await createLocalAudioTrack({
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    });
 
     await this.room.localParticipant.publishTrack(this.localTrack);
   }
 
   stopMic() {
-    if (this.localTrack) {
-      this.room?.localParticipant.unpublishTrack(this.localTrack);
+    if (this.localTrack && this.room) {
+      this.room.localParticipant.unpublishTrack(this.localTrack);
       this.localTrack.stop();
       this.localTrack = null;
     }

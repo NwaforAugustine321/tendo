@@ -8,7 +8,11 @@ from langgraph.config import get_stream_writer
 from langgraph.runtime import Runtime
 from langchain_core.runnables import RunnableConfig
 from app.communication.ws.server import socket_dispatcher
-
+from app.communication.events import ApplicationEvent
+from app.communication.event_bus import get_event_bus
+from app.communication.events import (
+    EventDelivery,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,13 +54,24 @@ async def planner_node(state: State, config: RunnableConfig, runtime: Runtime):
         return {"messages": []}
 
     if user_id and user_message:
-        await socket_dispatcher.emit_to_user(
-            user_id=user_id,
-            event="transcript",
-            payload={
+
+        payload = {
+            "type": "transcript",
+            "payload": {
                 "type": "transcript",
                 "payload": {"content": user_message},
             },
+            "user_id": user_id,
+            "event": "transcript"
+        }
+
+        await get_event_bus().publish(
+            ApplicationEvent(
+                event="transcript",
+                source="app",
+                delivery=EventDelivery.APP,
+                data=payload,
+            ),
         )
 
     response = await planner.run(user_message=user_message, messages=messages)

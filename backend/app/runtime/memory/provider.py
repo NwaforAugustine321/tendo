@@ -48,6 +48,7 @@ class MemoryProvider(ABC):
     async def retrieve(
         self,
         ctx: RunContext,
+        query: str | None = None,
     ) -> MemoryContext:
         """
         Retrieve memories relevant to the current run.

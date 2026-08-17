@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from typing_extensions import Self
-from dataclasses import dataclass
+
 from .tool_search import ToolSearchToolset
 from .utils import prepare_function_arguments
 from .tool_context import (
@@ -31,9 +33,8 @@ class ToolProtocolError(ToolError):
         instruction: str,
         expected: dict[str, Any],
         received: dict[str, Any],
-        selected_tool: dict[str, Any] | None = None
+        selected_tool: dict[str, Any] | None = None,
     ) -> None:
-
         super().__init__(message)
 
         self.expected = expected
@@ -42,7 +43,9 @@ class ToolProtocolError(ToolError):
         self.instruction = instruction
 
 
-@dataclass(slots=True)
+@dataclass(
+    slots=True,
+)
 class ToolResult:
 
     type: Literal[
@@ -52,25 +55,39 @@ class ToolResult:
         "tool_error",
         "no_tool_found",
         "tool_result",
-        "runtime_error"
+        "runtime_error",
     ]
+
     observation: str | None = None
 
-    def __post_init__(self):
-        if isinstance(self.observation, (list, tuple)):
-            self.observation = "".join(str(s) for s in self.observation)
+    def __post_init__(self) -> None:
+        if isinstance(
+            self.observation,
+            (list, tuple),
+        ):
+            self.observation = "".join(
+                str(item)
+                for item in self.observation
+            )
 
 
-@dataclass(slots=True)
+@dataclass(
+    slots=True,
+)
 class ToolExecutionResult:
 
     tool_call: ToolCall
+
     result: ToolResult
 
 
 _DEFAULT_CALL_DESCRIPTION = (
-    "Execute an exact tool previously discovered through tool search. "
-    "Provide the correct tool name and all required parameters, plus any optional parameters needed."
+    "Execute a previously discovered tool and return its actual result. "
+    "tool_search discovers available tools; call_tool executes a tool. "
+    "The name parameter MUST be the exact name of one of the tools returned "
+    "by tool_search. "
+    "Never pass tool_search or call_tool as the target tool name. "
+    "Provide the exact required parameters from the discovered tool schema."
 )
 
 
@@ -112,33 +129,34 @@ class ToolProxyToolset(ToolSearchToolset):
         self._selected_tools: ToolContext | None = None
 
         for tool in tools or []:
-
             self._index_tool(
                 tool=tool,
                 source=tool,
             )
 
-        # build_index may be async (e.g. HybridSearchStrategy).
-        # If we're in an async context, schedule it as a task.
-        # Otherwise, run it synchronously.
-        import inspect
-        import asyncio
-
         build_result = self._strategy.build_index(
             self._search_items,
         )
 
-        if inspect.isawaitable(build_result):
+        if inspect.isawaitable(
+            build_result,
+        ):
             try:
                 loop = asyncio.get_running_loop()
-                # Running inside an event loop — schedule the coroutine
-                loop.create_task(self._async_build_index())
-                # Close the unused coroutine to suppress warnings
+
+                loop.create_task(
+                    self._async_build_index(),
+                )
+
                 build_result.close()
+
             except RuntimeError:
-                # No running loop — run synchronously
-                asyncio.run(build_result)
+                asyncio.run(
+                    build_result,
+                )
+
                 self._initialized = True
+
         else:
             self._initialized = True
 
@@ -157,11 +175,16 @@ class ToolProxyToolset(ToolSearchToolset):
                     "properties": {
                         "name": {
                             "type": "string",
-                            "description": "tool name.",
+                            "description": (
+                                "Exact name of a tool previously "
+                                "returned by tool_search."
+                            ),
                         },
                         "parameters": {
                             "type": "object",
-                            "description": "Arguments for the selected tool.",
+                            "description": (
+                                "Arguments required by the selected tool."
+                            ),
                         },
                     },
                     "required": [
@@ -182,9 +205,14 @@ class ToolProxyToolset(ToolSearchToolset):
             self._call_tool,
         ]
 
-    async def _async_build_index(self) -> None:
-        """Await the async build_index for the search strategy."""
-        await self._strategy.build_index(self._search_items)
+    async def _async_build_index(
+        self,
+    ) -> None:
+
+        await self._strategy.build_index(
+            self._search_items,
+        )
+
         self._initialized = True
 
     async def setup(
@@ -208,18 +236,16 @@ class ToolProxyToolset(ToolSearchToolset):
     ) -> Any:
 
         if name == "tool_search":
-
             return await self.search(
                 query=str(
                     arguments.get(
                         "query",
                         "",
-                    )
+                    ),
                 ),
             )
 
         if name == "call_tool":
-
             return await self.call(
                 ctx=ctx,
                 raw_arguments=arguments,
@@ -228,28 +254,29 @@ class ToolProxyToolset(ToolSearchToolset):
         return ToolResult(
             type="no_tool_found",
             observation=(
-                "Tool discovery completed.\n",
-                f"Unknown runtime tool '{name}'."
-
-            )
+                "No runtime tool was executed.\n\n"
+                f"Unknown runtime tool '{name}'.\n"
+                "Use tool_search to discover available tools."
+            ),
         )
 
     async def search(
         self,
         *,
         query: str,
-    ) -> dict[str, Any]:
+    ) -> ToolResult:
 
         try:
+
+            query = query.strip()
 
             if not query:
                 return ToolResult(
                     type="validation_error",
                     observation=(
-                        "Tool discovery completed.\n",
-                        f"query cannot be empty'."
-
-                    )
+                        "TOOL DISCOVERY FAILED.\n\n"
+                        "The tool search query cannot be empty."
+                    ),
                 )
 
             tools = await self._search_tools(
@@ -257,14 +284,13 @@ class ToolProxyToolset(ToolSearchToolset):
             )
 
             if not tools:
-
                 return ToolResult(
                     type="no_tool_found",
                     observation=(
-                        "Tool discovery completed.\n",
-                        f"No tool found matching {query}\n",
-                        f"Tools: []\n",
-                    )
+                        "TOOL DISCOVERY RESULT.\n\n"
+                        f"Search intent: {query}\n\n"
+                        "No available tool matched this request."
+                    ),
                 )
 
             self._selected_tools = ToolContext(
@@ -273,16 +299,16 @@ class ToolProxyToolset(ToolSearchToolset):
 
             schemas: list[dict[str, Any]] = []
 
-            for tool in self._selected_tools.function_tools.values():
-
+            for tool in (
+                self._selected_tools.function_tools.values()
+            ):
                 schemas.append(
                     _build_tool_schema(
                         tool,
-                    )
+                    ),
                 )
 
             for tool in self._selected_tools.provider_tools:
-
                 schemas.append(
                     {
                         "name": tool.name,
@@ -295,31 +321,140 @@ class ToolProxyToolset(ToolSearchToolset):
                                 "properties": {},
                             }
                         ),
-                    }
+                    },
                 )
+
+            formatted_tools = self._format_discovered_tools(
+                schemas,
+            )
 
             return ToolResult(
                 type="tool_search",
                 observation=(
-                    "Tool discovery completed.\n",
-                    "Selected tools:\n",
-                    f"{schemas}/n",
-                )
+                    "TOOL DISCOVERY RESULT.\n\n"
+                    "The following tools were discovered and are "
+                    "available for execution:\n\n"
+                    f"{formatted_tools}\n\n"
+                    "IMPORTANT:\n"
+                    "This result only describes the available tools.\n"
+                    "Use call_tool to execute the appropriate "
+                    "discovered tool."
+                ),
             )
-        except Exception as e:
+
+        except Exception as exc:
+
             return ToolResult(
                 type="runtime_error",
                 observation=(
-                    "Tool discovery completed.\n",
-                    f"Failed to find tool for {query}\n",
-                    f"Tools: []\n",
-                )
+                    "TOOL DISCOVERY FAILED.\n\n"
+                    f"Failed to discover a tool for: {query}\n"
+                    f"Error: {exc}"
+                ),
             )
+
+    @staticmethod
+    def _format_discovered_tools(
+        schemas: list[dict[str, Any]],
+    ) -> str:
+
+        if not schemas:
+            return "No executable tools were discovered."
+
+        lines: list[str] = []
+
+        for index, schema in enumerate(
+            schemas,
+            start=1,
+        ):
+            name = schema.get(
+                "name",
+                "unknown",
+            )
+
+            description = schema.get(
+                "description",
+                "No description provided.",
+            )
+
+            parameters = schema.get(
+                "parameters",
+                {},
+            )
+
+            lines.append(
+                f"{index}. {name}",
+            )
+
+            lines.append(
+                f"   Purpose: {description}",
+            )
+
+            properties = parameters.get(
+                "properties",
+                {},
+            )
+
+            required = parameters.get(
+                "required",
+                [],
+            )
+
+            if properties:
+                lines.append(
+                    "   Parameters:",
+                )
+
+                for parameter_name, parameter_schema in (
+                    properties.items()
+                ):
+                    parameter_type = parameter_schema.get(
+                        "type",
+                        "any",
+                    )
+
+                    requirement = (
+                        "required"
+                        if parameter_name in required
+                        else "optional"
+                    )
+
+                    parameter_description = parameter_schema.get(
+                        "description",
+                        "",
+                    )
+
+                    description_suffix = (
+                        f" — {parameter_description}"
+                        if parameter_description
+                        else ""
+                    )
+
+                    lines.append(
+                        f"   - {parameter_name}: "
+                        f"{parameter_type} "
+                        f"({requirement})"
+                        f"{description_suffix}",
+                    )
+
+            else:
+                lines.append(
+                    "   Parameters: none",
+                )
+
+            lines.append("")
+
+        return "\n".join(
+            lines,
+        ).rstrip()
 
     def _parse_call_arguments(
         self,
         raw_arguments: dict[str, Any],
-    ) -> tuple[str, dict[str, Any] | str] | ToolResult:
+    ) -> tuple[
+        str,
+        dict[str, Any] | str,
+    ] | ToolResult:
 
         name = raw_arguments.get(
             "name",
@@ -333,16 +468,16 @@ class ToolProxyToolset(ToolSearchToolset):
             return ToolResult(
                 type="validation_error",
                 observation=(
-                    "Tool  completed.\n",
-                    "Invalid tool params\n",
-                    "Expected:\n",
-                    """{
-                        "name": "<tool_name>",
-                        "parameters": \{}\
-                    }\n""",
-                    f"Received:\n",
-                    f"{raw_arguments}/n",
-                )
+                    "TOOL EXECUTION FAILED.\n\n"
+                    "Invalid call_tool parameters.\n\n"
+                    "Expected:\n"
+                    "{\n"
+                    '  "name": "<discovered_tool_name>",\n'
+                    '  "parameters": {}\n'
+                    "}\n\n"
+                    "Received:\n"
+                    f"{raw_arguments}"
+                ),
             )
 
         if not isinstance(
@@ -355,16 +490,11 @@ class ToolProxyToolset(ToolSearchToolset):
             return ToolResult(
                 type="validation_error",
                 observation=(
-                    "Tool completed.\n",
-                    "Invalid tool params\n",
-                    "Expected:\n",
-                    """{
-                        "name": "<tool_name>",
-                        "parameters": {}
-                    }\n""",
-                    f"Received:\n",
-                    f"{raw_arguments}/n",
-                )
+                    "TOOL EXECUTION FAILED.\n\n"
+                    "The 'parameters' field must be an object "
+                    "or JSON string.\n\n"
+                    f"Received: {raw_arguments}"
+                ),
             )
 
         return (
@@ -380,24 +510,42 @@ class ToolProxyToolset(ToolSearchToolset):
     ) -> Any:
 
         if self._selected_tools is None:
-
             return ToolResult(
                 type="no_tool_found",
                 observation=(
-                    "Tool completed.\n",
-                    "No tool has been selected.\n",
-                    "Use tool_search first to find tools.\n"
-                )
+                    "TOOL EXECUTION FAILED.\n\n"
+                    "No tool has been discovered yet.\n\n"
+                    "Use tool_search first, then call_tool "
+                    "with the discovered tool name."
+                ),
             )
 
         parsed = self._parse_call_arguments(
             raw_arguments,
         )
 
-        if isinstance(parsed, ToolResult):
+        if isinstance(
+            parsed,
+            ToolResult,
+        ):
             return parsed
 
         name, parameters = parsed
+
+        if name in {
+            "tool_search",
+            "call_tool",
+        }:
+            return ToolResult(
+                type="validation_error",
+                observation=(
+                    "TOOL EXECUTION FAILED.\n\n"
+                    f"'{name}' is a runtime proxy tool and cannot "
+                    "be executed through call_tool.\n\n"
+                    "call_tool must receive the exact name of a "
+                    "tool discovered by tool_search."
+                ),
+            )
 
         tool = self._selected_tools.get_function_tool(
             name,
@@ -424,11 +572,11 @@ class ToolProxyToolset(ToolSearchToolset):
             return ToolResult(
                 type="tool_result",
                 observation=(
-                    "Tool completed.\n",
-                    f"Tool result:",
+                    "TOOL EXECUTION RESULT.\n\n"
+                    f"Executed tool: {name}\n\n"
+                    "Actual result:\n"
                     f"{result}"
-
-                )
+                ),
             )
 
         for tool in self._selected_tools.provider_tools:
@@ -452,14 +600,15 @@ class ToolProxyToolset(ToolSearchToolset):
                 result = await tool.ainvoke(
                     arguments,
                 )
+
                 return ToolResult(
                     type="tool_result",
                     observation=(
-                        "Tool  completed.\n",
-                        f"Tool result:",
+                        "TOOL EXECUTION RESULT.\n\n"
+                        f"Executed tool: {name}\n\n"
+                        "Actual result:\n"
                         f"{result}"
-
-                    )
+                    ),
                 )
 
             except (
@@ -470,18 +619,19 @@ class ToolProxyToolset(ToolSearchToolset):
                 result = tool.invoke(
                     arguments,
                 )
+
                 return ToolResult(
                     type="tool_result",
                     observation=(
-                        "Tool completed.\n",
-                        f"Tool result:",
+                        "TOOL EXECUTION RESULT.\n\n"
+                        f"Executed tool: {name}\n\n"
+                        "Actual result:\n"
                         f"{result}"
-
-                    )
+                    ),
                 )
 
         available = list(
-            self._selected_tools.function_tools.keys()
+            self._selected_tools.function_tools.keys(),
         )
 
         available.extend(
@@ -492,14 +642,10 @@ class ToolProxyToolset(ToolSearchToolset):
         return ToolResult(
             type="tool_error",
             observation=(
-                "Tool completed.\n",
-                "Tool error\n",
-                "Expected:\n",
-                """{
-                    "name": "<tool_name>",
-                    "parameters": {}
-                }\n""",
-                f"Received:\n",
-                f"{raw_arguments}/n",
-            )
+                "TOOL EXECUTION FAILED.\n\n"
+                f"Tool '{name}' was not one of the discovered tools.\n\n"
+                "Available discovered tools:\n"
+                f"{', '.join(available)}\n\n"
+                "Use the exact discovered tool name."
+            ),
         )
