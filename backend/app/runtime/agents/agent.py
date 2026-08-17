@@ -83,7 +83,8 @@ class Agent:
         memory: MemoryProvider | None = None,
         conversation: ConversationProvider | None = None,
         rag: RAGProvider | None = None,
-        max_iteration: int = 20,
+        max_iteration: int = 10,
+        max_reasoning_steps: int = 5
     ) -> None:
 
         self._name = name
@@ -96,6 +97,7 @@ class Agent:
         self._conversation = conversation
         self._rag = rag
         self._max_iterations = max_iteration
+        self._max_reasoning_steps = max_reasoning_steps
 
         self._tools = list(
             tools or [],
@@ -318,6 +320,7 @@ class Agent:
                 run_context=run_context,
             ),
             max_iterations=self._max_iterations,
+            max_reasoning_steps=self._max_reasoning_steps
         )
 
     @property
@@ -346,6 +349,7 @@ class Agent:
                     self._tool_context.proxy,
                 ),
                 max_iterations=self._max_iterations,
+                max_reasoning_steps=self._max_reasoning_steps
             )
 
         return self._runner
