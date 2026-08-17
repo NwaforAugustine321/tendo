@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.runtime.agents.run_context import RunContext
 from app.runtime.chat.context import ChatContext
@@ -27,9 +27,17 @@ class LLM(ABC):
     """
     Base interface implemented by every LLM provider.
 
-    Besides inference, every provider exposes its model
-    capabilities so the runtime can manage prompt size
-    before making a request.
+    The provider is prepared for the current Agent configuration
+    before inference begins.
+
+    Preparation may configure:
+
+    - native tool binding
+    - structured output
+    - provider-specific runtime configuration
+
+    Once prepared, the provider can be reused across multiple
+    inference iterations within the same Agent configuration.
     """
 
     @property
@@ -89,7 +97,8 @@ class LLM(ABC):
         messages: list[ChatMessage],
     ) -> list[Any]:
         """
-        Convert ChatMessages to the provider's native message format.
+        Convert ChatMessages to the provider's native
+        message format.
         """
         ...
 
@@ -99,6 +108,9 @@ class LLM(ABC):
         conversation_context: ChatContext,
         run_context: RunContext,
     ) -> InferenceStream:
+        """
+        Create an inference stream for the current run.
+        """
         ...
 
     @abstractmethod
@@ -109,7 +121,14 @@ class LLM(ABC):
         output_type: type | None,
     ) -> None:
         """
-        Prepare the provider for one inference.
+        Prepare the provider for the current Agent configuration.
+
+        Preparation is performed once and reused across
+        inference iterations.
+
+        Provider implementations may use this to configure
+        native tools, structured output, or other provider-level
+        settings.
         """
         ...
 
@@ -118,6 +137,9 @@ class LLM(ABC):
         self,
         messages: list[ChatMessage],
     ) -> Any:
+        """
+        Execute one non-streaming inference.
+        """
         ...
 
     @abstractmethod
@@ -125,6 +147,9 @@ class LLM(ABC):
         self,
         messages: list[ChatMessage],
     ) -> AsyncIterator[Any]:
+        """
+        Execute one streaming inference.
+        """
         ...
 
     @abstractmethod
@@ -132,11 +157,7 @@ class LLM(ABC):
         self,
         chunks: list[Any],
     ) -> Any:
-        ...
-
-    @abstractmethod
-    def to_provider_messages(
-        self,
-        messages: list[ChatMessage],
-    ) -> list[Any]:
+        """
+        Merge provider streaming chunks into one response.
+        """
         ...

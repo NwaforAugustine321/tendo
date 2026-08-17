@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
@@ -43,14 +44,28 @@ class LangChainLLM(LLM):
         model: BaseChatModel,
         *,
         supports_structured_output: bool = True,
-        max_context_tokens=128000,
-        max_output_tokens=4096,
+        max_context_tokens: int = 128000,
+        max_output_tokens: int = 4096,
     ) -> None:
 
         self._max_context_tokens = max_context_tokens
         self._max_output_tokens = max_output_tokens
+
+        #
+        # Keep the original provider model untouched.
+        #
         self._base_model = model
+
+        #
+        # Model actually used for inference.
+        #
         self._model = model
+
+        #
+        # Preparation state.
+        #
+        self._prepared = False
+        self._prepared_output_type: type | None = None
 
         self._supports_structured_output = (
             supports_structured_output
@@ -87,7 +102,8 @@ class LangChainLLM(LLM):
     @property
     def token_counter(
         self,
-    ) -> int:
+    ) -> EstimatedTokenCounter:
+
         return EstimatedTokenCounter()
 
     @property
@@ -111,6 +127,13 @@ class LangChainLLM(LLM):
 
         return self._model
 
+    @property
+    def prepared(
+        self,
+    ) -> bool:
+
+        return self._prepared
+
     def chat(
         self,
         *,
@@ -131,24 +154,54 @@ class LangChainLLM(LLM):
         output_type: type | None,
     ) -> None:
         """
-        Prepare the model for one inference.
+        Prepare the provider once for the current Agent configuration.
+
+        Tool binding and structured-output configuration are performed
+        only once. Subsequent calls reuse the already prepared model.
         """
 
+        #
+        # Already prepared with the same output configuration.
+        #
+        if (
+            self._prepared
+            and self._prepared_output_type is output_type
+        ):
+
+            return
+
+        #
+        # Start from the original provider model.
+        #
         model = self._base_model
 
         #
-        # Bind tools.
+        # Bind the runtime proxy tools.
+        #
+        # The proxy exposes:
+        #
+        #   - tool_search
+        #   - call_tool
+        #
+        # The discovered tools remain behind the proxy and are not
+        # directly bound to the LLM.
         #
         if not tool_context.is_empty():
 
-            model = model.bind_tools(
-                to_langchain_tools(
-                    tool_context.proxy.tools,
-                )
+            proxy_tools = (
+                tool_context.proxy.tools
             )
 
+            if proxy_tools:
+
+                model = model.bind_tools(
+                    to_langchain_tools(
+                        proxy_tools,
+                    ),
+                )
+
         #
-        # Bind structured output.
+        # Bind structured output when requested.
         #
         if (
             output_type is not None
@@ -159,7 +212,16 @@ class LangChainLLM(LLM):
                 output_type,
             )
 
+        #
+        # Store the prepared provider.
+        #
         self._model = model
+
+        self._prepared_output_type = (
+            output_type
+        )
+
+        self._prepared = True
 
     async def invoke(
         self,
@@ -169,7 +231,7 @@ class LangChainLLM(LLM):
         return await self._model.ainvoke(
             self.to_provider_messages(
                 messages,
-            )
+            ),
         )
 
     async def stream(
@@ -177,14 +239,15 @@ class LangChainLLM(LLM):
         messages: list[ChatMessage],
     ) -> AsyncIterator[AIMessageChunk]:
         """
-        Stream chunks from the provider.
+        Stream chunks from the prepared provider.
         """
 
         async for chunk in self._model.astream(
             self.to_provider_messages(
                 messages,
-            )
+            ),
         ):
+
             yield chunk
 
     def merge_chunks(
@@ -196,6 +259,7 @@ class LangChainLLM(LLM):
         """
 
         if not chunks:
+
             return AIMessage(
                 content="",
             )
@@ -203,14 +267,30 @@ class LangChainLLM(LLM):
         merged = chunks[0]
 
         for chunk in chunks[1:]:
+
             merged += chunk
 
+        #
         # Deduplicate list fields in additional_kwargs
-        # that get repeated per-chunk during streaming.
-        additional = merged.additional_kwargs or {}
+        # that may be repeated across streamed chunks.
+        #
+        additional = (
+            merged.additional_kwargs
+            or {}
+        )
+
         for key, value in additional.items():
-            if isinstance(value, list):
-                additional[key] = list(dict.fromkeys(value))
+
+            if isinstance(
+                value,
+                list,
+            ):
+
+                additional[key] = list(
+                    dict.fromkeys(
+                        value,
+                    ),
+                )
 
         return merged
 
@@ -230,7 +310,7 @@ class LangChainLLM(LLM):
                     result.append(
                         SystemMessage(
                             content=message.content,
-                        )
+                        ),
                     )
 
                 case "user":
@@ -238,7 +318,7 @@ class LangChainLLM(LLM):
                     result.append(
                         HumanMessage(
                             content=message.content,
-                        )
+                        ),
                     )
 
                 case "assistant":
@@ -246,7 +326,7 @@ class LangChainLLM(LLM):
                     result.append(
                         AIMessage(
                             content=message.content,
-                        )
+                        ),
                     )
 
                 case "tool":
@@ -254,8 +334,10 @@ class LangChainLLM(LLM):
                     result.append(
                         ToolMessage(
                             content=message.content,
-                            tool_call_id=message.tool_call_id,
-                        )
+                            tool_call_id=(
+                                message.tool_call_id
+                            ),
+                        ),
                     )
 
                 case _:

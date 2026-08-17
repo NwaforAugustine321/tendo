@@ -35,10 +35,30 @@ class RedisTransport(EventTransport):
     ) -> None:
         """Publish a payload to a Redis channel."""
 
-        await self._redis.publish(
-            channel,
-            payload,
-        )
+        try:
+            await self._redis.publish(
+                channel,
+                payload,
+            )
+        except (
+            RedisConnectionError,
+            ConnectionResetError,
+            OSError,
+        ):
+            # One retry after reconnect attempt.
+            try:
+                await self._redis.publish(
+                    channel,
+                    payload,
+                )
+            except (
+                RedisConnectionError,
+                ConnectionResetError,
+                OSError,
+            ) as exc:
+                raise RedisConnectionError(
+                    f"Redis publish failed after retry: {exc}"
+                ) from exc
 
     def subscribe(
         self,
@@ -373,10 +393,20 @@ class RedisEventBus(EventBus):
             default=str,
         )
 
-        await self._transport.publish(
-            self._channel,
-            payload,
-        )
+        try:
+            await self._transport.publish(
+                self._channel,
+                payload,
+            )
+        except (
+            RedisConnectionError,
+            ConnectionResetError,
+            OSError,
+        ) as exc:
+            logger.warning(
+                "EventBus publish failed (Redis unavailable): %s",
+                exc,
+            )
 
     def subscribe(
         self,

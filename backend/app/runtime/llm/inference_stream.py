@@ -32,23 +32,26 @@ class InferenceMode(str, Enum):
 
 class InferenceStream(AsyncIterator[LLMEvent]):
     """
-    Represents one active inference.
+    Represents one active LLM inference.
 
     Responsibilities
     ----------------
-    - Build the prompt
-    - Invoke the model
-    - Emit normalized events
-    - Build the final LLMResponse
+    - Build the current prompt.
+    - Invoke the already-prepared LLM.
+    - Emit normalized inference events.
+    - Build the final LLMResponse.
 
-    Context optimization is handled before this stream
-    reaches inference by AgentRunner.
+    The LLM is prepared by Agent and reused across
+    all inference iterations.
 
     This class does not:
 
+    - prepare the LLM
+    - bind tools
+    - bind structured output
     - count context tokens
-    - decide when optimization is required
-    - optimize conversations
+    - optimize conversation context
+    - decide when context optimization is required
     """
 
     def __init__(
@@ -83,29 +86,34 @@ class InferenceStream(AsyncIterator[LLMEvent]):
     def finished(
         self,
     ) -> bool:
+
         return self._finished
 
     @property
     def closed(
         self,
     ) -> bool:
+
         return self._closed
 
     @property
     def error(
         self,
     ) -> Exception | None:
+
         return self._error
 
     @property
     def response(
         self,
     ) -> LLMResponse | None:
+
         return self._response
 
     def __aiter__(
         self,
     ) -> AsyncIterator[LLMEvent]:
+
         return self
 
     async def __anext__(
@@ -118,7 +126,9 @@ class InferenceStream(AsyncIterator[LLMEvent]):
         event = await self._events.get()
 
         if event is None:
+
             self._closed = True
+
             raise StopAsyncIteration
 
         return event
@@ -130,8 +140,10 @@ class InferenceStream(AsyncIterator[LLMEvent]):
         try:
 
             #
-            # Build the prompt using the PromptState
-            # owned by the current AgentSession.
+            # Build the prompt for this inference.
+            #
+            # PromptState belongs to the session and survives
+            # across inference iterations.
             #
             builder = PromptBuilder(
                 context=PromptContext(
@@ -147,9 +159,10 @@ class InferenceStream(AsyncIterator[LLMEvent]):
             )
 
             #
-            # PromptBuilder builds the actual prompt.
+            # Build the provider-independent messages.
             #
-            # No token counting or optimization happens here.
+            # Context optimization is handled by AgentRunner
+            # before creating this inference.
             #
             messages = await (
                 self._agent.context_manager.build(
@@ -158,22 +171,22 @@ class InferenceStream(AsyncIterator[LLMEvent]):
             )
 
             #
-            # Prepare the LLM.
+            # IMPORTANT:
             #
-            self._agent.llm.prepare(
-                tool_context=self._agent.tool_context,
-                output_type=self._agent.output_type,
-            )
-
+            # Do NOT call:
             #
-            # Execute inference.
+            #     self._agent.llm.prepare(...)
+            #
+            # here.
+            #
+            # Agent prepares the LLM once during initialization.
             #
             provider_response = await self._invoke(
                 messages,
             )
 
             #
-            # Parse the final response.
+            # Parse the provider response.
             #
             self._response = (
                 self._agent.llm.response_parser.parse(
@@ -255,6 +268,9 @@ class InferenceStream(AsyncIterator[LLMEvent]):
     ) -> None:
         """
         Placeholder for future token streaming events.
+
+        Token/text streaming can be implemented here without
+        affecting inference execution.
         """
 
         return
@@ -301,6 +317,7 @@ class InferenceStream(AsyncIterator[LLMEvent]):
             raise self._error
 
         if self._response is None:
+
             raise RuntimeError(
                 "Inference completed without a response.",
             )
@@ -321,15 +338,21 @@ class InferenceStream(AsyncIterator[LLMEvent]):
             self._task.cancel()
 
             try:
+
                 await self._task
+
             except asyncio.CancelledError:
+
                 pass
 
         while True:
 
             try:
+
                 self._events.get_nowait()
+
             except asyncio.QueueEmpty:
+
                 break
 
         await self._events.put(

@@ -101,11 +101,23 @@ class Agent:
             tools or [],
         )
 
+        #
+        # Build the complete runtime tool registry.
+        #
+        # External tools:
+        #   - delegate_to_specialist
+        #   - other configured tools
+        #
+        # Runtime-created tools:
+        #   - search_memory
+        #   - search_knowledge
+        #
         runtime_tools = [
             *self._tools,
         ]
 
         if self._memory is not None:
+
             runtime_tools.append(
                 create_memory_tool(
                     agent=self,
@@ -113,18 +125,40 @@ class Agent:
             )
 
         if self._rag is not None:
+
             runtime_tools.append(
                 create_rag_tool(
                     agent=self,
                 ),
             )
 
+        #
+        # Create ToolContext once.
+        #
+        # ToolContext owns the underlying tools and its proxy
+        # exposes the LLM-facing:
+        #
+        #   - tool_search
+        #   - call_tool
+        #
         self._tool_context = ToolContext.from_tools(
             runtime_tools,
         )
 
         self._metadata = metadata or {}
+
         self._output_type = output_type
+
+        #
+        # Prepare the LLM once.
+        #
+        # This must happen after ToolContext exists because
+        # LangChainLLM.prepare() binds the proxy tools.
+        #
+        self._llm.prepare(
+            tool_context=self._tool_context,
+            output_type=self._output_type,
+        )
 
         self._guardrails = (
             guardrails
@@ -147,16 +181,19 @@ class Agent:
         self._middleware = MiddlewareManager()
 
         if middleware:
+
             self._middleware.extend(
                 middleware,
             )
 
         if self._conversation is not None:
+
             self._middleware.extend(
                 self._conversation.middleware(),
             )
 
         if self._memory is not None:
+
             self._middleware.extend(
                 self._memory.middleware(),
             )
@@ -165,84 +202,98 @@ class Agent:
     def name(
         self,
     ) -> str:
+
         return self._name
 
     @property
     def description(
         self,
     ) -> str:
+
         return self._description
 
     @property
     def instructions(
         self,
     ) -> str:
+
         return self._instructions
 
     @property
     def llm(
         self,
     ) -> LLM:
+
         return self._llm
 
     @property
     def context_manager(
         self,
     ) -> ContextManager:
+
         return self._context_manager
 
     @property
     def memory(
         self,
     ) -> MemoryProvider | None:
+
         return self._memory
 
     @property
     def conversation(
         self,
     ) -> ConversationProvider | None:
+
         return self._conversation
 
     @property
     def rag(
         self,
     ) -> RAGProvider | None:
+
         return self._rag
 
     @property
     def guardrails(
         self,
     ) -> GuardrailManager:
+
         return self._guardrails
 
     @property
     def prompt_template(
         self,
     ) -> PromptTemplate:
+
         return self._prompt_template
 
     @property
     def middleware(
         self,
     ) -> MiddlewareManager:
+
         return self._middleware
 
     @property
     def tool_context(
         self,
     ) -> ToolContext:
+
         return self._tool_context
 
     @property
     def metadata(
         self,
     ) -> dict[str, Any]:
+
         return self._metadata
 
     @property
     def output_type(
         self,
     ) -> type | None:
+
         return self._output_type
 
     def create_runner(
@@ -252,9 +303,8 @@ class Agent:
         """
         Create a runner for the current execution.
 
-        The tools are created once when the Agent is initialized.
-        The current RunContext is supplied by the tool execution
-        layer when a runtime-dependent tool is called.
+        Tools are owned by the Agent and ToolContext.
+        RunContext is supplied only to the execution layer.
         """
 
         from app.runtime.toolsets.executor import (
@@ -285,6 +335,7 @@ class Agent:
             self,
             "_runner",
         ):
+
             from app.runtime.toolsets.executor import (
                 ToolExecutor,
             )
