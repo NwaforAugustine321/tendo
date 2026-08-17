@@ -9,16 +9,27 @@ class RAGPromptBuilder:
     """
 
     HEADER = (
-        "## Central Knowledge:\n"
-        "Use this knowledge as a central source of business information when "
-        "reasoning about and performing the task. It represents the accumulated "
-        "understanding of the business, including its operations, activities, "
+        "## Central Knowledge\n\n"
+
+        "Central Knowledge contains accumulated business information and "
+        "understanding. It may include business operations, activities, "
         "processes, data, entities, relationships, facts, evidence, findings, "
         "decisions, goals, insights, observations, patterns, assumptions, "
-        "perspectives, and other relevant business knowledge.\n"
-        "Use relevant knowledge to inform your reasoning, decisions, and responses. "
-        "Distinguish established information from interpretations and assumptions, "
-        "and do not invent unsupported information."
+        "and other established business knowledge.\n\n"
+
+        "Central Knowledge is not automatically available in the current "
+        "context. When the owner's request requires stored business information, "
+        "use the available tool system to retrieve it.\n\n"
+
+        "Use Central Knowledge when the request requires established information "
+        "about the business or its current or historical state.\n\n"
+
+        "Do not retrieve Central Knowledge for ordinary conversational requests "
+        "when the current conversation already provides enough information.\n\n"
+
+        "Treat retrieved knowledge as supporting information. Distinguish "
+        "established information from interpretations or assumptions and do not "
+        "invent unsupported information."
     )
 
     def build(

@@ -332,10 +332,27 @@ class AgentRunner:
 
                             logger.warning(
                                 "[RUNNER] Reasoning-only limit reached. "
-                                "Forcing final response.",
+                                "Exiting reasoning-only mode and returning "
+                                "to normal interaction mode.",
                             )
 
-                            break
+                            reasoning_only_attempts = 0
+
+                            run_context.add_message(
+                                ChatMessage.system(
+                                    "REASONING-ONLY LIMIT REACHED.\n"
+                                    "Exit reasoning-only mode now.\n"
+                                    "Continue the normal interaction loop.\n"
+                                    "Your next response MUST contain either a "
+                                    "user-facing response or a tool call.\n"
+                                    "Do not return another reasoning-only response.\n"
+                                    "If additional information is required, "
+                                    "use the appropriate tool. Otherwise, "
+                                    "provide the final user-facing response."
+                                ),
+                            )
+
+                            continue
 
                         run_context.add_message(
                             ChatMessage.system(

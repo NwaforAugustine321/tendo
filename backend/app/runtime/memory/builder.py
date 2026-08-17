@@ -9,13 +9,42 @@ class MemoryPromptBuilder:
     """
 
     HEADER = (
-        "## Long-Term Memory:\n"
-        "Use this memory as a source of relevant context when performing the task. "
-        "It contains accumulated knowledge of the business, including facts, history, "
-        "preferences, decisions, insights, patterns, relationships, past history,  and prior observations. "
-        "Use relevant memory to inform your reasoning and response. "
-        "Do not ignore relevant memory, but do not invent or assume information "
-        "that is not supported by the memory."
+
+        "## Long-Term Memory\n\n"
+
+        "Long-Term Memory contains information remembered from previous "
+        "conversations and interactions. It provides persistent context about "
+        "the user and their history that may no longer be present in the current "
+        "conversation.\n\n"
+
+        "It may contain the user's preferences, communication style, goals, "
+        "interests, important personal context, previous decisions, past "
+        "requests, ongoing matters, relationships, experiences, facts they "
+        "have shared, and other information that is useful for understanding "
+        "the user over time.\n\n"
+
+        "Use Long-Term Memory to maintain continuity across conversations and "
+        "avoid treating each interaction as if it were the first interaction "
+        "with the user. It can provide context from earlier conversations when "
+        "that context is relevant to the current request.\n\n"
+
+        "Long-Term Memory is not automatically included in the current context. "
+        "When the current conversation does not contain enough context, or when "
+        "the request depends on something the user may have previously shared, "
+        "remembered, decided, preferred, or discussed, use the available memory "
+        "capability to retrieve the relevant information.\n\n"
+
+        "Do not retrieve Long-Term Memory for ordinary conversational turns when "
+        "the current conversation already provides sufficient context.\n\n"
+
+        "When retrieving memory, use a focused query describing the specific "
+        "context you need. Do not perform broad or unnecessary memory searches.\n\n"
+
+        "Treat retrieved memories as supporting context. Use them when relevant, "
+        "but distinguish remembered information from the current conversation "
+        "and do not invent information that is not supported by the retrieved "
+        "memory."
+
     )
 
     def build(

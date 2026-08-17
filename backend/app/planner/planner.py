@@ -369,7 +369,7 @@ class Planner:
 
             tools=[
 
-                # delegate_to_agents(session)
+                delegate_to_agents(session)
             ],
 
             middleware=[
