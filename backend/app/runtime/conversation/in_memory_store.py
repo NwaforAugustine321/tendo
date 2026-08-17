@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
 import lancedb
 from lancedb.pydantic import LanceModel
 from pydantic import Field
-
+from app.db.tools.messages import save_messages
 from app.runtime.chat.message import ChatMessage
 
 from .context import ConversationContext
 from .store import ConversationStore
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationRecord(LanceModel):
@@ -62,6 +66,8 @@ class InMemConversationStore(
         db: lancedb.DBConnection | None = None,
         uri: str | Path = "./data/conversations",
     ) -> None:
+
+        self._namespace = namespace
 
         self._db = (
             db
@@ -269,6 +275,48 @@ class InMemConversationStore(
         self._message_table.add(
             rows,
         )
+
+        asyncio.create_task(
+            self._persist_to_long_term_mem(
+                conversation_id=conversation_id,
+                messages=messages,
+            )
+        )
+
+    async def _persist_to_long_term_mem(
+        self,
+        *,
+        conversation_id: str,
+        messages: list[ChatMessage],
+    ) -> None:
+        """Persist messages to long term memory without blocking the main flow."""
+
+        try:
+
+            msg_dicts = [
+                {
+                    "role": message.role,
+                    "content": str(message.content),
+                }
+                for message in messages
+                if message.role in ("user", "assistant", "system")
+                and message.content
+            ]
+
+            if not msg_dicts:
+                return
+
+            await save_messages(
+                business_id=self._namespace,
+                session_id=conversation_id,
+                messages=msg_dicts,
+            )
+
+        except Exception as exc:
+            logger.warning(
+                "Long term message persist failed: %s",
+                exc,
+            )
 
     async def load_messages(
         self,

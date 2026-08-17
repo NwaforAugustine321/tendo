@@ -67,35 +67,35 @@ export function Conversation({
 
     const handler = (raw: any) => {
       const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
+      const data = msg.data || {};
+      const type = data.type || "";
+      const payload = data.payload || {};
 
-      if (msg.type === "message" && msg.payload) {
-        const content = msg.payload.content || "";
-        if (content) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content,
-              type: "text",
-            },
-          ]);
-        }
+      if (type === "message" && payload.content) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            content: payload.content,
+            type: "text",
+            stream: true,
+          },
+        ]);
         setThinking(false);
         setStatusText("");
-      } else if (msg.type === "error" && msg.payload) {
+      } else if (type === "error" && payload.content) {
         setMessages((prev) => [
           ...prev,
           {
             id: `error-${Date.now()}`,
             role: "assistant",
-            content: msg.payload.content || "Something went wrong.",
+            content: payload.content || "Something went wrong.",
             type: "text",
           },
         ]);
         setThinking(false);
         setStatusText("");
-        setThinking(false);
       }
     };
 
@@ -103,8 +103,7 @@ export function Conversation({
 
     const transcriptHandler = (raw: any) => {
       const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
-      const content =
-        msg?.payload?.content || msg?.data?.payload?.content || "";
+      const content = msg?.data?.payload?.content || "";
       if (content) {
         setMessages((prev) => [
           ...prev,

@@ -16,9 +16,7 @@ async def handle_frontend_event(
     """
     Deliver an application event to the frontend.
 
-    Uses the event name from the ApplicationEvent as the Socket.IO
-    event name so the frontend can listen on specific channels
-    (e.g., "progress", "message", etc.).
+
     """
 
     user_id = ""

@@ -230,7 +230,9 @@ export function ConversationPage({
                   content={msg.content}
                   audioUrl={msg.audioUrl}
                   stream={
-                    msg.role === "assistant" && idx === messages.length - 1
+                    msg.stream === true &&
+                    msg.role === "assistant" &&
+                    idx === messages.length - 1
                   }
                 />
               );

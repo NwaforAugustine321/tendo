@@ -43,6 +43,7 @@ let _client: LiveKitVoiceClient | null = null;
 let _connectVersion = 0; // Guards against React strict mode race conditions
 let _reconnectAttempts = 0;
 let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let _agentReadyTimeout: ReturnType<typeof setTimeout> | null = null;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_BASE_DELAY_MS = 3000;
 
@@ -114,6 +115,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
             if (_reconnectTimer) {
               clearTimeout(_reconnectTimer);
               _reconnectTimer = null;
+            }
+            if (_agentReadyTimeout) {
+              clearTimeout(_agentReadyTimeout);
+              _agentReadyTimeout = null;
             }
             _reconnectAttempts = 0;
           }
@@ -214,6 +219,67 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
       _client = client;
       set({ connectionState: "connected" });
+
+      // If agent doesn't become ready within 15s, trigger reconnect with exponential backoff
+      const scheduleAgentCheck = () => {
+        const checkDelay = Math.min(
+          15000 * Math.pow(2, _reconnectAttempts),
+          60000,
+        );
+        _agentReadyTimeout = setTimeout(async () => {
+          _agentReadyTimeout = null;
+          if (
+            _connectVersion !== version ||
+            _client !== client ||
+            client.isAgentReady()
+          ) {
+            return;
+          }
+
+          if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            set({
+              connectionState: "error",
+              errorMessage: "Voice agent unavailable. Please try again.",
+            });
+            return;
+          }
+
+          _reconnectAttempts++;
+          set({
+            statusText: `reconnecting...`,
+          });
+
+          try {
+            await request("/voice/start/agent", {
+              method: "POST",
+              body: {
+                business_id: businessId,
+                session_id: sessionId || "",
+                record_id: recordId || "",
+              },
+              silent: true,
+            });
+          } catch {}
+
+          // Wait with exponential backoff before next check
+          const waitDelay = Math.min(
+            15000 * Math.pow(2, _reconnectAttempts - 1),
+            60000,
+          );
+          _agentReadyTimeout = setTimeout(() => {
+            _agentReadyTimeout = null;
+            if (
+              _connectVersion === version &&
+              _client === client &&
+              !client.isAgentReady()
+            ) {
+              scheduleAgentCheck();
+            }
+          }, waitDelay);
+        }, checkDelay);
+      };
+
+      scheduleAgentCheck();
     } catch {
       if (_connectVersion === version) {
         set({
@@ -232,6 +298,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     if (_reconnectTimer) {
       clearTimeout(_reconnectTimer);
       _reconnectTimer = null;
+    }
+    if (_agentReadyTimeout) {
+      clearTimeout(_agentReadyTimeout);
+      _agentReadyTimeout = null;
     }
     _reconnectAttempts = 0;
 
@@ -462,6 +532,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     if (_reconnectTimer) {
       clearTimeout(_reconnectTimer);
       _reconnectTimer = null;
+    }
+    if (_agentReadyTimeout) {
+      clearTimeout(_agentReadyTimeout);
+      _agentReadyTimeout = null;
     }
     _reconnectAttempts = 0;
     if (_client) {

@@ -287,7 +287,48 @@ class VoiceLifecycleService:
                             )
 
                 if active_dispatch_found:
-                    return
+                    # Verify agent is actually present in the room.
+                    # If dispatch says "running" but the agent participant
+                    # is gone (e.g., voice worker restarted), treat as stale.
+                    participants = (
+                        await api.room.list_participants(
+                            ListParticipantsRequest(
+                                room=room_name,
+                            ),
+                        )
+                    )
+
+                    agent_present = any(
+                        getattr(p, "identity", "") == agent_identity
+                        for p in (participants.participants or [])
+                    )
+
+                    if agent_present:
+                        return
+
+                    # Agent not in room — dispatch is stale, remove it
+                    logger.warning(
+                        "Voice dispatch active but agent not in room: "
+                        "room=%s user_id=%s dispatch_id=%s — removing stale dispatch",
+                        room_name,
+                        user_id,
+                        dispatch_id,
+                    )
+
+                    try:
+                        await api.agent_dispatch.delete_dispatch(
+                            dispatch_id,
+                            room_name,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Failed to remove stale active dispatch: "
+                            "room=%s dispatch_id=%s",
+                            room_name,
+                            dispatch_id,
+                        )
+
+                    # Fall through to dispatch a fresh agent below
 
                 participants = (
                     await api.room.list_participants(

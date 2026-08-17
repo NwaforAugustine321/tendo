@@ -53,7 +53,7 @@ async def planner_node(state: State, config: RunnableConfig, runtime: Runtime):
         writer("I didn't catch that. Could you repeat?")
         return {"messages": []}
 
-    if user_id and user_message:
+    if user_message:
 
         payload = {
             "type": "transcript",
@@ -75,15 +75,24 @@ async def planner_node(state: State, config: RunnableConfig, runtime: Runtime):
 
     response = await planner.run(user_message=user_message, messages=messages)
     writer(response or "")
-
-    if user_id and response:
-        await socket_dispatcher.emit_to_user(
-            user_id=user_id,
-            event="message",
-            payload={
-                "type": "message",
-                "payload": {"content": user_message},
+    print(user_id, response, 'checking >>>')
+    if response:
+        response_payload = {
+            "type": "message",
+            "payload": {
+                "content": response,
             },
+            "user_id": user_id,
+            "event": "message",
+        }
+
+        await get_event_bus().publish(
+            ApplicationEvent(
+                event="message",
+                source="app",
+                delivery=EventDelivery.APP,
+                data=response_payload,
+            ),
         )
 
     return {"messages": []}
