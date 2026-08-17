@@ -19,6 +19,7 @@ from app.runtime.toolsets.tool_context import (
 
 if TYPE_CHECKING:
     from app.runtime.llm.inference_stream import (
+        InferenceMode,
         InferenceStream,
     )
 
@@ -27,18 +28,27 @@ class LLM(ABC):
     """
     Base interface implemented by every LLM provider.
 
-    The provider is prepared for the current Agent configuration
-    before inference begins.
+    The provider can maintain multiple prepared configurations.
 
-    Preparation may configure:
+    Normal inference:
 
-    - native tool binding
-    - structured output
-    - provider-specific runtime configuration
+        tools_enabled=True
+            ↓
+        prepared model with runtime tools
 
-    Once prepared, the provider can be reused across multiple
-    inference iterations within the same Agent configuration.
+    Forced-final inference:
+
+        tools_enabled=False
+            ↓
+        prepared model without runtime tools
+
+    Provider implementations are responsible for caching and
+    reusing prepared models when the configuration has not changed.
     """
+
+    # ------------------------------------------------------------------
+    # Capabilities
+    # ------------------------------------------------------------------
 
     @property
     @abstractmethod
@@ -85,11 +95,15 @@ class LLM(ABC):
         """
         Token counter used by the ContextManager.
 
-        Providers should return an implementation that
-        matches their tokenizer. If unavailable, return
-        an estimated token counter.
+        Providers should return an implementation that matches
+        their tokenizer. If unavailable, return an estimated
+        token counter.
         """
         ...
+
+    # ------------------------------------------------------------------
+    # Provider message conversion
+    # ------------------------------------------------------------------
 
     @abstractmethod
     def to_provider_messages(
@@ -102,16 +116,39 @@ class LLM(ABC):
         """
         ...
 
+    # ------------------------------------------------------------------
+    # Inference creation
+    # ------------------------------------------------------------------
+
     @abstractmethod
     def chat(
         self,
+        *,
         conversation_context: ChatContext,
         run_context: RunContext,
+        mode: InferenceMode = ...,  # type: ignore[assignment]
+        tools_enabled: bool = True,
     ) -> InferenceStream:
         """
-        Create an inference stream for the current run.
+        Create one inference stream.
+
+        tools_enabled=True
+            Normal reasoning/action inference. Runtime tools
+            may be available.
+
+        tools_enabled=False
+            Tool-free inference. Used when the runner requires
+            the model to produce a final response without being
+            able to call tools.
+
+        The provider should reuse a cached prepared model where
+        possible.
         """
         ...
+
+    # ------------------------------------------------------------------
+    # Provider preparation
+    # ------------------------------------------------------------------
 
     @abstractmethod
     def prepare(
@@ -119,18 +156,25 @@ class LLM(ABC):
         *,
         tool_context: ToolContext,
         output_type: type | None,
+        tools_enabled: bool = True,
     ) -> None:
         """
-        Prepare the provider for the current Agent configuration.
+        Prepare the provider for the requested inference mode.
 
-        Preparation is performed once and reused across
-        inference iterations.
+        tools_enabled=True
+            Prepare/reuse the normal model with runtime tools.
 
-        Provider implementations may use this to configure
-        native tools, structured output, or other provider-level
-        settings.
+        tools_enabled=False
+            Prepare/reuse a model with no runtime tools.
+
+        Provider implementations should cache prepared configurations
+        rather than rebuilding/binding the model on every inference.
         """
         ...
+
+    # ------------------------------------------------------------------
+    # Invocation
+    # ------------------------------------------------------------------
 
     @abstractmethod
     async def invoke(
@@ -151,6 +195,10 @@ class LLM(ABC):
         Execute one streaming inference.
         """
         ...
+
+    # ------------------------------------------------------------------
+    # Response handling
+    # ------------------------------------------------------------------
 
     @abstractmethod
     def merge_chunks(

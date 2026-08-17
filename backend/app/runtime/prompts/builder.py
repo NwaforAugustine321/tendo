@@ -138,26 +138,27 @@ class PromptBuilder:
         #
         # Memory
         #
-        # prompt = await (
-        #     self._build_memory_prompt()
-        # )
+        if self._context.run_context.enable_runtime_rag_mem:
 
-        # if prompt:
-        #     parts.append(
-        #         prompt,
-        #     )
+            prompt = await (
+                self._build_memory_prompt()
+            )
 
-        #
+            if prompt:
+                parts.append(
+                    prompt,
+                )
+
         # Retrieved knowledge
-        #
-        # prompt = await (
-        #     self._build_rag_prompt()
-        # )
+        if self._context.run_context.enable_runtime_rag_mem:
+            prompt = await (
+                self._build_rag_prompt()
+            )
 
-        # if prompt:
-        #     parts.append(
-        #         prompt,
-        #     )
+            if prompt:
+                parts.append(
+                    prompt,
+                )
 
         #
         # Structured output

@@ -50,11 +50,15 @@ def get_run_context() -> RunContext:
 
 
 MEMORY_HEADER = (
-    "## Long-Term Memory:\n"
-    "Use this memory as a source of relevant context when performing the task. "
-    "It contains accumulated knowledge of the business, including facts, history, "
-    "preferences, decisions, insights, patterns, relationships, past history, "
-    "and prior observations. "
+    "## Long-Term Memory\n\n"
+    "Long-Term Memory contains information remembered from previous"
+    "conversations and interactions. It provides context about "
+    "the user and their history that may no longer be present any more in the context\n\n"
+    "It may contain the user's preferences, communication style, goals, "
+    "interests, important personal context, previous decisions, past "
+    "requests, ongoing matters, relationships, experiences, facts they "
+    "have shared, and other information that is useful for understanding "
+    "the user over time.\n\n"
     "Use relevant memory to inform your reasoning and response. "
     "Do not ignore relevant memory, but do not invent or assume information "
     "that is not supported by the memory."
@@ -63,12 +67,14 @@ MEMORY_HEADER = (
 
 RAG_HEADER = (
     "## Central Knowledge:\n"
-    "Use this knowledge as a central source of business information when "
-    "reasoning about and performing the task. It represents the accumulated "
-    "understanding of the business, including its operations, activities, "
+
+    "Central Knowledge contains accumulated business information and "
+    "understanding. It may include business operations, activities, "
     "processes, data, entities, relationships, facts, evidence, findings, "
-    "decisions, goals, insights, observations, patterns, assumptions, "
-    "perspectives, and other relevant business knowledge.\n"
+    "decisions, goals, insights, observations, patterns,perspectives, assumptions, "
+    "and other established business knowledge.\n\n"
+    "Use this knowledge as a central source of business information when "
+    "reasoning about and performing the task\n\n"
     "Use relevant knowledge to inform your reasoning, decisions, and responses. "
     "Distinguish established information from interpretations and assumptions, "
     "and do not invent unsupported information."

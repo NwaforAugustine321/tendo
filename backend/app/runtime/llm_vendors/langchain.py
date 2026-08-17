@@ -19,6 +19,7 @@ from app.runtime.conversation.context import (
     ConversationContext,
 )
 from app.runtime.llm.inference_stream import (
+    InferenceMode,
     InferenceStream,
 )
 from app.runtime.llm.llm import LLM
@@ -38,6 +39,29 @@ from app.runtime.context_manager.estimated_token_counter import (
 
 
 class LangChainLLM(LLM):
+    """
+    LangChain-backed runtime LLM.
+
+    The provider model is prepared lazily and cached.
+
+    Normal inference:
+
+        tools_enabled=True
+            ↓
+        tool_search + call_tool bound
+
+    Forced-final inference:
+
+        tools_enabled=False
+            ↓
+        no tools bound
+
+    Prepared models are cached so that tool binding and structured
+    output configuration are not rebuilt for every inference.
+
+    A new prepared model is created only when the preparation
+    configuration changes.
+    """
 
     def __init__(
         self,
@@ -48,30 +72,70 @@ class LangChainLLM(LLM):
         max_output_tokens: int = 4096,
     ) -> None:
 
-        self._max_context_tokens = max_context_tokens
-        self._max_output_tokens = max_output_tokens
+        self._max_context_tokens = (
+            max_context_tokens
+        )
+
+        self._max_output_tokens = (
+            max_output_tokens
+        )
 
         #
-        # Keep the original provider model untouched.
+        # Never mutate the original provider model.
         #
         self._base_model = model
 
         #
-        # Model actually used for inference.
+        # Currently active prepared model.
         #
         self._model = model
 
         #
-        # Preparation state.
+        # Cache of prepared models.
         #
+        #
+        # Key:
+        #
+        # (
+        #     tools_enabled,
+        #     tool_signature,
+        #     output_type,
+        # )
+        #
+        self._prepared_models: dict[
+            tuple[
+                bool,
+                tuple[str, ...],
+                type | None,
+            ],
+            BaseChatModel,
+        ] = {}
+
+        #
+        # Current preparation key.
+        #
+        self._prepared_key: (
+            tuple[
+                bool,
+                tuple[str, ...],
+                type | None,
+            ]
+            | None
+        ) = None
+
         self._prepared = False
-        self._prepared_output_type: type | None = None
 
         self._supports_structured_output = (
             supports_structured_output
         )
 
-        self._response_parser = ResponseParser()
+        self._response_parser = (
+            ResponseParser()
+        )
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
 
     @property
     def max_output_tokens(
@@ -82,9 +146,15 @@ class LangChainLLM(LLM):
         generate in one response.
         """
 
-        if self._model.max_tokens is not None:
+        max_tokens = getattr(
+            self._model,
+            "max_tokens",
+            None,
+        )
 
-            return self._model.max_tokens
+        if max_tokens is not None:
+
+            return max_tokens
 
         return self._max_output_tokens
 
@@ -92,10 +162,6 @@ class LangChainLLM(LLM):
     def max_context_tokens(
         self,
     ) -> int:
-        """
-        Maximum context window supported by
-        the model.
-        """
 
         return self._max_context_tokens
 
@@ -134,75 +200,178 @@ class LangChainLLM(LLM):
 
         return self._prepared
 
+    # ------------------------------------------------------------------
+    # Chat / inference
+    # ------------------------------------------------------------------
+
     def chat(
         self,
         *,
         conversation_context: ConversationContext,
         run_context: RunContext,
+        mode: InferenceMode = InferenceMode.STREAM,
+        tools_enabled: bool = True,
     ) -> InferenceStream:
+        """
+        Create one inference stream.
+
+        tools_enabled=True
+            Normal reasoning/action mode.
+
+        tools_enabled=False
+            Forced-final mode with no tools available.
+        """
 
         return InferenceStream(
             agent=run_context.agent,
             conversation_context=conversation_context,
             run_context=run_context,
+            mode=mode,
+            tools_enabled=tools_enabled,
         )
+
+    # ------------------------------------------------------------------
+    # Model preparation
+    # ------------------------------------------------------------------
 
     def prepare(
         self,
         *,
         tool_context: ToolContext,
         output_type: type | None,
+        tools_enabled: bool = True,
     ) -> None:
         """
-        Prepare the provider once for the current Agent configuration.
+        Prepare the provider model.
 
-        Tool binding and structured-output configuration are performed
-        only once. Subsequent calls reuse the already prepared model.
+        Preparation is cached.
+
+        Normal mode:
+
+            tools_enabled=True
+            → bind runtime proxy tools
+
+        Forced-final mode:
+
+            tools_enabled=False
+            → bind no tools
+
+        The provider model is rebuilt only when the preparation
+        configuration changes.
         """
 
         #
-        # Already prepared with the same output configuration.
+        # --------------------------------------------------------------
+        # Determine runtime tools
+        # --------------------------------------------------------------
         #
+
+        if (
+            tools_enabled
+            and not tool_context.is_empty()
+        ):
+
+            proxy_tools = list(
+                tool_context.proxy.tools,
+            )
+
+        else:
+
+            proxy_tools = []
+
+        #
+        # --------------------------------------------------------------
+        # Build stable tool signature
+        # --------------------------------------------------------------
+        #
+
+        tool_signature = tuple(
+            sorted(
+                self._tool_signature(
+                    tool,
+                )
+                for tool in proxy_tools
+            )
+        )
+
+        preparation_key = (
+            tools_enabled,
+            tool_signature,
+            output_type,
+        )
+
+        #
+        # --------------------------------------------------------------
+        # Reuse currently active model
+        # --------------------------------------------------------------
+        #
+
         if (
             self._prepared
-            and self._prepared_output_type is output_type
+            and self._prepared_key
+            == preparation_key
         ):
 
             return
 
         #
-        # Start from the original provider model.
+        # --------------------------------------------------------------
+        # Reuse cached model
+        # --------------------------------------------------------------
+        #
+
+        cached_model = (
+            self._prepared_models.get(
+                preparation_key,
+            )
+        )
+
+        if cached_model is not None:
+
+            self._model = cached_model
+
+            self._prepared_key = (
+                preparation_key
+            )
+
+            self._prepared = True
+
+            return
+
+        #
+        # --------------------------------------------------------------
+        # Create prepared model
+        # --------------------------------------------------------------
+        #
+
+        #
+        # ALWAYS start from the untouched base model.
         #
         model = self._base_model
 
         #
-        # Bind the runtime proxy tools.
+        # --------------------------------------------------------------
+        # Bind tools only in normal mode
+        # --------------------------------------------------------------
         #
-        # The proxy exposes:
-        #
-        #   - tool_search
-        #   - call_tool
-        #
-        # The discovered tools remain behind the proxy and are not
-        # directly bound to the LLM.
-        #
-        if not tool_context.is_empty():
 
-            proxy_tools = (
-                tool_context.proxy.tools
+        if (
+            tools_enabled
+            and proxy_tools
+        ):
+
+            model = model.bind_tools(
+                to_langchain_tools(
+                    proxy_tools,
+                ),
             )
 
-            if proxy_tools:
-
-                model = model.bind_tools(
-                    to_langchain_tools(
-                        proxy_tools,
-                    ),
-                )
-
         #
-        # Bind structured output when requested.
+        # --------------------------------------------------------------
+        # Structured output
+        # --------------------------------------------------------------
         #
+
         if (
             output_type is not None
             and self.supports_structured_output
@@ -213,20 +382,128 @@ class LangChainLLM(LLM):
             )
 
         #
-        # Store the prepared provider.
+        # --------------------------------------------------------------
+        # Cache prepared model
+        # --------------------------------------------------------------
+        #
+
+        self._prepared_models[
+            preparation_key
+        ] = model
+
+        #
+        # Make it the active model.
         #
         self._model = model
 
-        self._prepared_output_type = (
-            output_type
+        self._prepared_key = (
+            preparation_key
         )
 
         self._prepared = True
+
+    # ------------------------------------------------------------------
+    # Tool signature
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _tool_signature(
+        tool: Any,
+    ) -> str:
+        """
+        Build a stable signature for a runtime tool.
+
+        The tool name is the primary identifier.
+
+        When schema information is available, include it so that
+        a changed runtime tool schema results in a new prepared
+        provider model.
+        """
+
+        name = getattr(
+            tool,
+            "name",
+            None,
+        )
+
+        if not name:
+
+            name = (
+                f"{tool.__class__.__module__}."
+                f"{tool.__class__.__qualname__}"
+            )
+
+        #
+        # Try to include the argument schema.
+        #
+        args_schema = getattr(
+            tool,
+            "args_schema",
+            None,
+        )
+
+        schema = ""
+
+        if args_schema is not None:
+
+            try:
+
+                if hasattr(
+                    args_schema,
+                    "model_json_schema",
+                ):
+
+                    schema = str(
+                        args_schema.model_json_schema(),
+                    )
+
+                elif hasattr(
+                    args_schema,
+                    "schema",
+                ):
+
+                    schema = str(
+                        args_schema.schema(),
+                    )
+
+                else:
+
+                    schema = str(
+                        args_schema,
+                    )
+
+            except Exception:
+
+                schema = str(
+                    args_schema,
+                )
+
+        #
+        # Description can also change the effective tool contract.
+        #
+        description = getattr(
+            tool,
+            "description",
+            "",
+        )
+
+        return (
+            f"{name}|"
+            f"{description}|"
+            f"{schema}"
+        )
+
+    # ------------------------------------------------------------------
+    # Invocation
+    # ------------------------------------------------------------------
 
     async def invoke(
         self,
         messages: list[ChatMessage],
     ) -> AIMessage:
+        """
+        Invoke the currently prepared provider.
+        """
 
         return await self._model.ainvoke(
             self.to_provider_messages(
@@ -239,7 +516,7 @@ class LangChainLLM(LLM):
         messages: list[ChatMessage],
     ) -> AsyncIterator[AIMessageChunk]:
         """
-        Stream chunks from the prepared provider.
+        Stream from the currently prepared provider.
         """
 
         async for chunk in self._model.astream(
@@ -250,12 +527,16 @@ class LangChainLLM(LLM):
 
             yield chunk
 
+    # ------------------------------------------------------------------
+    # Chunk merging
+    # ------------------------------------------------------------------
+
     def merge_chunks(
         self,
         chunks: list[AIMessageChunk],
     ) -> AIMessage:
         """
-        Merge streamed chunks into a single AIMessage.
+        Merge streamed chunks into one AIMessage.
         """
 
         if not chunks:
@@ -271,8 +552,7 @@ class LangChainLLM(LLM):
             merged += chunk
 
         #
-        # Deduplicate list fields in additional_kwargs
-        # that may be repeated across streamed chunks.
+        # Deduplicate repeated list fields.
         #
         additional = (
             merged.additional_kwargs
@@ -293,6 +573,10 @@ class LangChainLLM(LLM):
                 )
 
         return merged
+
+    # ------------------------------------------------------------------
+    # Provider message conversion
+    # ------------------------------------------------------------------
 
     def to_provider_messages(
         self,

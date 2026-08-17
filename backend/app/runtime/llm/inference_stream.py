@@ -37,16 +37,30 @@ class InferenceStream(AsyncIterator[LLMEvent]):
     Responsibilities
     ----------------
     - Build the current prompt.
-    - Invoke the already-prepared LLM.
+    - Select the required cached LLM preparation mode.
+    - Invoke the prepared LLM.
     - Emit normalized inference events.
     - Build the final LLMResponse.
 
-    The LLM is prepared by Agent and reused across
-    all inference iterations.
+    Preparation itself is owned by the LLM provider.
+
+    The stream only tells the provider whether this inference
+    requires tools.
+
+    Normal inference:
+
+        tools_enabled=True
+            ↓
+        cached model with runtime tools
+
+    Forced-final inference:
+
+        tools_enabled=False
+            ↓
+        cached model with NO tools
 
     This class does not:
 
-    - prepare the LLM
     - bind tools
     - bind structured output
     - count context tokens
@@ -61,15 +75,28 @@ class InferenceStream(AsyncIterator[LLMEvent]):
         conversation_context: ConversationContext,
         run_context: RunContext,
         mode: InferenceMode = InferenceMode.STREAM,
+        tools_enabled: bool = True,
     ) -> None:
 
         self._agent = agent
-        self._conversation_context = conversation_context
+
+        self._conversation_context = (
+            conversation_context
+        )
+
         self._run_context = run_context
+
         self._mode = mode
+
+        #
+        # Controls whether this inference uses the normal
+        # runtime tool model or the tool-free final model.
+        #
+        self._tools_enabled = tools_enabled
 
         self._closed = False
         self._finished = False
+
         self._error: Exception | None = None
 
         self._response: LLMResponse | None = None
@@ -78,9 +105,16 @@ class InferenceStream(AsyncIterator[LLMEvent]):
             LLMEvent | None
         ] = asyncio.Queue()
 
+        #
+        # Start the inference asynchronously.
+        #
         self._task = asyncio.create_task(
             self._run(),
         )
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
 
     @property
     def finished(
@@ -110,6 +144,24 @@ class InferenceStream(AsyncIterator[LLMEvent]):
 
         return self._response
 
+    @property
+    def mode(
+        self,
+    ) -> InferenceMode:
+
+        return self._mode
+
+    @property
+    def tools_enabled(
+        self,
+    ) -> bool:
+
+        return self._tools_enabled
+
+    # ------------------------------------------------------------------
+    # Async iterator
+    # ------------------------------------------------------------------
+
     def __aiter__(
         self,
     ) -> AsyncIterator[LLMEvent]:
@@ -121,6 +173,7 @@ class InferenceStream(AsyncIterator[LLMEvent]):
     ) -> LLMEvent:
 
         if self._closed:
+
             raise StopAsyncIteration
 
         event = await self._events.get()
@@ -133,6 +186,10 @@ class InferenceStream(AsyncIterator[LLMEvent]):
 
         return event
 
+    # ------------------------------------------------------------------
+    # Main inference
+    # ------------------------------------------------------------------
+
     async def _run(
         self,
     ) -> None:
@@ -140,7 +197,11 @@ class InferenceStream(AsyncIterator[LLMEvent]):
         try:
 
             #
-            # Build the prompt for this inference.
+            # ----------------------------------------------------------
+            # Build prompt
+            # ----------------------------------------------------------
+            #
+
             #
             # PromptState belongs to the session and survives
             # across inference iterations.
@@ -159,10 +220,10 @@ class InferenceStream(AsyncIterator[LLMEvent]):
             )
 
             #
-            # Build the provider-independent messages.
+            # Build provider-independent messages.
             #
             # Context optimization is handled by AgentRunner
-            # before creating this inference.
+            # before this inference is created.
             #
             messages = await (
                 self._agent.context_manager.build(
@@ -171,23 +232,49 @@ class InferenceStream(AsyncIterator[LLMEvent]):
             )
 
             #
+            # ----------------------------------------------------------
+            # Select LLM preparation mode
+            # ----------------------------------------------------------
+            #
+
+            #
             # IMPORTANT:
             #
-            # Do NOT call:
+            # prepare() is NOT doing a new bind_tools() every time.
             #
-            #     self._agent.llm.prepare(...)
+            # LangChainLLM caches prepared models and simply selects
+            # the appropriate cached model when possible.
             #
-            # here.
+            # Normal inference:
             #
-            # Agent prepares the LLM once during initialization.
+            #     tools_enabled=True
             #
+            # Forced-final inference:
+            #
+            #     tools_enabled=False
+            #
+            self._agent.llm.prepare(
+                tool_context=self._agent.tool_context,
+                output_type=self._agent.output_type,
+                tools_enabled=self._tools_enabled,
+            )
+
+            #
+            # ----------------------------------------------------------
+            # Execute inference
+            # ----------------------------------------------------------
+            #
+
             provider_response = await self._invoke(
                 messages,
             )
 
             #
-            # Parse the provider response.
+            # ----------------------------------------------------------
+            # Parse response
+            # ----------------------------------------------------------
             #
+
             self._response = (
                 self._agent.llm.response_parser.parse(
                     provider_response=provider_response,
@@ -202,6 +289,10 @@ class InferenceStream(AsyncIterator[LLMEvent]):
             await self._handle_error(
                 error,
             )
+
+    # ------------------------------------------------------------------
+    # Invocation
+    # ------------------------------------------------------------------
 
     async def _invoke(
         self,
@@ -250,12 +341,17 @@ class InferenceStream(AsyncIterator[LLMEvent]):
             chunks,
         )
 
+    # ------------------------------------------------------------------
+    # Events
+    # ------------------------------------------------------------------
+
     async def _emit(
         self,
         event: LLMEvent,
     ) -> None:
 
         if self._closed:
+
             return
 
         await self._events.put(
@@ -280,6 +376,7 @@ class InferenceStream(AsyncIterator[LLMEvent]):
     ) -> None:
 
         if self._finished:
+
             return
 
         self._finished = True
@@ -307,6 +404,10 @@ class InferenceStream(AsyncIterator[LLMEvent]):
 
         await self._finish()
 
+    # ------------------------------------------------------------------
+    # Final response
+    # ------------------------------------------------------------------
+
     async def final_response(
         self,
     ) -> LLMResponse:
@@ -314,6 +415,7 @@ class InferenceStream(AsyncIterator[LLMEvent]):
         await self._task
 
         if self._error is not None:
+
             raise self._error
 
         if self._response is None:
@@ -324,11 +426,16 @@ class InferenceStream(AsyncIterator[LLMEvent]):
 
         return self._response
 
+    # ------------------------------------------------------------------
+    # Close
+    # ------------------------------------------------------------------
+
     async def aclose(
         self,
     ) -> None:
 
         if self._closed:
+
             return
 
         self._closed = True

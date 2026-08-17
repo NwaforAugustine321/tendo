@@ -58,6 +58,7 @@ class AgentSession:
         conversation_context: ConversationContext | None = None,
         emitter: Emitter | None = None,
         context_monitor: ContextMonitor | None = None,
+        enable_runtime_rag_mem: bool | None = False
     ) -> None:
 
         self._id = (
@@ -66,6 +67,7 @@ class AgentSession:
         )
 
         self._agent = agent
+        self._enable_runtime_rag_mem = enable_runtime_rag_mem
 
         self._conversation_context = (
             conversation_context
@@ -117,6 +119,7 @@ class AgentSession:
         self._run_context = RunContext(
             session=self,
             emitter=self.emitter,
+            enable_runtime_rag_mem=self._enable_runtime_rag_mem
         )
 
         self._current_activity: AgentActivity | None = None

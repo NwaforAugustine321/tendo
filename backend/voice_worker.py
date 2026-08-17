@@ -86,6 +86,40 @@ async def tendo_session(ctx: JobContext):
         f"[tendo_session] business_id={business_id} session_id={session_id}")
     ctx.log_context_fields = {"room": ctx.room.name}
 
+    def _chunk_for_tts(text: str, max_len: int = 380) -> list[str]:
+        """Split text into chunks ≤ max_len at sentence boundaries."""
+        import re
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        chunks = []
+        current = ""
+        for sentence in sentences:
+            if len(sentence) > max_len:
+                # Split long sentences at comma/semicolon boundaries
+                parts = re.split(r'(?<=[,;])\s+', sentence)
+                for part in parts:
+                    if len(current) + len(part) + 1 > max_len:
+                        if current:
+                            chunks.append(current.strip())
+                        # If single part exceeds max, hard-split at word boundary
+                        while len(part) > max_len:
+                            split_at = part.rfind(' ', 0, max_len)
+                            if split_at == -1:
+                                split_at = max_len
+                            chunks.append(part[:split_at].strip())
+                            part = part[split_at:].strip()
+                        current = part
+                    else:
+                        current = f"{current} {part}" if current else part
+            elif len(current) + len(sentence) + 1 > max_len:
+                if current:
+                    chunks.append(current.strip())
+                current = sentence
+            else:
+                current = f"{current} {sentence}" if current else sentence
+        if current:
+            chunks.append(current.strip())
+        return chunks
+
     session = AgentSession(
         stt=warm_stt,
         tts=warm_tts,

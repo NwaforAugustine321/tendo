@@ -41,6 +41,8 @@ class RunContext:
 
     _context_tokens: int = 0
 
+    enable_runtime_rag_mem: bool = False
+
     _context_threshold_reached: bool = False
 
     def refresh_context_threshold(

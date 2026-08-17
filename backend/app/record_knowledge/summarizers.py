@@ -53,7 +53,7 @@ user_prompt = (
 
 
 record_system_prompt = (
-    "You are an information overview specialist.\n\n"
+    "You are an business overview specialist.\n\n"
 
     "Never expose internal workings or implementation details. "
     "Present only the relevant information and its meaning to the business owner."
@@ -63,9 +63,6 @@ record_system_prompt = (
     "Do not present separate findings, topics, relationships, or conclusions.\n\n"
 
     "Explain what is happening, how the information connects, and what it means. "
-    "Only explain business impact, improvement, or next actions when directly "
-    "supported by the information, and clearly connect them to the relevant details.\n\n"
-
 
     "Combine related information without forcing unrelated connections. "
     "Distinguish facts from interpretations and recommendations. "
@@ -73,7 +70,6 @@ record_system_prompt = (
     "If the information does not support an impact or recommendation, say so.\n\n"
 
     "Present the insight as a natural explanation, not a list of findings. "
-    "Write for the business owner, not for an internal system or another agent.\n\n"
 
     "Output requirements:\n"
     "- Insight (maximum 300 words).\n"
@@ -90,9 +86,7 @@ record_system_prompt = (
 
 record_user_prompt = (
     "Synthesize the available information into one coherent overview. "
-    "Explain what is happening, how the information connects, and what it means. "
-    "Only explain business impact, improvement, or next actions when they are "
-    "directly supported by the information, and clearly connect them to the relevant details."
+    "Explain what is happening, how the information connects, and what it means."
 )
 
 
@@ -240,7 +234,8 @@ async def generate_record_summary(content: str, max_length: int = MAX_LENGTH) ->
                 name="Summarizer Specialist",
                 llm=_get_llm(),
                 instructions=system_prompt,
-                max_iteration=10
+                max_iteration=4,
+                max_reasoning_steps=2
             )
             _session = agent.create_session()
             response = await _session.run(user_prompt.replace("{content}",  str(content)))
@@ -303,7 +298,9 @@ async def generate_record_overview(business_id: str, record_id: str) -> dict:
             rag=create_rag_provider(
                 namespace=business_id, scopes=scopes, ignore_threshold=True),
             instructions=record_system_prompt,
-            max_iteration=10
+            max_iteration=6,
+            max_reasoning_steps=3,
+            enable_runtime_rag_mem=True
         )
 
         for attempt in range(MAX_RETRIES):
@@ -312,7 +309,7 @@ async def generate_record_overview(business_id: str, record_id: str) -> dict:
                 response = await session.run(record_user_prompt)
                 response_text = response.text if hasattr(
                     response, "text") else str(response)
-                logger.info(f"Overview raw response: {response_text[:500]}")
+                print(f"Overview raw response >>>: {response_text[:500]}")
                 contents, suggestions = _parse_response(
                     response_text,
                     content_tags=["insight"],

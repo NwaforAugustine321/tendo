@@ -83,8 +83,9 @@ class Agent:
         memory: MemoryProvider | None = None,
         conversation: ConversationProvider | None = None,
         rag: RAGProvider | None = None,
-        max_iteration: int = 10,
-        max_reasoning_steps: int = 5
+        max_iteration: int = 6,
+        max_reasoning_steps: int = 2,
+        enable_runtime_rag_mem: bool | None = False
     ) -> None:
 
         self._name = name
@@ -98,22 +99,12 @@ class Agent:
         self._rag = rag
         self._max_iterations = max_iteration
         self._max_reasoning_steps = max_reasoning_steps
+        self._enable_runtime_rag_mem = enable_runtime_rag_mem
 
         self._tools = list(
             tools or [],
         )
 
-        #
-        # Build the complete runtime tool registry.
-        #
-        # External tools:
-        #   - delegate_to_specialist
-        #   - other configured tools
-        #
-        # Runtime-created tools:
-        #   - search_memory
-        #   - search_knowledge
-        #
         runtime_tools = [
             *self._tools,
         ]
@@ -137,12 +128,7 @@ class Agent:
         #
         # Create ToolContext once.
         #
-        # ToolContext owns the underlying tools and its proxy
-        # exposes the LLM-facing:
-        #
-        #   - tool_search
-        #   - call_tool
-        #
+
         self._tool_context = ToolContext.from_tools(
             runtime_tools,
         )
@@ -154,9 +140,7 @@ class Agent:
         #
         # Prepare the LLM once.
         #
-        # This must happen after ToolContext exists because
-        # LangChainLLM.prepare() binds the proxy tools.
-        #
+
         self._llm.prepare(
             tool_context=self._tool_context,
             output_type=self._output_type,
@@ -369,4 +353,5 @@ class Agent:
             agent=self,
             session_id=session_id,
             emitter=emitter,
+            enable_runtime_rag_mem=self._enable_runtime_rag_mem
         )
