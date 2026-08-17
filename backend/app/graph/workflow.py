@@ -30,8 +30,8 @@ async def planner_node(state: State, config: RunnableConfig, runtime: Runtime):
     writer = get_stream_writer()
     context = runtime.context
 
-    user_id = context.get("user_id", "")
-    payload = context["payload"]
+    payload = context.get("payload", {})
+    user_id = payload.get("user_id", "")
 
     session = {
         "vc_session": context['session'],
@@ -58,11 +58,10 @@ async def planner_node(state: State, config: RunnableConfig, runtime: Runtime):
         payload = {
             "type": "transcript",
             "payload": {
-                "type": "transcript",
-                "payload": {"content": user_message},
+                "content": user_message,
             },
             "user_id": user_id,
-            "event": "transcript"
+            "event": "transcript",
         }
 
         await get_event_bus().publish(

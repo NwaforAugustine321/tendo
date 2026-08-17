@@ -33,23 +33,10 @@ async def handle_frontend_event(
         )
 
     if not user_id:
-        logger.warning(
-            "Frontend event has no user_id: "
-            "event=%s correlation_id=%s",
-            event.event,
-            event.correlation_id,
-        )
+
         return
 
     await socket_dispatcher.emit_to_room(
         user_id=user_id,
         data=event.to_dict(),
-    )
-
-    logger.debug(
-        "Frontend event delivered: "
-        "event=%s user_id=%s correlation_id=%s",
-        event.event,
-        user_id,
-        event.correlation_id,
     )

@@ -26,6 +26,8 @@ ACTIVE_JOB_STATUSES = frozenset(
     {
         "JS_PENDING",
         "JS_RUNNING",
+        "1",
+        "2",
     },
 )
 

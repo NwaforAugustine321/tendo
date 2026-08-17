@@ -41,6 +41,10 @@ export interface VoiceState {
 
 let _client: LiveKitVoiceClient | null = null;
 let _connectVersion = 0; // Guards against React strict mode race conditions
+let _reconnectAttempts = 0;
+let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const RECONNECT_BASE_DELAY_MS = 3000;
 
 export const useVoiceStore = create<VoiceState>((set, get) => ({
   connectionState: "disconnected",
@@ -105,10 +109,75 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         },
         onAgentReady: () => {
           if (_connectVersion === version) {
-            set({ connectionState: "connected" });
+            set({ connectionState: "connected", statusText: "" });
+            // Agent is back — cancel any pending reconnect and reset counter
+            if (_reconnectTimer) {
+              clearTimeout(_reconnectTimer);
+              _reconnectTimer = null;
+            }
+            _reconnectAttempts = 0;
           }
         },
-        onAgentLeft: () => {},
+        onAgentLeft: () => {
+          // Agent left unexpectedly — attempt auto-reconnect
+          const { connectionState } = get();
+          if (connectionState === "disconnected" || connectionState === "error")
+            return;
+
+          // Already reconnecting — don't fire again
+          if (_reconnectTimer) return;
+
+          if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            set({
+              connectionState: "error",
+              errorMessage: "Voice agent unavailable. Please try again.",
+              agentSpeaking: false,
+            });
+            _reconnectAttempts = 0;
+            return;
+          }
+
+          _reconnectAttempts++;
+          const delay =
+            RECONNECT_BASE_DELAY_MS * Math.pow(2, _reconnectAttempts - 1);
+
+          set({
+            statusText: `reconnecting...`,
+            agentSpeaking: false,
+          });
+
+          if (_reconnectTimer) clearTimeout(_reconnectTimer);
+          _reconnectTimer = setTimeout(async () => {
+            _reconnectTimer = null;
+            try {
+              await request("/voice/start/agent", {
+                method: "POST",
+                body: {
+                  business_id: businessId,
+                  session_id: sessionId || "",
+                  record_id: recordId || "",
+                },
+                silent: true,
+              });
+            } catch {
+              // If dispatch fails, the next ParticipantDisconnected or
+              // timeout will retry until MAX_RECONNECT_ATTEMPTS
+              const { connectionState: currentState } = get();
+              if (
+                currentState !== "disconnected" &&
+                _reconnectAttempts < MAX_RECONNECT_ATTEMPTS
+              ) {
+                // Trigger another attempt
+                get().startAgent({ businessId, sessionId, recordId });
+              } else {
+                set({
+                  connectionState: "error",
+                  errorMessage: "Voice agent unavailable. Please try again.",
+                });
+              }
+            }
+          }, delay);
+        },
         onUserSpeakingChange: (speaking) => set({ userSpeaking: speaking }),
         onAgentSpeakingChange: (speaking) => {
           set({ agentSpeaking: speaking });
@@ -158,6 +227,13 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   stopAgent: async () => {
     // Invalidate any in-flight startAgent
     _connectVersion++;
+
+    // Cancel any pending reconnect
+    if (_reconnectTimer) {
+      clearTimeout(_reconnectTimer);
+      _reconnectTimer = null;
+    }
+    _reconnectAttempts = 0;
 
     const { session } = get();
 
@@ -226,10 +302,62 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
           },
           onAgentReady: () => {
             if (_connectVersion === version) {
-              set({ connectionState: "connected" });
+              set({ connectionState: "connected", statusText: "" });
+              if (_reconnectTimer) {
+                clearTimeout(_reconnectTimer);
+                _reconnectTimer = null;
+              }
+              _reconnectAttempts = 0;
             }
           },
-          onAgentLeft: () => {},
+          onAgentLeft: () => {
+            const { connectionState: cs, session: sess } = get();
+            if (cs === "disconnected" || cs === "error") return;
+
+            // Already reconnecting — don't fire again
+            if (_reconnectTimer) return;
+
+            if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+              set({
+                connectionState: "error",
+                errorMessage: "Voice agent unavailable. Please try again.",
+                agentSpeaking: false,
+              });
+              _reconnectAttempts = 0;
+              return;
+            }
+
+            _reconnectAttempts++;
+            const delay =
+              RECONNECT_BASE_DELAY_MS * Math.pow(2, _reconnectAttempts - 1);
+
+            set({
+              statusText: `reconnecting...`,
+              agentSpeaking: false,
+            });
+
+            if (_reconnectTimer) clearTimeout(_reconnectTimer);
+            _reconnectTimer = setTimeout(async () => {
+              _reconnectTimer = null;
+              if (!sess) return;
+              try {
+                await request("/voice/start/agent", {
+                  method: "POST",
+                  body: {
+                    business_id: sess.business_id,
+                    session_id: sess.session_id || "",
+                    record_id: sess.record_id || "",
+                  },
+                  silent: true,
+                });
+              } catch {
+                set({
+                  connectionState: "error",
+                  errorMessage: "Voice agent unavailable. Please try again.",
+                });
+              }
+            }, delay);
+          },
           onUserSpeakingChange: (speaking) => set({ userSpeaking: speaking }),
           onAgentSpeakingChange: (speaking) => {
             set({ agentSpeaking: speaking });
@@ -331,6 +459,11 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
   reset: () => {
     _connectVersion++;
+    if (_reconnectTimer) {
+      clearTimeout(_reconnectTimer);
+      _reconnectTimer = null;
+    }
+    _reconnectAttempts = 0;
     if (_client) {
       _client.stopMic();
       _client.disconnect();
