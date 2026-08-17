@@ -637,9 +637,127 @@ class ToolContext:
 
         raise TypeError(f"Unsupported tool type: {type(tool)}")
 
-    def tool_to_string(self, tools: [FunctionTool | RawFunctionTool | ProviderTool]):
+    def tool_to_string(
+        self,
+        tools: list[
+            FunctionTool | RawFunctionTool | ProviderTool
+        ],
+    ) -> str:
+        """
+        Format available tools into an LLM-readable tool manifest.
 
-        return "\n".join(
-            _json.dumps(_build_tool_schema(tool))
-            for tool in tools
+        The format clearly separates:
+        - tool name
+        - purpose
+        - parameters
+        - required parameters
+        """
+
+        sections: list[str] = []
+
+        for index, tool in enumerate(
+            tools,
+            start=1,
+        ):
+
+            schema = _build_tool_schema(
+                tool,
+            )
+
+            name = schema.get(
+                "name",
+                getattr(tool, "id", "unknown"),
+            )
+
+            description = schema.get(
+                "description",
+                "",
+            ).strip()
+
+            parameters = schema.get(
+                "parameters",
+                {},
+            )
+
+            properties = parameters.get(
+                "properties",
+                {},
+            )
+
+            required = set(
+                parameters.get(
+                    "required",
+                    [],
+                )
+            )
+
+            lines = [
+                f"{index}. {name}",
+            ]
+
+            if description:
+
+                lines.append(
+                    f"   Purpose: {description}",
+                )
+
+            if properties:
+
+                lines.append(
+                    "   Parameters:",
+                )
+
+                for parameter_name, parameter_schema in (
+                    properties.items()
+                ):
+
+                    parameter_type = parameter_schema.get(
+                        "type",
+                        "any",
+                    )
+
+                    parameter_description = (
+                        parameter_schema.get(
+                            "description",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+
+                    required_label = (
+                        "required"
+                        if parameter_name in required
+                        else "optional"
+                    )
+
+                    parameter_line = (
+                        f"   - {parameter_name}: "
+                        f"{parameter_type} "
+                        f"({required_label})"
+                    )
+
+                    if parameter_description:
+
+                        parameter_line += (
+                            f" — {parameter_description}"
+                        )
+
+                    lines.append(
+                        parameter_line,
+                    )
+
+            else:
+
+                lines.append(
+                    "   Parameters: none",
+                )
+
+            sections.append(
+                "\n".join(
+                    lines,
+                )
+            )
+
+        return "\n\n".join(
+            sections,
         )

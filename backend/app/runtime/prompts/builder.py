@@ -182,17 +182,6 @@ class PromptBuilder:
             )
 
         messages: list[ChatMessage] = []
-        #
-        # Other agent system instructions.
-        #
-
-        if parts:
-
-            messages.append(
-                ChatMessage.system(
-                    "\n\n".join(parts),
-                ),
-            )
 
         #
         # Default agent stystem instructions.
@@ -207,6 +196,16 @@ class PromptBuilder:
 
             messages.extend(
                 agent_instructions,
+            )
+
+        # Other agent system instructions.
+
+        if parts:
+
+            messages.append(
+                ChatMessage.system(
+                    "\n\n".join(parts),
+                ),
             )
 
         #

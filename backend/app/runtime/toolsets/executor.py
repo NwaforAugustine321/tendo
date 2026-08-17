@@ -8,9 +8,7 @@ from typing import Any
 from app.runtime.agents.run_context import RunContext
 from app.runtime.chat.message import ChatMessage
 from app.runtime.llm.response import ToolCall
-from app.runtime.toolsets.tool_proxy import (
-    ToolProxyToolset,
-)
+from app.runtime.toolsets.tool_proxy import ToolProxyToolset
 from app.runtime.tools.default import (
     reset_run_context,
     set_run_context,
@@ -35,9 +33,10 @@ class ToolExecutor:
     """
     Executes tools through a ToolProxyToolset.
 
-    The RunContext is runtime state and is injected through
-    the execution context rather than being exposed as a
-    tool argument to the LLM.
+    Multiple independent tool calls are executed concurrently.
+
+    RunContext is injected through the runtime context variable and is
+    therefore not exposed as an LLM tool argument.
     """
 
     def __init__(
@@ -46,6 +45,7 @@ class ToolExecutor:
         *,
         run_context: RunContext | None = None,
     ) -> None:
+
         self._proxy = proxy
         self._run_context = run_context
 
@@ -53,12 +53,14 @@ class ToolExecutor:
     def proxy(
         self,
     ) -> ToolProxyToolset:
+
         return self._proxy
 
     @property
     def run_context(
         self,
     ) -> RunContext | None:
+
         return self._run_context
 
     async def execute_one(
@@ -70,8 +72,8 @@ class ToolExecutor:
         """
         Execute one tool call.
 
-        An explicitly supplied context takes precedence over
-        the context bound to this executor.
+        This method is intentionally independent so multiple calls
+        can be executed concurrently by execute().
         """
 
         context = (
@@ -83,11 +85,13 @@ class ToolExecutor:
         token = None
 
         if context is not None:
+
             token = set_run_context(
                 context,
             )
 
         try:
+
             output = await self._proxy.execute(
                 name=tool_call.name,
                 arguments=tool_call.arguments,
@@ -100,7 +104,9 @@ class ToolExecutor:
             )
 
         finally:
+
             if token is not None:
+
                 reset_run_context(
                     token,
                 )
@@ -112,24 +118,71 @@ class ToolExecutor:
         ctx: RunContext | None = None,
     ) -> list[ToolExecutionResult]:
         """
-        Execute all tool calls.
+        Execute independent tool calls concurrently.
 
-        Each tool execution receives the current RunContext
-        through the runtime context variable.
+        All calls are started without waiting for the previous call
+        to finish.
+
+        Example:
+
+            tool_a ────────────────┐
+            tool_b ──────────┐     │
+            tool_c ───────┐  │     │
+                          ▼  ▼     ▼
+                         asyncio.gather()
+
+        Results preserve the same order as tool_calls.
         """
 
         if not tool_calls:
             return []
 
-        return await asyncio.gather(
-            *(
+        tasks = [
+            asyncio.create_task(
                 self.execute_one(
                     tool_call,
                     ctx=ctx,
                 )
-                for tool_call in tool_calls
             )
+            for tool_call in tool_calls
+        ]
+
+        results = await asyncio.gather(
+            *tasks,
+            return_exceptions=True,
         )
+
+        execution_results: list[
+            ToolExecutionResult
+        ] = []
+
+        for tool_call, result in zip(
+            tool_calls,
+            results,
+        ):
+
+            if isinstance(
+                result,
+                BaseException,
+            ):
+
+                execution_results.append(
+                    ToolExecutionResult(
+                        tool_call=tool_call,
+                        output=(
+                            f"Tool execution failed: "
+                            f"{result}"
+                        ),
+                    )
+                )
+
+                continue
+
+            execution_results.append(
+                result,
+            )
+
+        return execution_results
 
     def build_tool_messages(
         self,
@@ -142,6 +195,7 @@ class ToolExecutor:
         messages: list[ChatMessage] = []
 
         for result in results:
+
             output = result.output
 
             observation = getattr(
@@ -151,10 +205,13 @@ class ToolExecutor:
             )
 
             if observation is not None:
+
                 content = str(
                     observation,
                 )
+
             else:
+
                 content = self._serialize_output(
                     output,
                 )
@@ -187,6 +244,7 @@ class ToolExecutor:
             return output
 
         try:
+
             return json.dumps(
                 output,
                 ensure_ascii=False,
@@ -194,6 +252,7 @@ class ToolExecutor:
             )
 
         except Exception:
+
             return str(
                 output,
             )
