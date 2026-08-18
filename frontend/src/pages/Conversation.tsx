@@ -37,6 +37,7 @@ export function Conversation({
   );
   const [thinking, setThinking] = useState(false);
   const [wakeActive, setWakeActive] = useState(false);
+  const [socketConnected, setSocketConnected] = useState(true);
   const { currentProfile } = useBusinessStore();
   const businessId = currentProfile?.id || "";
   const {
@@ -84,18 +85,6 @@ export function Conversation({
         ]);
         setThinking(false);
         setStatusText("");
-      } else if (type === "error" && payload.content) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `error-${Date.now()}`,
-            role: "assistant",
-            content: payload.content || "Something went wrong.",
-            type: "text",
-          },
-        ]);
-        setThinking(false);
-        setStatusText("");
       }
     };
 
@@ -120,9 +109,20 @@ export function Conversation({
 
     socket.on("transcript", transcriptHandler);
 
+    const onConnect = () => setSocketConnected(true);
+    const onDisconnect = () => {
+      setSocketConnected(false);
+      setThinking(false);
+    };
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+    setSocketConnected(socket.connected);
+
     return () => {
       socket.off("message", handler);
       socket.off("transcript", transcriptHandler);
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
       disconnectSocket();
     };
   }, []);
@@ -279,7 +279,12 @@ export function Conversation({
       <ConversationPage
         messages={messages}
         isTyping={thinking || isSpeaking}
-        statusText={voiceStatusText || undefined}
+        statusText={
+          voiceStatusText && !voiceStatusText.includes("reconnecting")
+            ? voiceStatusText
+            : undefined
+        }
+        connecting={!socketConnected}
         onSendText={handleSendText}
         onVoiceRecorded={() => {}}
         onVoiceToggle={handleVoiceToggle}

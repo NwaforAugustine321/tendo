@@ -263,15 +263,17 @@ async def message(
         await socket_dispatcher.emit_to_sid(
             sid=sid,
             event="message",
-            payload=SocketMessage(
-                type="message",
-                payload=SocketResponse(
-                    content=response.get(
-                        "text",
-                        "",
-                    ),
-                ),
-            ).to_dict(),
+            payload={
+                "data": {
+                    "type": "message",
+                    "payload": {
+                        "content": response.get(
+                            "text",
+                            "",
+                        ),
+                    },
+                },
+            },
         )
 
     except Exception as exc:

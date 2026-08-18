@@ -106,6 +106,13 @@ class PromptBuilder:
 
         parts: list[str] = []
 
+        state = (
+            self._context.prompt_state
+        )
+
+        if state.prepared:
+            return
+
         # Setup agent system runtime
         prompt = await self._build_runtime_prompt()
 
@@ -114,12 +121,27 @@ class PromptBuilder:
                 prompt,
             )
 
-        state = (
-            self._context.prompt_state
+        #
+        # Structured output
+        #
+        prompt = (
+            self._output_formatter.build(
+                self._context.agent.output_type,
+            )
         )
 
-        if state.prepared:
-            return
+        if prompt:
+            parts.append(
+                prompt,
+            )
+
+        # tools prompt
+        prompt = await self._build_tool_prompt()
+
+        if prompt:
+            parts.append(
+                prompt,
+            )
 
         #
         # Conversation history
@@ -159,28 +181,6 @@ class PromptBuilder:
                 parts.append(
                     prompt,
                 )
-
-        #
-        # Structured output
-        #
-        prompt = (
-            self._output_formatter.build(
-                self._context.agent.output_type,
-            )
-        )
-
-        if prompt:
-            parts.append(
-                prompt,
-            )
-
-        # tools prompt
-        prompt = await self._build_tool_prompt()
-
-        if prompt:
-            parts.append(
-                prompt,
-            )
 
         messages: list[ChatMessage] = []
 

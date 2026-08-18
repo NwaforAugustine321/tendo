@@ -59,6 +59,7 @@ type Props = {
   messages: MessageItem[];
   isTyping: boolean;
   statusText?: string;
+  connecting?: boolean;
   onSendText: (text: string) => void;
   onVoiceRecorded: (blob: Blob) => void;
   onVoiceToggle?: () => void;
@@ -85,6 +86,7 @@ export function ConversationPage({
   messages,
   isTyping,
   statusText,
+  connecting = false,
   onSendText,
   onVoiceRecorded,
   onVoiceToggle,
@@ -259,6 +261,12 @@ export function ConversationPage({
         className={`relative z-10 border-t border-zinc-800/40 ${transparentBg ? "bg-transparent" : "bg-[#0a0a0a]"} px-3 py-3 sm:px-5`}
       >
         <div className="mx-auto max-w-2xl">
+          {connecting && (
+            <div className="mb-2 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] text-zinc-400">
+              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+              Connecting...
+            </div>
+          )}
           <div className="mb-2 flex items-center gap-2">
             <VoiceButton
               onRecorded={onVoiceRecorded}

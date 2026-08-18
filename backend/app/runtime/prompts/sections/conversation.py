@@ -43,7 +43,7 @@ class ConversationPromptBuilder:
             lines.extend(
                 [
                     "",
-                    "### Summary",
+                    "### Conversation Summary",
                     context.summary.strip(),
                 ]
             )
@@ -74,9 +74,9 @@ class ConversationPromptBuilder:
                     str(message.role),
                 )
 
-                lines.append(
-                    f"{role}: {message.content.strip()}"
-                )
+            lines.append(
+                f"{role if role != 'system' else ''}: {message.content.strip()}"
+            )
 
         return "\n".join(
             lines,
