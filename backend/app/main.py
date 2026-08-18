@@ -34,26 +34,29 @@ from app.routes.voice import router as voice_router
 import app.communication.ws.chat_handler
 
 
+# ============================================================================
+# Logging
+# ============================================================================
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(levelname)s %(name)s: %(message)s",
 )
 
-logging.getLogger(
-    "httpx",
-).setLevel(
+logging.getLogger("httpx").setLevel(
     logging.WARNING,
 )
 
-logging.getLogger(
-    "apscheduler",
-).setLevel(
+logging.getLogger("apscheduler").setLevel(
     logging.WARNING,
 )
 
-logger = logging.getLogger(
-    __name__,
-)
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Application lifespan
+# ============================================================================
 
 
 @asynccontextmanager
@@ -65,14 +68,34 @@ async def lifespan(
 
     main.py is responsible only for application composition.
 
-    Event handlers and subscribers are created by the communication
-    setup layer.
+    Background-job infrastructure is created and owned by
+    BackgroundJobSystem.
+
+    BackgroundJobSystem owns:
+
+        - BackgroundJobRPC
+        - WorkerRegistry
+        - BackgroundRunner
+        - BackgroundDispatcher
+        - BackgroundScheduler
+
+    Communication infrastructure is created and owned by
+    the communication setup layer.
+
+    Communication infrastructure includes:
+
+        - EventBus
+        - EventManager
+        - Event subscribers
     """
 
-    from app.scheduler import (
-        start_scheduler,
-        stop_scheduler,
+    from app.background.factory import (
+        create_background_job_system,
     )
+
+    # ------------------------------------------------------------------------
+    # EventBus
+    # ------------------------------------------------------------------------
 
     event_bus_provider = EventBusProvider(
         EventBusConfig(
@@ -89,17 +112,52 @@ async def lifespan(
         event_bus,
     )
 
+    # ------------------------------------------------------------------------
+    # Application Event Manager
+    # ------------------------------------------------------------------------
+
     event_manager = (
         create_application_event_manager(
             event_bus,
         )
     )
 
+    # ------------------------------------------------------------------------
+    # Background Job System
+    # ------------------------------------------------------------------------
+
+    background_job_system = None
+
     try:
 
-        start_scheduler()
+        background_job_system = (
+            create_background_job_system()
+        )
+
+        # ---------------------------------------------------------------
+        # Start background-job infrastructure
+        #
+        # This starts APScheduler only.
+        #
+        # APScheduler will independently trigger:
+        #
+        #     dispatch_once()
+        #     recover_once()
+        #
+        # The runner and RPC layer handle the actual work.
+        # ---------------------------------------------------------------
+
+        background_job_system.start()
+
+        # ---------------------------------------------------------------
+        # Start application event system
+        # ---------------------------------------------------------------
 
         event_manager.start()
+
+        # ---------------------------------------------------------------
+        # Store application-wide resources
+        # ---------------------------------------------------------------
 
         app.state.event_bus_provider = (
             event_bus_provider
@@ -113,6 +171,37 @@ async def lifespan(
             event_manager
         )
 
+        app.state.background_job_system = (
+            background_job_system
+        )
+
+        # ---------------------------------------------------------------
+        # Optional background-job component references
+        #
+        # These are convenience references for application services
+        # that need to enqueue jobs or inspect the infrastructure.
+        # ---------------------------------------------------------------
+
+        app.state.background_job_rpc = (
+            background_job_system.rpc
+        )
+
+        app.state.background_worker_registry = (
+            background_job_system.registry
+        )
+
+        app.state.background_job_runner = (
+            background_job_system.runner
+        )
+
+        app.state.background_job_dispatcher = (
+            background_job_system.dispatcher
+        )
+
+        app.state.background_scheduler = (
+            background_job_system.scheduler
+        )
+
         logger.info(
             "Application ready",
         )
@@ -120,6 +209,7 @@ async def lifespan(
         yield
 
     except Exception as exc:
+
         logger.critical(
             "STARTUP FAILED: %s",
             exc,
@@ -130,37 +220,68 @@ async def lifespan(
 
     finally:
 
+        # --------------------------------------------------------------------
+        # Stop application event manager
+        #
+        # EventManager is stopped before EventBus is closed.
+        # --------------------------------------------------------------------
+
         try:
+
             await event_manager.close()
 
         except Exception:
+
             logger.exception(
                 "Failed to close application event manager.",
             )
 
+        # --------------------------------------------------------------------
+        # Stop background-job system
+        #
+        # This happens before closing shared resources such as
+        # Redis/EventBus because background workers may still depend
+        # on those resources.
+        # --------------------------------------------------------------------
+
+        if background_job_system is not None:
+
+            try:
+
+                await background_job_system.shutdown()
+
+            except Exception:
+
+                logger.exception(
+                    "Failed to stop background job system.",
+                )
+
+        # --------------------------------------------------------------------
+        # Close EventBus
+        # --------------------------------------------------------------------
+
         try:
+
             await event_bus.close()
 
         except Exception:
+
             logger.exception(
                 "Failed to close application EventBus.",
             )
 
         finally:
+
             clear_event_bus()
-
-        try:
-            stop_scheduler()
-
-        except Exception:
-            logger.exception(
-                "Failed to stop scheduler.",
-            )
 
         logger.info(
             "Application shutdown — connections closed",
         )
 
+
+# ============================================================================
+# FastAPI
+# ============================================================================
 
 app = FastAPI(
     title="Tendo",
@@ -169,9 +290,9 @@ app = FastAPI(
 )
 
 
-# ---------------------------------------------------------------------------
+# ============================================================================
 # CORS
-# ---------------------------------------------------------------------------
+# ============================================================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -185,9 +306,9 @@ app.add_middleware(
 )
 
 
-# ---------------------------------------------------------------------------
+# ============================================================================
 # Routes
-# ---------------------------------------------------------------------------
+# ============================================================================
 
 app.include_router(
     auth_router,
@@ -230,18 +351,18 @@ app.include_router(
 )
 
 
-# ---------------------------------------------------------------------------
-# Error handlers
-# ---------------------------------------------------------------------------
+# ============================================================================
+# Error Handlers
+# ============================================================================
 
 register_error_handlers(
     app,
 )
 
 
-# ---------------------------------------------------------------------------
-# Socket.IO ASGI application
-# ---------------------------------------------------------------------------
+# ============================================================================
+# Socket.IO ASGI Application
+# ============================================================================
 
 asgi_app = socketio.ASGIApp(
     sio,
@@ -250,9 +371,9 @@ asgi_app = socketio.ASGIApp(
 )
 
 
-# ---------------------------------------------------------------------------
+# ============================================================================
 # Health
-# ---------------------------------------------------------------------------
+# ============================================================================
 
 
 @app.get("/")
@@ -265,9 +386,9 @@ async def health():
     }
 
 
-# ---------------------------------------------------------------------------
-# Unified event ingress
-# ---------------------------------------------------------------------------
+# ============================================================================
+# Unified Event Ingress
+# ============================================================================
 
 
 @app.post(
@@ -279,8 +400,10 @@ async def receive_event(
     """
     Unified event ingress.
 
-    This endpoint accepts user/application events. Actual event
-    processing is handled by the corresponding EventBus subscribers.
+    This endpoint accepts user/application events.
+
+    Actual event processing is handled by the corresponding
+    EventBus subscribers.
     """
 
     return {
