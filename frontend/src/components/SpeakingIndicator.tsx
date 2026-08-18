@@ -6,32 +6,48 @@ type Props = {
   statusText?: string;
 };
 
-function useStreamText(text: string, speed = 18) {
+function useStreamText(text: string, speed = 12) {
   const [displayed, setDisplayed] = useState("");
-  const prevTextRef = useRef("");
+  const targetRef = useRef("");
+  const indexRef = useRef(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!text) {
+      targetRef.current = "";
+      indexRef.current = 0;
       setDisplayed("");
-      prevTextRef.current = "";
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
       return;
     }
 
-    if (text === prevTextRef.current) return;
-    prevTextRef.current = text;
+    // New text — reset index and start streaming fresh
+    targetRef.current = text;
+    indexRef.current = 0;
 
-    let i = 0;
-    setDisplayed("");
-    const interval = setInterval(() => {
-      i += 2;
-      if (i >= text.length) {
-        setDisplayed(text);
-        clearInterval(interval);
-      } else {
-        setDisplayed(text.slice(0, i));
+    if (!intervalRef.current) {
+      intervalRef.current = setInterval(() => {
+        const target = targetRef.current;
+        if (!target) return;
+        indexRef.current += 2;
+        if (indexRef.current >= target.length) {
+          setDisplayed(target);
+          indexRef.current = target.length;
+        } else {
+          setDisplayed(target.slice(0, indexRef.current));
+        }
+      }, speed);
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
-    }, speed);
-    return () => clearInterval(interval);
+    };
   }, [text, speed]);
 
   return displayed;

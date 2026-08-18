@@ -111,26 +111,44 @@ export function ConversationPage({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [displayedStatus, setDisplayedStatus] = useState("");
   const streamRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const targetRef = useRef("");
+  const indexRef = useRef(0);
 
   useEffect(() => {
-    if (streamRef.current) clearInterval(streamRef.current);
     if (!statusText) {
+      targetRef.current = "";
+      indexRef.current = 0;
       setDisplayedStatus("");
+      if (streamRef.current) {
+        clearInterval(streamRef.current);
+        streamRef.current = null;
+      }
       return;
     }
-    setDisplayedStatus("");
-    let i = 0;
-    streamRef.current = setInterval(() => {
-      i++;
-      if (i >= statusText.length) {
-        setDisplayedStatus(statusText);
-        if (streamRef.current) clearInterval(streamRef.current);
-      } else {
-        setDisplayedStatus(statusText.slice(0, i));
-      }
-    }, 20);
+
+    // New text — reset index and start streaming fresh
+    targetRef.current = statusText;
+    indexRef.current = 0;
+
+    if (!streamRef.current) {
+      streamRef.current = setInterval(() => {
+        const target = targetRef.current;
+        if (!target) return;
+        indexRef.current++;
+        if (indexRef.current >= target.length) {
+          setDisplayedStatus(target);
+          indexRef.current = target.length;
+        } else {
+          setDisplayedStatus(target.slice(0, indexRef.current));
+        }
+      }, 12);
+    }
+
     return () => {
-      if (streamRef.current) clearInterval(streamRef.current);
+      if (streamRef.current) {
+        clearInterval(streamRef.current);
+        streamRef.current = null;
+      }
     };
   }, [statusText]);
 

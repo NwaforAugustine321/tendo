@@ -25,6 +25,8 @@ class UserTaskPromptBuilder:
             r'you\s+are\s+now\s+(in\s+)?developer\s+mode',
             r'system\s+override',
             r'reveal\s+prompt',
+            f'explain\s+how you work',
+            f'explain\s+how you respond'
         ]
 
         self._fuzzy_patterns = [
@@ -32,7 +34,7 @@ class UserTaskPromptBuilder:
         ]
 
         self._high_risk_keywords = [
-            "password", "api_key", "admin", "system prompt", "bypass", "override"
+            "password", "api_key", "admin", "system prompt", "bypass", "override", "internal working", "working principle"
         ]
 
         self._injection_patterns = ["ignore instructions",
