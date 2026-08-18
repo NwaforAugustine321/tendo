@@ -203,10 +203,6 @@ class LangChainLLM(LLM):
 
         return self._prepared
 
-    # ------------------------------------------------------------------
-    # Chat / inference
-    # ------------------------------------------------------------------
-
     def chat(
         self,
         *,
@@ -233,10 +229,6 @@ class LangChainLLM(LLM):
             tools_enabled=tools_enabled,
         )
 
-    # ------------------------------------------------------------------
-    # Model preparation
-    # ------------------------------------------------------------------
-
     def prepare(
         self,
         *,
@@ -259,15 +251,8 @@ class LangChainLLM(LLM):
             tools_enabled=False
             → bind no tools
 
-        The provider model is rebuilt only when the preparation
-        configuration changes.
-        """
 
-        #
-        # --------------------------------------------------------------
-        # Determine runtime tools
-        # --------------------------------------------------------------
-        #
+        """
 
         if (
             tools_enabled
@@ -281,12 +266,6 @@ class LangChainLLM(LLM):
         else:
 
             proxy_tools = []
-
-        #
-        # --------------------------------------------------------------
-        # Build stable tool signature
-        # --------------------------------------------------------------
-        #
 
         tool_signature = tuple(
             sorted(
@@ -303,12 +282,6 @@ class LangChainLLM(LLM):
             output_type,
         )
 
-        #
-        # --------------------------------------------------------------
-        # Reuse currently active model
-        # --------------------------------------------------------------
-        #
-
         if (
             self._prepared
             and self._prepared_key
@@ -316,12 +289,6 @@ class LangChainLLM(LLM):
         ):
 
             return
-
-        #
-        # --------------------------------------------------------------
-        # Reuse cached model
-        # --------------------------------------------------------------
-        #
 
         cached_model = (
             self._prepared_models.get(
@@ -609,6 +576,10 @@ class LangChainLLM(LLM):
         Stream from the currently prepared provider.
 
         """
+
+        for msg in messages:
+            print(f"message [{msg.role}] ->>>: {msg.content}")
+            print("\n\n")
 
         provider_messages = (
             self.to_provider_messages(

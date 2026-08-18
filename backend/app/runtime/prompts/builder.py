@@ -104,14 +104,14 @@ class PromptBuilder:
         Current execution messages are excluded.
         """
 
+        if state.prepared:
+            return
+
         parts: list[str] = []
 
         state = (
             self._context.prompt_state
         )
-
-        if state.prepared:
-            return
 
         # Setup agent system runtime
         prompt = await self._build_runtime_prompt()
@@ -187,9 +187,14 @@ class PromptBuilder:
         #
         # Default agent stystem instructions.
         #
+        other_instruction = ''
+        if parts:
+            other_instruction = "\n\n".join(parts)
+
         agent_instructions = (
             self._context.agent.prompt_template.build(
-                self._context
+                self._context,
+                parts=other_instruction
             )
         )
 
@@ -197,16 +202,6 @@ class PromptBuilder:
 
             messages.extend(
                 agent_instructions,
-            )
-
-        # Other agent system instructions.
-
-        if parts:
-
-            messages.append(
-                ChatMessage.system(
-                    "\n\n".join(parts),
-                ),
             )
 
         #
@@ -218,18 +213,12 @@ class PromptBuilder:
             ),
         )
 
-        #
-        # Measure current execution messages separately.
-        #
         execution_messages = [
             message
             for message in self._context.run_context.messages
             if message.content
         ]
 
-        #
-        # Store the complete stable prompt.
-        #
         state.stable_messages = messages
 
         state.prepared = True
