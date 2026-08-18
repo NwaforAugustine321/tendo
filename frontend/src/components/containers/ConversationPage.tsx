@@ -110,27 +110,46 @@ export function ConversationPage({
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [displayedStatus, setDisplayedStatus] = useState("");
-  const streamRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (streamRef.current) clearInterval(streamRef.current);
     if (!statusText) {
       setDisplayedStatus("");
+      if (throttleRef.current) {
+        clearTimeout(throttleRef.current);
+        throttleRef.current = null;
+      }
+      if (streamIntervalRef.current) {
+        clearInterval(streamIntervalRef.current);
+        streamIntervalRef.current = null;
+      }
       return;
     }
+
+    // Throttle: ignore rapid changes within 800ms
+    if (throttleRef.current) return;
+
+    // Stream the accepted text character by character
+    if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
     setDisplayedStatus("");
     let i = 0;
-    streamRef.current = setInterval(() => {
+    streamIntervalRef.current = setInterval(() => {
       i++;
       if (i >= statusText.length) {
         setDisplayedStatus(statusText);
-        if (streamRef.current) clearInterval(streamRef.current);
+        if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
       } else {
         setDisplayedStatus(statusText.slice(0, i));
       }
     }, 20);
+
+    throttleRef.current = setTimeout(() => {
+      throttleRef.current = null;
+    }, 800);
+
     return () => {
-      if (streamRef.current) clearInterval(streamRef.current);
+      if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
     };
   }, [statusText]);
 

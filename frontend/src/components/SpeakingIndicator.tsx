@@ -6,33 +6,50 @@ type Props = {
   statusText?: string;
 };
 
-function useStreamText(text: string, speed = 18) {
+function useStreamText(text: string) {
   const [displayed, setDisplayed] = useState("");
-  const prevTextRef = useRef("");
+  const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const intervalRef2 = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!text) {
       setDisplayed("");
-      prevTextRef.current = "";
+      if (throttleRef.current) {
+        clearTimeout(throttleRef.current);
+        throttleRef.current = null;
+      }
+      if (intervalRef2.current) {
+        clearInterval(intervalRef2.current);
+        intervalRef2.current = null;
+      }
       return;
     }
 
-    if (text === prevTextRef.current) return;
-    prevTextRef.current = text;
+    // Throttle: ignore rapid changes within 800ms
+    if (throttleRef.current) return;
 
-    let i = 0;
+    // Stream the accepted text character by character
+    if (intervalRef2.current) clearInterval(intervalRef2.current);
     setDisplayed("");
-    const interval = setInterval(() => {
+    let i = 0;
+    intervalRef2.current = setInterval(() => {
       i += 2;
       if (i >= text.length) {
         setDisplayed(text);
-        clearInterval(interval);
+        if (intervalRef2.current) clearInterval(intervalRef2.current);
       } else {
         setDisplayed(text.slice(0, i));
       }
-    }, speed);
-    return () => clearInterval(interval);
-  }, [text, speed]);
+    }, 18);
+
+    throttleRef.current = setTimeout(() => {
+      throttleRef.current = null;
+    }, 800);
+
+    return () => {
+      if (intervalRef2.current) clearInterval(intervalRef2.current);
+    };
+  }, [text]);
 
   return displayed;
 }

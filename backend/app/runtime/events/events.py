@@ -187,7 +187,7 @@ class Status(str, Enum):
 
     REASONING = (
         "reasoning",
-        "I'm putting the pieces together...",
+        "Reasoning...",
     )
 
     RETRIEVING = (
