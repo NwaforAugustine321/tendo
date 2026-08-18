@@ -821,12 +821,6 @@ class AgentRunner:
                         #
                         # The next LLM inference happens immediately.
                         #
-                        await run_context.emitter.emit(
-                            EventType.PROGRESS,
-                            StatusEvent(
-                                status=Status.THINKING,
-                            ),
-                        )
 
                         continue
 
@@ -881,7 +875,7 @@ class AgentRunner:
             await run_context.emitter.emit(
                 EventType.PROGRESS,
                 StatusEvent(
-                    status=Status.MAX_ITERATION,
+                    status=Status.GENERATING,
                 ),
             )
 
