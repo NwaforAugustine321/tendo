@@ -9,7 +9,7 @@ class MemoryPromptBuilder:
     """
 
     HEADER = (
-        "## Long-Term Memory\n\n"
+        "\nLong-Term Memory\n\n"
         "Long-Term Memory contains information remembered from previous"
         "conversations and interactions. It provides context about "
         "the user and their history that may no longer be present any more in the context\n\n"

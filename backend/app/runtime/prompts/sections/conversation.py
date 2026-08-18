@@ -10,7 +10,7 @@ class ConversationPromptBuilder:
     Builds the conversation history prompt.
     """
     HEADER = (
-        "## Conversation History:\n"
+        "\nConversation History:\n"
         "Use this conversation history to maintain continuity and understand the "
         "ongoing business context. It contains previous interactions, discussions, "
         "requests, decisions, questions, answers, preferences, clarifications, "
@@ -43,7 +43,7 @@ class ConversationPromptBuilder:
             lines.extend(
                 [
                     "",
-                    "### Conversation Summary",
+                    "\nConversation Summary",
                     context.summary.strip(),
                 ]
             )
@@ -62,7 +62,7 @@ class ConversationPromptBuilder:
             lines.extend(
                 [
                     "",
-                    "### Previous Messages",
+                    "\nPrevious Messages",
                 ]
             )
 
@@ -74,9 +74,15 @@ class ConversationPromptBuilder:
                     str(message.role),
                 )
 
-            lines.append(
-                f"{role if role != 'system' else ''}: {message.content.strip()}"
-            )
+                content = message.content
+                if isinstance(content, (list, tuple)):
+                    content = "".join(str(s) for s in content)
+                else:
+                    content = str(content)
+
+                lines.append(
+                    f"{role if role != 'system' else ''}: {content.strip()}"
+                )
 
         return "\n".join(
             lines,

@@ -50,7 +50,7 @@ def get_run_context() -> RunContext:
 
 
 MEMORY_HEADER = (
-    "## Long-Term Memory\n\n"
+    "\nLong-Term Memory\n\n"
     "Long-Term Memory contains information remembered from previous"
     "conversations and interactions. It provides context about "
     "the user and their history that may no longer be present any more in the context\n\n"
@@ -66,7 +66,7 @@ MEMORY_HEADER = (
 
 
 RAG_HEADER = (
-    "## Central Knowledge:\n"
+    "\nCentral Knowledge:\n"
 
     "Central Knowledge contains accumulated business information and "
     "understanding. It may include business operations, activities, "

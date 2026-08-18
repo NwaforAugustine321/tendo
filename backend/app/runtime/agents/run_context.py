@@ -394,10 +394,11 @@ class RunContext:
         Begin a new execution.
         """
 
+        saved_request = self.user_request
         self.clear()
 
         self.user_request = (
-            user_message.content
+            saved_request or user_message.content
         )
 
         self.add_message(

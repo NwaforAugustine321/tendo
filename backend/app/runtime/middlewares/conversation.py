@@ -55,10 +55,12 @@ class ConversationMiddleware(
         ):
             return
 
-        if len(ctx.messages) == 0:
+        user_request = ctx.session.run_context.user_request
+
+        if not user_request:
             return
 
-        msg = ctx.messages[0]
+        msg = ChatMessage.user(user_request)
 
         await self._provider.append(
             conversation=conversation,

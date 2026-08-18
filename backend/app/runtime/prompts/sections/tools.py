@@ -13,7 +13,7 @@ class ToolPromptBuilder:
 
     HEADER = (
 
-        "## Tool System\n\n"
+        "\nTool System:\n"
 
         "Tools provide capabilities and access to information that may not "
         "already exist in the current conversation.\n\n"

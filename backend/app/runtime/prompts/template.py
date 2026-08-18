@@ -50,6 +50,7 @@ class PromptTemplate:
     def build(
         self,
         ctx: PromptContext,
+        system_parts_instr: str | None
     ) -> list[ChatMessage]:
         """
         Build the complete prompt by asking each
@@ -63,6 +64,7 @@ class PromptTemplate:
             messages.extend(
                 section.build(
                     ctx,
+                    system_parts_instr=system_parts_instr
                 )
             )
 

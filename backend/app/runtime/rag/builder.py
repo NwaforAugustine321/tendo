@@ -9,7 +9,7 @@ class RAGPromptBuilder:
     """
 
     HEADER = (
-        "## Central Knowledge:\n"
+        "\nCentral Knowledge:\n"
         "Central Knowledge contains accumulated business information and "
         "understanding. It may include business operations, activities, "
         "processes, data, entities, relationships, facts, evidence, findings, "

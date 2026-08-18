@@ -9,6 +9,9 @@ from app.runtime.context_manager.default_monitor import (
 from app.runtime.context_manager.monitor import (
     ContextMonitor,
 )
+from app.runtime.prompts.sections.user_task import (
+    UserTaskPromptBuilder,
+)
 from app.runtime.conversation.context import (
     ConversationContext,
 )
@@ -122,6 +125,8 @@ class AgentSession:
             enable_runtime_rag_mem=self._enable_runtime_rag_mem
         )
 
+        self._user_task_builder = UserTaskPromptBuilder()
+
         self._current_activity: AgentActivity | None = None
 
     @property
@@ -208,10 +213,16 @@ class AgentSession:
         Execute one conversational turn.
         """
 
+        # main message to save
+        self._run_context.user_request = message
+
+        # rebuild with instruction context for runtime
+        request = self._user_task_builder.build(message)
+
         return await self.run_message(
             ChatMessage.user(
-                message,
-            ),
+                request
+            )
         )
 
     async def run_message(

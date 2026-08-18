@@ -43,6 +43,10 @@ class ChatMessage:
     )
 
     @classmethod
+    def content(content: str):
+        self.content = content
+
+    @classmethod
     def system(
         cls,
         content: str,

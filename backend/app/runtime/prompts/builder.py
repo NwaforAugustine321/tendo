@@ -104,14 +104,14 @@ class PromptBuilder:
         Current execution messages are excluded.
         """
 
+        state = (
+            self._context.prompt_state
+        )
+
         if state.prepared:
             return
 
         parts: list[str] = []
-
-        state = (
-            self._context.prompt_state
-        )
 
         # Setup agent system runtime
         prompt = await self._build_runtime_prompt()
@@ -187,14 +187,14 @@ class PromptBuilder:
         #
         # Default agent stystem instructions.
         #
-        other_instruction = ''
+        system_parts_instr = ''
         if parts:
-            other_instruction = "\n\n".join(parts)
+            system_parts_instr = "\n\n".join(parts)
 
         agent_instructions = (
             self._context.agent.prompt_template.build(
                 self._context,
-                parts=other_instruction
+                system_parts_instr=system_parts_instr
             )
         )
 
