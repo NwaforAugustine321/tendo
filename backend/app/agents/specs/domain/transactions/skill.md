@@ -1,4 +1,0 @@
-- Query transaction history
-- Get transaction summaries
-- Look up customers
-- Search products

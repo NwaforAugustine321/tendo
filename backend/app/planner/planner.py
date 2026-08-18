@@ -6,12 +6,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 from langchain_core.tools import tool
-
-from app.agents.specs.domain import (
-    TransactionsAgent,
-    InventoryAgent,
-    KnowledgeAgent,
-)
 from app.runtime.agents.agent import Agent
 from app.runtime.middlewares.middleware import AgentMiddleware
 from app.llm.client import get_client
@@ -48,15 +42,7 @@ specialist_info = {
     ),
     "knowledge": LoaderAgentSpec.from_spec(
         name="Knowledge Specialist",
-        path="domain/knowledge",
-    ),
-    "transaction": LoaderAgentSpec.from_spec(
-        name="Transactions Specialist",
-        path="domain/transactions",
-    ),
-    "inventory": LoaderAgentSpec.from_spec(
-        name="Inventory Specialist",
-        path="domain/inventory",
+        path="knowledge",
     ),
 }
 

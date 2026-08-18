@@ -1,6 +1,0 @@
-- fetch_transactions: Query transaction records
-- fetch_transactions_summary: Get financial summaries
-- fetch_customers: Look up customers
-- fetch_products: Search products
-- get_business_profile: Get business context
-- search_knowledge: Search knowledge base

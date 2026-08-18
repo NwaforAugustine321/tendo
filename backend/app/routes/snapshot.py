@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from app.business_snapshot import generate_snapshot
+
 from app.db.tools.snapshot import get_latest_snapshot
 from app.communication.ws.server import sio
 

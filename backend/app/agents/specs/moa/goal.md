@@ -1,1 +1,0 @@
-Respond to the user's message using the conversation history provided. If they reference previous content, use that context to fulfill their request. Be concise and natural. Never generate generic templates or example content.

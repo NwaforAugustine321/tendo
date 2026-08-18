@@ -1,4 +1,0 @@
-- Natural conversation
-- Friendly greetings and small talk
-- General knowledge responses
-- Keeping responses concise

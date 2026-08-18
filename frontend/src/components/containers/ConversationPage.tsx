@@ -110,46 +110,9 @@ export function ConversationPage({
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [displayedStatus, setDisplayedStatus] = useState("");
-  const streamRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const targetRef = useRef("");
-  const indexRef = useRef(0);
 
   useEffect(() => {
-    if (!statusText) {
-      targetRef.current = "";
-      indexRef.current = 0;
-      setDisplayedStatus("");
-      if (streamRef.current) {
-        clearInterval(streamRef.current);
-        streamRef.current = null;
-      }
-      return;
-    }
-
-    // New text — reset index and start streaming fresh
-    targetRef.current = statusText;
-    indexRef.current = 0;
-
-    if (!streamRef.current) {
-      streamRef.current = setInterval(() => {
-        const target = targetRef.current;
-        if (!target) return;
-        indexRef.current++;
-        if (indexRef.current >= target.length) {
-          setDisplayedStatus(target);
-          indexRef.current = target.length;
-        } else {
-          setDisplayedStatus(target.slice(0, indexRef.current));
-        }
-      }, 12);
-    }
-
-    return () => {
-      if (streamRef.current) {
-        clearInterval(streamRef.current);
-        streamRef.current = null;
-      }
-    };
+    setDisplayedStatus(statusText || "");
   }, [statusText]);
 
   useEffect(() => {
@@ -265,7 +228,10 @@ export function ConversationPage({
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:300ms]" />
                 </span>
                 {displayedStatus && (
-                  <span className="text-xs text-zinc-400">
+                  <span
+                    key={displayedStatus}
+                    className="text-xs text-zinc-400 animate-bounce"
+                  >
                     {displayedStatus}
                   </span>
                 )}

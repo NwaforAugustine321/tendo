@@ -6,51 +6,8 @@ type Props = {
   statusText?: string;
 };
 
-function useStreamText(text: string, speed = 12) {
-  const [displayed, setDisplayed] = useState("");
-  const targetRef = useRef("");
-  const indexRef = useRef(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (!text) {
-      targetRef.current = "";
-      indexRef.current = 0;
-      setDisplayed("");
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-      return;
-    }
-
-    // New text — reset index and start streaming fresh
-    targetRef.current = text;
-    indexRef.current = 0;
-
-    if (!intervalRef.current) {
-      intervalRef.current = setInterval(() => {
-        const target = targetRef.current;
-        if (!target) return;
-        indexRef.current += 2;
-        if (indexRef.current >= target.length) {
-          setDisplayed(target);
-          indexRef.current = target.length;
-        } else {
-          setDisplayed(target.slice(0, indexRef.current));
-        }
-      }, speed);
-    }
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [text, speed]);
-
-  return displayed;
+function useStreamText(text: string, _speed = 12) {
+  return text;
 }
 
 const NUM_BARS = 16;
@@ -162,7 +119,10 @@ export function SpeakingIndicator({ active, speaking, statusText }: Props) {
       </div>
 
       {streamedText && (
-        <span className="text-[10px] text-zinc-300 max-w-[300px] text-center truncate bg-zinc-900/90 px-3 py-0.5 rounded-full backdrop-blur-sm border border-zinc-700/50 whitespace-nowrap">
+        <span
+          key={streamedText}
+          className="text-[10px] text-zinc-300 max-w-[300px] text-center truncate bg-zinc-900/90 px-3 py-0.5 rounded-full backdrop-blur-sm border border-zinc-700/50 whitespace-nowrap animate-bounce"
+        >
           {streamedText}
         </span>
       )}

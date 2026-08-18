@@ -3,13 +3,12 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 from pydantic import BaseModel, Field
 from app.config.settings import settings
-from app.contexts.models import ExecutionContext, SharedContext
-from app.execution.models import Result
+
 
 from pathlib import Path
 
 
-SPECS_DIR = Path(__file__).resolve().parent.parent.parent / "agents" / "specs"
+SPECS_DIR = Path(__file__).resolve().parent.parent.parent / "runtime" / "specs"
 
 
 class LoaderAgentSpec(BaseModel):

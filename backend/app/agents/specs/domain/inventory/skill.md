@@ -1,4 +1,0 @@
-- Check stock levels
-- Create new products
-- Record inventory movements (in/out/adjustment)
-- Search product catalog
