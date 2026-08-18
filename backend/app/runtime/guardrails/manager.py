@@ -26,7 +26,7 @@ class GuardrailManager:
 
         classifier = NvidiaSafetyClassifier()
         self._input_guard = InputSafetyGuardrail(classifier=classifier)
-        self._guardrails = guardrails or []
+        self._guardrails = guardrails or [self._input_guard]
 
     @property
     def guardrails(

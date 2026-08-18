@@ -299,9 +299,9 @@ class InferenceStream(AsyncIterator[LLMEvent]):
         messages: list[ChatMessage],
     ) -> Any:
 
-        for msg in messages:
-            print(f'message [{msg.role}]>>>>>>>>>>>', msg.content)
-            print('\n\n\n')
+        # for msg in messages:
+        #     print(f'message [{msg.role}]>>>>>>>>>>>', msg.content)
+        #     print('\n\n\n')
 
         if self._mode is InferenceMode.STREAM:
 

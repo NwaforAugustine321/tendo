@@ -61,6 +61,9 @@ class LangChainLLM(LLM):
 
     A new prepared model is created only when the preparation
     configuration changes.
+
+    Provider metadata may be inspected internally, but it is never
+    returned as part of the runtime AIMessage.
     """
 
     def __init__(
@@ -402,10 +405,6 @@ class LangChainLLM(LLM):
 
         self._prepared = True
 
-    # ------------------------------------------------------------------
-    # Tool signature
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _tool_signature(
         tool: Any,
@@ -493,9 +492,57 @@ class LangChainLLM(LLM):
             f"{schema}"
         )
 
-    # ------------------------------------------------------------------
-    # Invocation
-    # ------------------------------------------------------------------
+    @staticmethod
+    def _extract_response_metadata(
+        response: AIMessage,
+    ) -> dict[str, Any]:
+        """
+        Extract provider metadata internally.
+
+        The metadata is intentionally NOT returned to the runtime
+        AIMessage.
+
+        This method exists as a controlled boundary where provider
+        metadata can be inspected, logged, traced, or processed later
+        without allowing it to leak into the assistant response.
+        """
+
+        additional_kwargs = dict(
+            response.additional_kwargs or {},
+        )
+
+        response_metadata = dict(
+            response.response_metadata or {},
+        )
+
+        return {
+            "additional_kwargs": additional_kwargs,
+            "response_metadata": response_metadata,
+        }
+
+    @staticmethod
+    def _extract_chunk_metadata(
+        response: AIMessageChunk,
+    ) -> dict[str, Any]:
+        """
+        Extract provider metadata from a streamed chunk.
+
+        The metadata remains available internally but is never
+        returned as part of the final AIMessage.
+        """
+
+        additional_kwargs = dict(
+            response.additional_kwargs or {},
+        )
+
+        response_metadata = dict(
+            response.response_metadata or {},
+        )
+
+        return {
+            "additional_kwargs": additional_kwargs,
+            "response_metadata": response_metadata,
+        }
 
     async def invoke(
         self,
@@ -503,11 +550,54 @@ class LangChainLLM(LLM):
     ) -> AIMessage:
         """
         Invoke the currently prepared provider.
+
+
         """
 
-        return await self._model.ainvoke(
+        provider_messages = (
             self.to_provider_messages(
                 messages,
+            )
+        )
+
+        response = await self._model.ainvoke(
+            provider_messages,
+        )
+
+        #
+        # Extract everything internally before creating the clean
+        # runtime response.
+        #
+        provider_metadata = (
+            self._extract_response_metadata(
+                response,
+            )
+        )
+
+        #
+        # Keep this variable intentionally available for future
+        # tracing/observability without exposing it downstream.
+        #
+        _ = provider_metadata
+
+        #
+        # STRICT RUNTIME BOUNDARY
+        #
+        # Do not return:
+        #
+        #   response.additional_kwargs
+        #   response.response_metadata
+        #
+        # In particular, reasoning_content must never leave this
+        # provider boundary.
+        #
+        return AIMessage(
+            content=response.content,
+            tool_calls=list(
+                response.tool_calls or [],
+            ),
+            invalid_tool_calls=list(
+                response.invalid_tool_calls or [],
             ),
         )
 
@@ -517,26 +607,31 @@ class LangChainLLM(LLM):
     ) -> AsyncIterator[AIMessageChunk]:
         """
         Stream from the currently prepared provider.
+
         """
 
-        async for chunk in self._model.astream(
+        provider_messages = (
             self.to_provider_messages(
                 messages,
-            ),
+            )
+        )
+
+        async for chunk in self._model.astream(
+            provider_messages,
         ):
 
             yield chunk
-
-    # ------------------------------------------------------------------
-    # Chunk merging
-    # ------------------------------------------------------------------
 
     def merge_chunks(
         self,
         chunks: list[AIMessageChunk],
     ) -> AIMessage:
         """
-        Merge streamed chunks into one AIMessage.
+        Merge streamed provider chunks into one AIMessage.
+
+        The complete provider chunks are merged first so that
+        content and tool calls are reconstructed correctly.
+
         """
 
         if not chunks:
@@ -545,6 +640,12 @@ class LangChainLLM(LLM):
                 content="",
             )
 
+        #
+        # --------------------------------------------------------------
+        # Merge the complete provider chunks.
+        # --------------------------------------------------------------
+        #
+
         merged = chunks[0]
 
         for chunk in chunks[1:]:
@@ -552,27 +653,54 @@ class LangChainLLM(LLM):
             merged += chunk
 
         #
-        # Deduplicate repeated list fields.
+        # --------------------------------------------------------------
+        # Extract all metadata internally.
+        # --------------------------------------------------------------
         #
-        additional = (
-            merged.additional_kwargs
-            or {}
+        # This includes provider-specific fields such as:
+        #
+        #     additional_kwargs["reasoning_content"]
+        #
+        # and response metadata.
+        #
+        # Nothing from these fields is returned.
+        #
+
+        provider_metadata = (
+            self._extract_chunk_metadata(
+                merged,
+            )
         )
 
-        for key, value in additional.items():
+        #
+        # Keep the extracted metadata available for future
+        # tracing/observability without exposing it downstream.
+        #
+        _ = provider_metadata
 
-            if isinstance(
-                value,
-                list,
-            ):
+        #
+        # --------------------------------------------------------------
+        # STRICT RUNTIME BOUNDARY
+        # --------------------------------------------------------------
+        #
+        # Only:
+        #
+        #     content
+        #     tool_calls
+        #     invalid_tool_calls
+        #
+        # leave this class.
+        #
 
-                additional[key] = list(
-                    dict.fromkeys(
-                        value,
-                    ),
-                )
-
-        return merged
+        return AIMessage(
+            content=merged.content,
+            tool_calls=list(
+                merged.tool_calls or [],
+            ),
+            invalid_tool_calls=list(
+                merged.invalid_tool_calls or [],
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Provider message conversion
