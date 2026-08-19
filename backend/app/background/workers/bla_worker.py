@@ -96,7 +96,7 @@ class BLABackgroundWorker(
 
             for business_id in business_ids:
 
-                logger.info(f'Enqueuing [Business BLA JOB]: {business_id}')
+                # logger.info(f'Enqueuing [Business BLA JOB]: {business_id}')
 
                 business_id = business_id.strip()
 
@@ -110,8 +110,8 @@ class BLABackgroundWorker(
                         "business_id": business_id,
                         "batch_size": batch_size,
                     },
-                    interval_value=2,
-                    interval_unit=IntervalUnit.MINUTES
+                    interval_value=12,
+                    interval_unit=IntervalUnit.HOURS
 
                 )
 

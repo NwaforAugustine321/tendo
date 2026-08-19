@@ -10,8 +10,11 @@ from app.communication.subscribers.manager import (
 from app.communication.subscribers.subscriber import (
     ApplicationEventSubscriber,
 )
-from app.communication.handlers.frontend_handler import (
-    handle_frontend_event,
+from app.communication.handlers.inapp_socket_forwarder_handler import (
+    handle_inapp_socket_forwarder,
+)
+from app.communication.handlers.business_activities_persist_handler import (
+    handle_business_persist_activties
 )
 from app.voice_agent.lifecycle import (
     voice_lifecycle_service,
@@ -27,11 +30,22 @@ def create_application_event_manager(
     manager.register(
         ApplicationEventSubscriber(
             event_bus=event_bus,
-            handler=handle_frontend_event,
+            handler=handle_inapp_socket_forwarder,
             event_filter=lambda event: (
                 event.delivery is EventDelivery.APP
             ),
-            name="frontend-event-subscriber",
+            name="inapp_sockert_forwarder_subscriber",
+        ),
+    )
+
+    manager.register(
+        ApplicationEventSubscriber(
+            event_bus=event_bus,
+            handler=handle_business_persist_activties,
+            event_filter=lambda event: (
+                event.delivery is EventDelivery.APP
+            ),
+            name="business_activities_persist_subscriber",
         ),
     )
 

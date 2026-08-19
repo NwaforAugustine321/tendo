@@ -10,7 +10,7 @@ from app.communication.ws.server import (
 logger = logging.getLogger(__name__)
 
 
-async def handle_frontend_event(
+async def handle_inapp_socket_forwarder(
     event: ApplicationEvent,
 ) -> None:
     """

@@ -5,11 +5,9 @@ import logging
 import uuid
 
 from app.db.client import get_client
-from app.events.writer import EventWriter
+
 
 logger = logging.getLogger(__name__)
-
-_event_writer = EventWriter()
 
 
 async def upload_file(business_id: str, path: str, content: bytes, content_type: str) -> str:
@@ -22,18 +20,9 @@ async def upload_file(business_id: str, path: str, content: bytes, content_type:
         file=content,
         file_options={"content-type": content_type, "upsert": "true"},
     )
-    public_url = client.storage.from_(settings.bucket_name).get_public_url(path)
+    public_url = client.storage.from_(
+        settings.bucket_name).get_public_url(path)
     logger.info(f"File uploaded: {public_url}")
-
-    _event_writer.write(
-        business_id=business_id,
-        entity_type="storage",
-        entity_id=path,
-        event_type="FileUploaded",
-        source="system",
-        payload={"path": path, "content_type": content_type, "url": public_url},
-        metadata={"business_id": business_id},
-    )
 
     return public_url
 
@@ -48,7 +37,8 @@ async def upload_logo(business_id: str, content: bytes, content_type: str) -> st
     # Update the business profile logo_url
     client = get_client()
     try:
-        client.table("business_profiles").update({"logo_url": public_url}).eq("id", business_id).execute()
+        client.table("business_profiles").update(
+            {"logo_url": public_url}).eq("id", business_id).execute()
         logger.info(f"Logo URL saved to profile: {business_id}")
     except Exception as e:
         logger.warning(f"Failed to update profile logo_url: {e}")
