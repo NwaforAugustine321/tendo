@@ -512,16 +512,7 @@ begin
 
         heartbeat_at = null,
 
-        worker_name = case
-
-            when bj.interval_value is not null
-                 and bj.interval_unit is not null
-
-                then null
-
-            else bj.worker_name
-
-        end,
+        worker_name = bj.worker_name,
 
         -- Reset attempts for the next recurring execution.
         attempts = case
