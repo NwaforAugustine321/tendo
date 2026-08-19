@@ -16,11 +16,11 @@ class LearningService:
 
         self._event = LearningEvent()
 
-        self._knowledge = LearningKnowledgeMemory()
+        self._knowledge = LearningKnowledgeMemory(namespace='', scopes=[])
 
     @property
     def event(self) -> LearningEvent:
-        return self._event_provider
+        return self._event
 
     @property
     def knowledge(self) -> LearningKnowledge:

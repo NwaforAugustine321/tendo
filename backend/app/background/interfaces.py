@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Any
+from enum import StrEnum
 
 
 class BackgroundJobRPC(ABC):
@@ -34,7 +35,7 @@ class BackgroundJobRPC(ABC):
         self,
         *,
         job_type: str,
-        user_id: str | None = None,
+        id: str | None = None,
         payload: dict[str, Any] | None = None,
         run_at: str | None = None,
         priority: int = 0,
@@ -47,8 +48,8 @@ class BackgroundJobRPC(ABC):
             job_type:
                 Logical type of the job.
 
-            user_id:
-                Optional user associated with the job.
+            id:
+                Optional id associated with the job.
 
             payload:
                 Job-specific input data.
@@ -168,3 +169,13 @@ class BackgroundJobRPC(ABC):
         the durable database.
         """
         ...
+
+
+class IntervalUnit(StrEnum):
+    SECONDS = "seconds"
+    MINUTES = "minutes"
+    HOURS = "hours"
+    DAYS = "days"
+    WEEKS = "weeks"
+    MONTHS = "months"
+    YEARS = "years"

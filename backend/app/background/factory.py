@@ -281,7 +281,7 @@ def create_background_job_system(
     )
 
     application_workers.append(
-        BLABackgroundWorker(),
+        BLABackgroundWorker(rpc=rpc),
     )
 
     registry = WorkerRegistry(

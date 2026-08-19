@@ -13,8 +13,6 @@ class BackgroundDispatcher:
     """
     Coordinates the generic background-job infrastructure.
 
-    The dispatcher contains no job-specific business logic.
-
     Responsibilities:
         - Dispatch pending jobs through BackgroundRunner.
         - Recover stale jobs through BackgroundJobRPC.

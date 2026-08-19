@@ -1,22 +1,52 @@
 -- ============================================================
 -- Background Jobs
---
+-- ============================================================
+
 -- Generic durable job queue for all background processing.
---
+
 -- APScheduler:
 --   - triggers dispatchers
---
+
 -- PostgreSQL:
 --   - owns durable job state
 --   - claims jobs atomically
 --   - controls retries
 --   - controls retry backoff
+--   - controls recurring scheduling
 --   - recovers stale jobs
---
+
 -- Workers:
 --   - execute the actual job logic
 --   - never sleep for retry backoff
+
+
 -- ============================================================
+-- INTERVAL UNIT
+-- ============================================================
+
+do $$
+begin
+
+    if not exists (
+        select 1
+        from pg_type
+        where typname = 'background_job_interval_unit'
+    ) then
+
+        create type background_job_interval_unit as enum (
+            'seconds',
+            'minutes',
+            'hours',
+            'days',
+            'weeks',
+            'months',
+            'years'
+        );
+
+    end if;
+
+end;
+$$;
 
 
 -- ============================================================
@@ -28,8 +58,6 @@ create table if not exists background_jobs (
     id uuid primary key,
 
     job_type text not null,
-
-    user_id uuid null,
 
     payload jsonb not null default '{}'::jsonb,
 
@@ -54,6 +82,14 @@ create table if not exists background_jobs (
 
     scheduled_at timestamptz not null default now(),
 
+    -- ========================================================
+    -- Recurring job configuration
+    -- ========================================================
+
+    interval_value integer null,
+
+    interval_unit background_job_interval_unit null,
+
     started_at timestamptz null,
 
     completed_at timestamptz null,
@@ -68,21 +104,40 @@ create table if not exists background_jobs (
 
     created_at timestamptz not null default now(),
 
-    updated_at timestamptz not null default now()
+    updated_at timestamptz not null default now(),
+
+    -- Both interval fields must be supplied together.
+    constraint background_jobs_interval_consistency
+        check (
+            (
+                interval_value is null
+                and interval_unit is null
+            )
+            or
+            (
+                interval_value is not null
+                and interval_unit is not null
+                and interval_value > 0
+            )
+        )
+
 );
 
 
 -- ============================================================
--- INDEXES
+-- MIGRATION FOR EXISTING DATABASES
 -- ============================================================
 
+alter table background_jobs
+    add column if not exists interval_value integer null;
 
--- Pending jobs.
---
--- The dispatcher primarily queries this index.
---
--- Higher priority jobs are processed first.
--- Older scheduled jobs are processed before newer ones.
+alter table background_jobs
+    add column if not exists interval_unit
+        background_job_interval_unit null;
+
+
+-- ============================================================
+-- INDEXES
 -- ============================================================
 
 create index if not exists idx_background_jobs_pending
@@ -95,19 +150,13 @@ on background_jobs (
 where status = 'pending';
 
 
--- Jobs belonging to a business.
--- ============================================================
-
 create index if not exists idx_background_jobs_business
 on background_jobs (
-    user_id,
+    id,
     status,
     scheduled_at
 );
 
-
--- Jobs grouped by type.
--- ============================================================
 
 create index if not exists idx_background_jobs_type
 on background_jobs (
@@ -117,18 +166,12 @@ on background_jobs (
 );
 
 
--- Running jobs that may require stale-job recovery.
--- ============================================================
-
 create index if not exists idx_background_jobs_stale
 on background_jobs (
     heartbeat_at
 )
 where status = 'running';
 
-
--- Worker diagnostics.
--- ============================================================
 
 create index if not exists idx_background_jobs_worker
 on background_jobs (
@@ -141,25 +184,6 @@ where worker_name is not null;
 
 -- ============================================================
 -- RETRY BACKOFF
---
--- The delay is determined by the attempt that just failed.
---
--- Attempt 1 -> 10 seconds
--- Attempt 2 -> 15 seconds
--- Attempt 3 -> 20 seconds
--- Attempt 4 -> 25 seconds
--- Attempt 5 -> 30 seconds
--- Attempt 6 -> 35 seconds
--- Attempt 7 -> 40 seconds
---
--- Attempt 8 does not retry when max_attempts = 8.
---
--- The function is shared by:
---
---   1. Normal job failures
---   2. Stale-job recovery
---
--- This keeps retry behavior consistent.
 -- ============================================================
 
 create or replace function background_job_retry_delay(
@@ -190,21 +214,99 @@ $$;
 
 
 -- ============================================================
+-- RECURRING JOB NEXT RUN
+-- ============================================================
+
+create or replace function background_job_next_schedule(
+    p_scheduled_at timestamptz,
+    p_interval_value integer,
+    p_interval_unit background_job_interval_unit
+)
+returns timestamptz
+language plpgsql
+immutable
+as $$
+begin
+
+    if p_interval_value is null
+       or p_interval_unit is null then
+
+        return null;
+
+    end if;
+
+    if p_interval_value <= 0 then
+
+        raise exception
+            'interval_value must be greater than zero';
+
+    end if;
+
+    case p_interval_unit
+
+        when 'seconds' then
+
+            return p_scheduled_at
+                + make_interval(
+                    secs => p_interval_value
+                );
+
+        when 'minutes' then
+
+            return p_scheduled_at
+                + make_interval(
+                    mins => p_interval_value
+                );
+
+        when 'hours' then
+
+            return p_scheduled_at
+                + make_interval(
+                    hours => p_interval_value
+                );
+
+        when 'days' then
+
+            return p_scheduled_at
+                + make_interval(
+                    days => p_interval_value
+                );
+
+        when 'weeks' then
+
+            return p_scheduled_at
+                + make_interval(
+                    days => p_interval_value * 7
+                );
+
+        when 'months' then
+
+            return p_scheduled_at
+                + make_interval(
+                    months => p_interval_value
+                );
+
+        when 'years' then
+
+            return p_scheduled_at
+                + make_interval(
+                    years => p_interval_value
+                );
+
+        else
+
+            raise exception
+                'Unsupported interval unit: %',
+                p_interval_unit;
+
+    end case;
+
+end;
+$$;
+
+
+-- ============================================================
 -- CLAIM BACKGROUND JOBS
---
--- Atomically claims pending jobs.
---
--- FOR UPDATE SKIP LOCKED is critical because multiple
--- application instances can execute this function
--- simultaneously without claiming the same job.
---
--- attempts is incremented when the job is claimed.
--- Therefore:
---
---   attempts = 1 -> first execution
---   attempts = 2 -> second execution
---   ...
---   attempts = 8 -> eighth execution
 -- ============================================================
 
 create or replace function claim_background_jobs(
@@ -220,7 +322,6 @@ begin
     if p_limit <= 0 then
         return;
     end if;
-
 
     return query
 
@@ -244,6 +345,7 @@ begin
         limit p_limit
 
         for update skip locked
+
     )
 
     update background_jobs bj
@@ -276,28 +378,6 @@ $$;
 
 -- ============================================================
 -- RECOVER STALE JOBS
---
--- A stale running job represents a failed execution attempt.
---
--- If attempts remain:
---
---   running
---      ↓
---   stale
---      ↓
---   pending
---      ↓
---   retry after backoff
---
--- If no attempts remain:
---
---   running
---      ↓
---   stale
---      ↓
---   failed
---
--- The retry delay is determined by the attempt that was lost.
 -- ============================================================
 
 create or replace function recover_stale_background_jobs(
@@ -311,7 +391,6 @@ begin
     if p_timeout_seconds <= 0 then
         return;
     end if;
-
 
     return query
 
@@ -328,32 +407,27 @@ begin
 
         end,
 
-
         worker_name = null,
 
-
         heartbeat_at = null,
-
 
         last_error = coalesce(
             bj.last_error,
             'Worker heartbeat timed out'
         ),
 
-
         scheduled_at = case
 
             when bj.attempts < bj.max_attempts
 
                 then now()
-                    + background_job_retry_delay(
-                        bj.attempts
-                    )
+                     + background_job_retry_delay(
+                         bj.attempts
+                     )
 
             else bj.scheduled_at
 
         end,
-
 
         failed_at = case
 
@@ -363,7 +437,6 @@ begin
             else null
 
         end,
-
 
         updated_at = now()
 
@@ -386,8 +459,6 @@ $$;
 
 -- ============================================================
 -- COMPLETE BACKGROUND JOB
---
--- Only a running job can be completed.
 -- ============================================================
 
 create or replace function complete_background_job(
@@ -405,7 +476,32 @@ begin
 
     set
 
-        status = 'completed',
+        -- ----------------------------------------------------
+        -- Recurring job:
+        --
+        -- running
+        --    ↓
+        -- pending
+        --    ↓
+        -- next scheduled_at
+        --
+        -- One-time job:
+        --
+        -- running
+        --    ↓
+        -- completed
+        -- ----------------------------------------------------
+
+        status = case
+
+            when bj.interval_value is not null
+                 and bj.interval_unit is not null
+
+                then 'pending'
+
+            else 'completed'
+
+        end,
 
         result = coalesce(
             p_result,
@@ -415,6 +511,45 @@ begin
         completed_at = now(),
 
         heartbeat_at = null,
+
+        worker_name = case
+
+            when bj.interval_value is not null
+                 and bj.interval_unit is not null
+
+                then null
+
+            else bj.worker_name
+
+        end,
+
+        -- Reset attempts for the next recurring execution.
+        attempts = case
+
+            when bj.interval_value is not null
+                 and bj.interval_unit is not null
+
+                then 0
+
+            else bj.attempts
+
+        end,
+
+        -- Calculate the next occurrence automatically.
+        scheduled_at = case
+
+            when bj.interval_value is not null
+                 and bj.interval_unit is not null
+
+                then background_job_next_schedule(
+                    bj.scheduled_at,
+                    bj.interval_value,
+                    bj.interval_unit
+                )
+
+            else bj.scheduled_at
+
+        end,
 
         updated_at = now()
 
@@ -430,25 +565,6 @@ $$;
 
 -- ============================================================
 -- FAIL BACKGROUND JOB
---
--- Normal failure path.
---
--- If retry is allowed and attempts remain:
---
---     running
---        ↓
---     pending
---        ↓
---     scheduled_at = now() + backoff
---
--- Otherwise:
---
---     running
---        ↓
---     failed
---
--- The application worker never sleeps.
--- PostgreSQL schedules the next attempt.
 -- ============================================================
 
 create or replace function fail_background_job(
@@ -459,6 +575,7 @@ create or replace function fail_background_job(
 returns setof background_jobs
 language plpgsql
 as $$
+
 declare
 
     v_attempts integer;
@@ -514,15 +631,11 @@ begin
 
         end,
 
-
         worker_name = null,
-
 
         heartbeat_at = null,
 
-
         last_error = p_error,
-
 
         scheduled_at = case
 
@@ -534,7 +647,6 @@ begin
             else bj.scheduled_at
 
         end,
-
 
         failed_at = case
 
@@ -548,7 +660,6 @@ begin
             else null
 
         end,
-
 
         updated_at = now()
 
@@ -564,9 +675,6 @@ $$;
 
 -- ============================================================
 -- HEARTBEAT
---
--- Only the worker that currently owns the job can update
--- its heartbeat.
 -- ============================================================
 
 create or replace function heartbeat_background_job(
@@ -598,3 +706,47 @@ begin
 
 end;
 $$;
+
+
+
+
+--- cursor count table
+create table if not exists public.bla_cursors (
+    business_id uuid primary key
+        references public.business_profiles(id)
+        on delete cascade,
+
+    cursor bigint null,
+
+    created_at timestamptz not null
+        default now(),
+
+    updated_at timestamptz not null
+        default now()
+);
+
+
+create or replace function public.update_bla_cursors_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+    new.updated_at = now();
+
+    return new;
+end;
+$$;
+
+
+drop trigger if exists bla_cursors_updated_at
+on public.bla_cursors;
+
+
+create trigger bla_cursors_updated_at
+before update on public.bla_cursors
+for each row
+execute function public.update_bla_cursors_updated_at();
+
+
+create index if not exists idx_bla_cursors_business_id
+on public.bla_cursors(business_id);

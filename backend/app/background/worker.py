@@ -31,9 +31,8 @@ class BackgroundWorker(ABC):
 
     Those responsibilities belong to the background infrastructure.
 
-    Background jobs are scoped to a user through ``user_id``.
-    The worker infrastructure does not interpret the meaning of
-    that user or any domain-specific entity associated with it.
+    Background jobs are scoped to through ``id``.
+
     """
 
     def __init__(
@@ -130,14 +129,14 @@ class BackgroundWorker(ABC):
         return str(job_id)
 
     @staticmethod
-    def get_user_id(
+    def get_id(
         job: dict[str, Any],
     ) -> str | None:
         """
-        Return the user ID associated with the job.
+        Return the ID associated with the job.
 
         Some background jobs may be system-level jobs and therefore
-        do not belong to a specific user.
+        do not belong to a specific id.
         """
 
         if not isinstance(
@@ -148,15 +147,15 @@ class BackgroundWorker(ABC):
                 "Background job must be a dictionary.",
             )
 
-        user_id = job.get(
-            "user_id",
+        id = job.get(
+            "id",
         )
 
-        if user_id is None:
+        if id is None:
             return None
 
         return str(
-            user_id,
+            id,
         )
 
     @staticmethod
@@ -429,7 +428,7 @@ class BackgroundWorker(ABC):
 
                     id
                     job_type
-                    user_id
+                    id
                     payload
                     attempts
                     max_attempts
