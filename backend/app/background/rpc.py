@@ -70,7 +70,7 @@ class DatabaseBackgroundJobRPC(BackgroundJobRPC):
         self,
         *,
         job_type: str,
-        business_id: str | None = None,
+        user_id: str | None = None,
         payload: dict[str, Any] | None = None,
         run_at: str | None = None,
         priority: int = 0,
@@ -94,20 +94,20 @@ class DatabaseBackgroundJobRPC(BackgroundJobRPC):
             job_type,
         )
 
-        if business_id is not None:
+        if user_id is not None:
             if not isinstance(
-                business_id,
+                user_id,
                 str,
             ):
                 raise TypeError(
-                    "business_id must be a string or None.",
+                    "user_id must be a string or None.",
                 )
 
-            business_id = business_id.strip()
+            user_id = user_id.strip()
 
-            if not business_id:
+            if not user_id:
                 raise ValueError(
-                    "business_id cannot be empty.",
+                    "user_id cannot be empty.",
                 )
 
         if payload is not None and not isinstance(
@@ -160,7 +160,7 @@ class DatabaseBackgroundJobRPC(BackgroundJobRPC):
         data = {
             "id": job_id,
             "job_type": job_type,
-            "business_id": business_id,
+            "user_id": user_id,
             "payload": payload or {},
             "status": "pending",
             "priority": priority,
@@ -185,10 +185,10 @@ class DatabaseBackgroundJobRPC(BackgroundJobRPC):
                 "Failed to enqueue job: "
                 "job_id=%s "
                 "job_type=%s "
-                "business_id=%s",
+                "user_id=%s",
                 job_id,
                 job_type,
-                business_id,
+                user_id,
             )
             raise
 
@@ -203,11 +203,11 @@ class DatabaseBackgroundJobRPC(BackgroundJobRPC):
             "Job enqueued: "
             "job_id=%s "
             "job_type=%s "
-            "business_id=%s "
+            "user_id=%s "
             "scheduled_at=%s",
             job_id,
             job_type,
-            business_id,
+            user_id,
             scheduled_at,
         )
 

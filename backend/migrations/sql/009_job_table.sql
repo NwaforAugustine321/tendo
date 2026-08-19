@@ -29,7 +29,7 @@ create table if not exists background_jobs (
 
     job_type text not null,
 
-    business_id uuid null,
+    user_id uuid null,
 
     payload jsonb not null default '{}'::jsonb,
 
@@ -100,7 +100,7 @@ where status = 'pending';
 
 create index if not exists idx_background_jobs_business
 on background_jobs (
-    business_id,
+    user_id,
     status,
     scheduled_at
 );

@@ -30,6 +30,10 @@ class BackgroundWorker(ABC):
         - Job persistence.
 
     Those responsibilities belong to the background infrastructure.
+
+    Background jobs are scoped to a user through ``user_id``.
+    The worker infrastructure does not interpret the meaning of
+    that user or any domain-specific entity associated with it.
     """
 
     def __init__(
@@ -38,12 +42,18 @@ class BackgroundWorker(ABC):
         job_type: str,
         worker_name: str,
     ) -> None:
-        if not isinstance(job_type, str):
+        if not isinstance(
+            job_type,
+            str,
+        ):
             raise TypeError(
                 "job_type must be a string.",
             )
 
-        if not isinstance(worker_name, str):
+        if not isinstance(
+            worker_name,
+            str,
+        ):
             raise TypeError(
                 "worker_name must be a string.",
             )
@@ -69,7 +79,9 @@ class BackgroundWorker(ABC):
     # ============================================================
 
     @property
-    def job_type(self) -> str:
+    def job_type(
+        self,
+    ) -> str:
         """
         Return the job type handled by this worker.
         """
@@ -77,7 +89,9 @@ class BackgroundWorker(ABC):
         return self._job_type
 
     @property
-    def worker_name(self) -> str:
+    def worker_name(
+        self,
+    ) -> str:
         """
         Return the logical worker name.
         """
@@ -96,12 +110,17 @@ class BackgroundWorker(ABC):
         Return the ID of a background job.
         """
 
-        if not isinstance(job, dict):
+        if not isinstance(
+            job,
+            dict,
+        ):
             raise TypeError(
                 "Background job must be a dictionary.",
             )
 
-        job_id = job.get("id")
+        job_id = job.get(
+            "id",
+        )
 
         if not job_id:
             raise ValueError(
@@ -111,29 +130,34 @@ class BackgroundWorker(ABC):
         return str(job_id)
 
     @staticmethod
-    def get_business_id(
+    def get_user_id(
         job: dict[str, Any],
     ) -> str | None:
         """
-        Return the business ID associated with the job.
+        Return the user ID associated with the job.
 
-        Some background jobs are system-level jobs and therefore
-        do not belong to a specific business.
+        Some background jobs may be system-level jobs and therefore
+        do not belong to a specific user.
         """
 
-        if not isinstance(job, dict):
+        if not isinstance(
+            job,
+            dict,
+        ):
             raise TypeError(
                 "Background job must be a dictionary.",
             )
 
-        business_id = job.get(
-            "business_id",
+        user_id = job.get(
+            "user_id",
         )
 
-        if business_id is None:
+        if user_id is None:
             return None
 
-        return str(business_id)
+        return str(
+            user_id,
+        )
 
     @staticmethod
     def get_payload(
@@ -146,7 +170,10 @@ class BackgroundWorker(ABC):
         payload.
         """
 
-        if not isinstance(job, dict):
+        if not isinstance(
+            job,
+            dict,
+        ):
             raise TypeError(
                 "Background job must be a dictionary.",
             )
@@ -297,9 +324,12 @@ class BackgroundWorker(ABC):
             "payload",
         )
 
-        if payload is not None and not isinstance(
-            payload,
-            dict,
+        if (
+            payload is not None
+            and not isinstance(
+                payload,
+                dict,
+            )
         ):
             raise TypeError(
                 "Background job 'payload' must be a dictionary.",
@@ -315,12 +345,15 @@ class BackgroundWorker(ABC):
 
         if attempts is not None:
 
-            if isinstance(
-                attempts,
-                bool,
-            ) or not isinstance(
-                attempts,
-                int,
+            if (
+                isinstance(
+                    attempts,
+                    bool,
+                )
+                or not isinstance(
+                    attempts,
+                    int,
+                )
             ):
                 raise TypeError(
                     "Background job 'attempts' must be an integer.",
@@ -341,12 +374,15 @@ class BackgroundWorker(ABC):
 
         if max_attempts is not None:
 
-            if isinstance(
-                max_attempts,
-                bool,
-            ) or not isinstance(
-                max_attempts,
-                int,
+            if (
+                isinstance(
+                    max_attempts,
+                    bool,
+                )
+                or not isinstance(
+                    max_attempts,
+                    int,
+                )
             ):
                 raise TypeError(
                     "Background job 'max_attempts' "
@@ -393,7 +429,7 @@ class BackgroundWorker(ABC):
 
                     id
                     job_type
-                    business_id
+                    user_id
                     payload
                     attempts
                     max_attempts
@@ -407,7 +443,6 @@ class BackgroundWorker(ABC):
             Exception:
                 Processing exceptions propagate to
                 BackgroundRunner. The runner persists the failure
-                and delegates retry/backoff decisions to
-                PostgreSQL.
+                and delegates retry/backoff decisions to PostgreSQL.
         """
         ...

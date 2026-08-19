@@ -1,1 +1,0 @@
-A structured Insight Output JSON containing business insights with flexible metadata payloads. Each insight must include the natural language understanding text, business area, importance score, timestamp, and a flexible payload with supporting evidence and context.

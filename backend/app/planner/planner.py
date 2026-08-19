@@ -31,10 +31,6 @@ from app.communication.events import EventDelivery
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# SPECIALISTS
-# ============================================================================
-
 specialist_info = {
     "planner": LoaderAgentSpec.from_spec(
         name="Planner Specialist",
@@ -46,10 +42,6 @@ specialist_info = {
     ),
 }
 
-
-# ============================================================================
-# PLANNER PROMPT
-# ============================================================================
 
 planner_system_prompt = (
     f"{specialist_info['planner'].backstory}\n\n"
@@ -63,10 +55,6 @@ planner_system_prompt = (
     "## knowledge\n"
 )
 
-
-# ============================================================================
-# EVENT / PROGRESS
-# ============================================================================
 
 emitter = DefaultEmitter()
 
@@ -334,10 +322,6 @@ def _validate_specialists(
 
     return None
 
-
-# ============================================================================
-# DELEGATION TOOL
-# ============================================================================
 
 def delegate_to_agents(
     session: dict[str, Any] | None = None,

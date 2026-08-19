@@ -11,6 +11,7 @@ from .rpc import DatabaseBackgroundJobRPC
 from .runner import BackgroundRunner
 from .scheduler import BackgroundScheduler
 from .worker import BackgroundWorker
+from .workers.bla_worker import BLABackgroundWorker
 
 
 logger = logging.getLogger(__name__)
@@ -275,8 +276,16 @@ def create_background_job_system(
     # 3. Worker Registry
     # ==================================================================
 
+    application_workers = list(
+        workers or [],
+    )
+
+    application_workers.append(
+        BLABackgroundWorker(),
+    )
+
     registry = WorkerRegistry(
-        workers=workers,
+        workers=application_workers,
     )
 
     # ==================================================================

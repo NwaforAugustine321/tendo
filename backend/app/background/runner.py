@@ -29,7 +29,7 @@ class BackgroundRunner:
         - Calculate retry backoff.
         - Sleep between retries.
         - Recover stale jobs.
-        - Contain job-specific business logic.
+        - Contain job-specific user logic.
 
     Those responsibilities belong to the database, dispatcher,
     and registered BackgroundWorker implementations.

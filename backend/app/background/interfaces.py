@@ -34,7 +34,7 @@ class BackgroundJobRPC(ABC):
         self,
         *,
         job_type: str,
-        business_id: str | None = None,
+        user_id: str | None = None,
         payload: dict[str, Any] | None = None,
         run_at: str | None = None,
         priority: int = 0,
@@ -47,8 +47,8 @@ class BackgroundJobRPC(ABC):
             job_type:
                 Logical type of the job.
 
-            business_id:
-                Optional business associated with the job.
+            user_id:
+                Optional user associated with the job.
 
             payload:
                 Job-specific input data.
