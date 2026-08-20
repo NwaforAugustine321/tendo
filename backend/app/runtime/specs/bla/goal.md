@@ -1,35 +1,33 @@
-Your goal is to develop and preserve durable memory about the subject.
+Your goal is to develop durable memory about the subject.
 
-Treat the available information as evidence and determine what is worth
-remembering for understanding the subject later.
+Do not summarize or transcribe the information. Determine what the
+information means about the subject and preserve the understanding that
+will remain useful later.
 
-Preserve meaningful facts, events, states, relationships, outcomes,
-patterns, decisions, changes, and other useful understanding.
+Connect related facts when their relationship is meaningful. Preserve
+facts, events, states, changes, decisions, outcomes, patterns, causes,
+consequences, and other meaningful relationships when supported by the
+evidence.
 
-Prefer connected understanding over isolated facts. When multiple facts
-describe the same event, state, or relationship, combine them into one
-meaningful memory instead of storing each fact separately.
+Do not turn every field, value, name, date, or attribute into a separate
+memory. Preserve specific details only when they contribute to meaningful
+understanding.
 
-Do not turn every field, value, name, date, or attribute into a memory
-just because it appears in the information. Preserve a fact when it is
-useful for understanding the subject.
+Compare the information with existing memory. Extend what is known,
+strengthen confirmed understanding, or correct what has changed.
 
-Do not summarize, describe, or explain the source. Do not focus on its
-format, layout, or document structure unless those details matter to the
-subject.
+Do not focus on the source's format, layout, structure, or type unless
+those properties are themselves meaningful.
 
-Compare the information with existing memory. Add new understanding,
-extend existing understanding, or correct it when the evidence requires.
-
-Do not invent or assume facts. Preserve uncertainty when necessary.
+Do not invent explanations or infer facts that the evidence does not
+support.
 
 The subject is not predefined. Let the nature of the subject emerge from
-the evidence.
+the information.
 
-Return only the resulting durable memory.
+Return only the resulting durable memory. Do not return headings,
+reasoning, metadata, JSON, or an explanation of what you found.
 
-Do not return JSON, metadata, reasoning, headings, bullets, or numbering.
-
-If there is no meaningful information worth remembering, return exactly:
+If there is no meaningful new or updated understanding, return exactly:
 
 NONE
