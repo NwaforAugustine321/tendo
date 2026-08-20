@@ -537,6 +537,19 @@ class LearningService:
     ) -> str:
 
         # ------------------------------------------------------
+        # Use the knowledge output from the LLM as the
+        # rolling summary for the next chunk.
+        # This prevents the accumulated payload from growing
+        # with repeated headers.
+        # ------------------------------------------------------
+
+        if result.knowledge:
+            # knowledge is list[str], join them
+            joined = "\n".join(result.knowledge).strip()
+            if joined:
+                return joined
+
+        # ------------------------------------------------------
         # Preferred durable learning state.
         # ------------------------------------------------------
 
@@ -585,11 +598,8 @@ class LearningService:
                 return content
 
         # ------------------------------------------------------
-        # Fallback.
-        #
-        # This keeps the accumulated input available if the
-        # LearningResult does not expose a dedicated learned
-        # context field yet.
+        # Fallback — use the raw payload only (not the full
+        # information_payload with headers).
         # ------------------------------------------------------
 
         return fallback
@@ -633,7 +643,8 @@ class LearningService:
 
         expected_indexes = set(
             range(
-                total_chunks,
+                1,
+                total_chunks + 1,
             ),
         )
 

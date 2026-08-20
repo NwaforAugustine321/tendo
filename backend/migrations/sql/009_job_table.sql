@@ -792,7 +792,7 @@ create table if not exists public.bla_checkpoints (
     ),
 
     constraint bla_checkpoints_chunk_index_valid
-        check (last_chunk_index >= 0),
+        check (last_chunk_index >= 1),
 
     constraint bla_checkpoints_sequence_valid
         check (last_sequence_id >= 0),
@@ -804,7 +804,7 @@ create table if not exists public.bla_checkpoints (
         check (length(trim(accumulated_payload)) > 0),
 
     constraint bla_checkpoints_chunk_within_total
-        check (last_chunk_index < total_chunks)
+        check (last_chunk_index <= total_chunks)
 );
 
 

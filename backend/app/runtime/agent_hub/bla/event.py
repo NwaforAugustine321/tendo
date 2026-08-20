@@ -360,9 +360,9 @@ class LearningEvent:
                 "total_chunks must be greater than zero.",
             )
 
-        if last_chunk_index >= total_chunks:
+        if last_chunk_index > total_chunks:
             raise ValueError(
-                "last_chunk_index must be less than "
+                "last_chunk_index must not exceed "
                 "total_chunks.",
             )
 
