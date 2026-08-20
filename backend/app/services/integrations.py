@@ -6,11 +6,16 @@ from urllib.parse import urlencode
 from fastapi import BackgroundTasks
 from app.config.settings import settings
 from app.db.client import get_client
-from app.db.tools.data_sources import get_business_id_by_phone_number, get_whatsapp_data_sources
+from app.db.tools.data_sources import (
+    get_business_id_by_phone_number,
+    get_business_owner_by_phone_number,
+    get_whatsapp_data_sources,
+)
 from app.integrations.whatsapp.meta import verify_challenge, validate_signature
 from app.integrations.whatsapp.normalizer import normalize
 from app.integrations.whatsapp.models import ConfigurationError, NormalizedMessage
-from app.services.records import add_record_content, create_record, process_content_background
+from app.services.records import add_record_content, create_record
+from ..background.factory import create_task
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +104,10 @@ async def handle_whatsapp_webhook(raw_body: bytes, signature: str | None, payloa
             value = change["value"]
             phone_number_id = value.get("metadata", {}).get("phone_number_id")
 
-            business_id = get_business_id_by_phone_number(
+            owner = get_business_owner_by_phone_number(
                 phone_number_id) if phone_number_id else None
+
+            business_id, user_id = owner if owner else (None, None)
 
             if business_id:
                 content_type = message.message_type if message.message_type != "document" else "pdf"
@@ -120,36 +127,15 @@ async def handle_whatsapp_webhook(raw_body: bytes, signature: str | None, payloa
                     logger.info("Processing %s content for business %s",
                                 content_type, business_id)
 
-                    hash_id = uuid4().hex[:6]
-                    title = f"#{hash_id}"
-
-                    record = await create_record(
-                        business_id, title
-                    )
-                    record_id = record.get("id", "")
-
-                    entry = await add_record_content(
-                        business_id, record_id, content_type, content
-                    )
-
-                    content_id = entry.get("id", "")
-                    file_url = entry.get("file_url", "")
-                    metadata = {
-                        "source": "whatsapp",
-                        "file_url": file_url,
-                        "content_id": content_id,
+                await create_task(
+                    job_type='document_processing',
+                    payload={
+                        "business_id": business_id,
+                        "content_type": content_type,
+                        "user_id": user_id,
+                        "content": content,
                     }
-
-                    background_tasks.add_task(
-                        process_content_background,
-                        business_id,
-                        record_id,
-                        content_id,
-                        content_type,
-                        content,
-                        metadata,
-                        file_url,
-                    )
+                )
 
             else:
                 logger.warning(

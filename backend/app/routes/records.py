@@ -5,8 +5,7 @@ from app.record_knowledge.models import CreateFolderRequest, CreateRecordRequest
 from app.services.records import (
     create_folder, get_folders, get_folder, update_folder, delete_folder,
     create_record, get_records, get_all_records, get_record, update_record, delete_record,
-    add_record_content, get_record_contents, delete_record_content,
-    process_content_background,
+    add_record_content, get_record_contents, delete_record_content
 )
 from app.db.tools.records import mark_record_read, get_unread_count, get_recent_records
 from app.runtime.agent_hub.content_insight_generator.generator import content_insight_generator
@@ -61,12 +60,6 @@ async def list_record_content(record_id: str, business_id: str = Query(...), use
 
 @router.post("/records/{record_id}/content")
 async def add_content_endpoint(record_id: str, body: AddContentRequest, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
-    # entry = await add_record_content(body.business_id, record_id, body.content_type, body.content)
-    # content_id = entry.get("id", "")
-    # file_url = entry.get("file_url", "")
-    # metadata = {**body.metadata, "content_id": content_id}
-
-    # processing_content_type = body.content_type
     if body.content.startswith("data:") and "/" in body.content.split(",")[0]:
         mime = body.content.split(",")[0].split(":")[1].split(";")[0]
         processing_content_type = mime.split("/")[-1]
@@ -81,8 +74,7 @@ async def add_content_endpoint(record_id: str, body: AddContentRequest, backgrou
             "record_id": record_id
         }
     )
-    # background_tasks.add_task(process_content_background, body.business_id,
-    #                           record_id, content_id, processing_content_type, body.content, metadata, file_url)
+
     return {"content": {}, "processing": True}
 
 
