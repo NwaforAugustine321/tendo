@@ -25,9 +25,12 @@ class BLABackgroundWorker(
     ) -> None:
 
         super().__init__(
-            job_type="bla_learning",
+            job_type="bla",
             worker_name="bla",
         )
+
+        if not rpc:
+            raise ValueError("'Rpc' instance not found")
 
         self._rpc = rpc
 
@@ -103,17 +106,17 @@ class BLABackgroundWorker(
                 if not business_id:
                     continue
 
-                await self._rpc.enqueue(
-                    job_type=self.job_type,
-                    id=business_id,
-                    payload={
-                        "business_id": business_id,
-                        "batch_size": batch_size,
-                    },
-                    interval_value=12,
-                    interval_unit=IntervalUnit.HOURS
+                # await self._rpc.enqueue(
+                #     job_type=self.job_type,
+                #     id=business_id,
+                #     payload={
+                #         "business_id": business_id,
+                #         "batch_size": batch_size,
+                #     },
+                #     interval_value=12,
+                #     interval_unit=IntervalUnit.HOURS
 
-                )
+                # )
 
                 total += 1
 

@@ -12,7 +12,8 @@ from .runner import BackgroundRunner
 from .scheduler import BackgroundScheduler
 from .worker import BackgroundWorker
 from .workers.bla_worker import BLABackgroundWorker
-
+from .workers.business_document_processor_worker import BusinessDocumentProcessorBWorker
+from .interfaces import IntervalUnit
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +285,10 @@ def create_background_job_system(
         BLABackgroundWorker(rpc=rpc),
     )
 
+    application_workers.append(
+        BusinessDocumentProcessorBWorker()
+    )
+
     registry = WorkerRegistry(
         workers=application_workers,
     )
@@ -356,3 +361,29 @@ def create_background_job_system(
     )
 
     return system
+
+
+async def create_task(
+    job_type: str,
+    payload: dict[str, Any],
+    run_at: str | None = None,
+    interval_value: int | None = None,
+    interval_unit: IntervalUnit | None = None,
+    id: str = '',
+    priority: int = 0,
+    max_attempts: int = 1
+):
+    try:
+        rpc = DatabaseBackgroundJobRPC()
+        await rpc.enqueue(
+            job_type=job_type,
+            id=id,
+            run_at=run_at,
+            payload=payload,
+            interval_value=interval_value,
+            interval_unit=interval_unit,
+            priority=priority,
+            max_attempts=max_attempts
+        )
+    except Exception as exec:
+        raise exec

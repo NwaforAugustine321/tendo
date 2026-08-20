@@ -1,33 +1,87 @@
--- Business Event System: append-only event store, checkpoint, and job tables
+-- ============================================================
+-- Business Events
+-- ============================================================
 
--- 1. Event Store table (append-only)
-CREATE TABLE IF NOT EXISTS business_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    business_id UUID NOT NULL REFERENCES business_profiles(id),
-    session_id UUID REFERENCES conversation_sessions(id),
-    entity_type TEXT NOT NULL,
-    entity_id TEXT NOT NULL,
-    event_type TEXT NOT NULL,
-    source TEXT NOT NULL,
-    sequence_number BIGINT NOT NULL,
-    payload JSONB DEFAULT '{}',
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT now()
+create table if not exists public.business_events (
+    id uuid primary key
+        default gen_random_uuid(),
+
+    sequence_id bigint generated always as identity
+        unique
+        not null,
+
+    business_id uuid not null
+        references public.business_profiles(id)
+        on delete cascade,
+
+    event_type text not null,
+
+ 
+    document_key uuid not null,
+
+    chunk_index integer not null,
+
+    total_chunks integer not null,
+
+    payload text not null,
+
+    created_at timestamptz not null
+        default now(),
+
+    constraint business_events_event_type_not_empty
+        check (
+            length(trim(event_type)) > 0
+        ),
+
+    constraint business_events_chunk_index_valid
+        check (
+            chunk_index >= 0
+        ),
+
+    constraint business_events_total_chunks_valid
+        check (
+            total_chunks > 0
+        ),
+
+    constraint business_events_chunk_index_within_total
+        check (
+            chunk_index < total_chunks
+        ),
+
+    constraint business_events_payload_not_empty
+        check (
+            length(trim(payload)) > 0
+        )
 );
 
--- Index for stream queries (worker polling by stream + sequence)
-CREATE INDEX idx_business_events_stream_seq
-    ON business_events (business_id, entity_type, entity_id, sequence_number);
 
--- Index for business-wide queries
-CREATE INDEX idx_business_events_business_id
-    ON business_events (business_id, created_at);
+-- ============================================================
+-- Indexes
+-- ============================================================
 
-ALTER TABLE business_events ENABLE ROW LEVEL SECURITY;
+create index if not exists idx_business_events_business_sequence
+on public.business_events (
+    business_id,
+    sequence_id
+);
 
--- RLS policies (service role bypasses, these protect direct access)
-CREATE POLICY "business_scope" ON business_events
-    FOR ALL USING (business_id IN (
-        SELECT id FROM business_profiles WHERE user_id = auth.uid()
-    ));
 
+create index if not exists idx_business_events_business_created
+on public.business_events (
+    business_id,
+    created_at
+);
+
+
+create index if not exists idx_business_events_document
+on public.business_events (
+    document_key,
+    chunk_index
+);
+
+
+create index if not exists idx_business_events_type
+on public.business_events (
+    business_id,
+    event_type
+);

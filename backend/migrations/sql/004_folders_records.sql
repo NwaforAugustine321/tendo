@@ -1,20 +1,15 @@
-
-
-
 CREATE TABLE IF NOT EXISTS records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     business_id TEXT NOT NULL,
-    folder_id UUID REFERENCES folders(id) ON DELETE SET NULL,
     user_id UUID,
     title TEXT NOT NULL,
-    is_read BOOLEAN NOT NULL DEFAULT false;
+    is_read BOOLEAN NOT NULL DEFAULT false,
     ai_insight JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_records_business_id ON records(business_id);
-CREATE INDEX IF NOT EXISTS idx_records_folder_id ON records(folder_id);
 CREATE INDEX IF NOT EXISTS idx_records_user_id ON records(user_id);
 CREATE INDEX IF NOT EXISTS idx_records_is_read ON records(business_id, is_read);
 
@@ -34,9 +29,7 @@ CREATE TABLE IF NOT EXISTS record_content (
 CREATE INDEX IF NOT EXISTS idx_record_content_business_id ON record_content(business_id);
 CREATE INDEX IF NOT EXISTS idx_record_content_record_id ON record_content(record_id);
 
-ALTER TABLE folders ENABLE ROW LEVEL SECURITY;
-CREATE POLICY folders_business_isolation ON folders
-    FOR ALL USING (true) WITH CHECK (true);
+
 
 ALTER TABLE records ENABLE ROW LEVEL SECURITY;
 CREATE POLICY records_business_isolation ON records
@@ -54,8 +47,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER folders_updated_at BEFORE UPDATE ON folders
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 
 CREATE TRIGGER records_updated_at BEFORE UPDATE ON records
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

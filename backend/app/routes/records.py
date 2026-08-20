@@ -9,7 +9,12 @@ from app.services.records import (
     process_content_background,
 )
 from app.db.tools.records import mark_record_read, get_unread_count, get_recent_records
-from app.record_knowledge.record_agent import get_record_understanding
+from app.runtime.agent_hub.content_insight_generator.generator import content_insight_generator
+from ..background.factory import create_task
+import logging
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["records"])
 
 
@@ -89,19 +94,28 @@ async def list_record_content(record_id: str, business_id: str = Query(...), use
 
 @router.post("/records/{record_id}/content")
 async def add_content_endpoint(record_id: str, body: AddContentRequest, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
-    entry = await add_record_content(body.business_id, record_id, body.content_type, body.content)
-    content_id = entry.get("id", "")
-    file_url = entry.get("file_url", "")
-    metadata = {**body.metadata, "content_id": content_id}
+    # entry = await add_record_content(body.business_id, record_id, body.content_type, body.content)
+    # content_id = entry.get("id", "")
+    # file_url = entry.get("file_url", "")
+    # metadata = {**body.metadata, "content_id": content_id}
 
-    processing_content_type = body.content_type
+    # processing_content_type = body.content_type
     if body.content.startswith("data:") and "/" in body.content.split(",")[0]:
         mime = body.content.split(",")[0].split(":")[1].split(";")[0]
         processing_content_type = mime.split("/")[-1]
 
-    background_tasks.add_task(process_content_background, body.business_id,
-                              record_id, content_id, processing_content_type, body.content, metadata, file_url)
-    return {"content": entry, "processing": True}
+    await create_task(
+        job_type='document_processing',
+        payload={
+            "business_id": body.business_id,
+            "content_type": processing_content_type,
+            "user_id": user["user_id"],
+            "content": body.content
+        }
+    )
+    # background_tasks.add_task(process_content_background, body.business_id,
+    #                           record_id, content_id, processing_content_type, body.content, metadata, file_url)
+    return {"content": {}, "processing": True}
 
 
 @router.delete("/records/{record_id}/content/{content_id}")
@@ -113,8 +127,11 @@ async def delete_content_endpoint(record_id: str, content_id: str, business_id: 
 
 @router.get("/records/{record_id}/understanding")
 async def record_understanding(record_id: str, business_id: str = Query(...), user=Depends(get_current_user)):
-    result = await get_record_understanding(business_id, record_id)
-    return result
+    try:
+        return await content_insight_generator(business_id, record_id)
+    except Exception as e:
+        logger.error(f"Understanding generation failed: {e}", exc_info=True)
+        return {"insight": "", "suggestions": []}
 
 
 # --- Mark-as-read ---

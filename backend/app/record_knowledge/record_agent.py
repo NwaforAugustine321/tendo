@@ -105,7 +105,7 @@ async def process_record_content(record_content: RecordContentInput) -> Processi
 async def get_record_understanding(business_id: str, record_id: str) -> dict:
 
     try:
-        return await generate_record_overview(business_id, record_id)
+        return await content_insight_generator(business_id, record_id)
     except Exception as e:
         logger.error(f"Understanding generation failed: {e}", exc_info=True)
         return {"insight": "", "suggestions": []}

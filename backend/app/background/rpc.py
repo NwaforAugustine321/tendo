@@ -606,11 +606,6 @@ class DatabaseBackgroundJobRPC(
 
         id = id.strip()
 
-        if not id:
-            raise ValueError(
-                "id cannot be empty.",
-            )
-
         return id
 
     @staticmethod
