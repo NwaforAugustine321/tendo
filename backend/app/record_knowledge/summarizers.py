@@ -390,7 +390,8 @@ async def generate_record_overview(business_id: str, record_id: str) -> dict:
             instructions=record_system_prompt,
             max_iteration=10,
             max_reasoning_steps=5,
-            enable_runtime_rag_mem=True
+            enable_runtime_rag=True,
+            enable_runtime_mem=True
         )
 
         for attempt in range(MAX_RETRIES):

@@ -952,7 +952,7 @@ class AgentRunner:
 
             if (
                 response is not None
-                and session.agent.memory is not None
+                and session.agent.memory is not None and session.agent._enable_self_reflection
             ):
 
                 try:

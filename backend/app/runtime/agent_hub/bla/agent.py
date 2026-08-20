@@ -9,7 +9,9 @@ from app.runtime.utils.spec_loader import LoaderAgentSpec
 
 from .models import LearningResult
 from .service import LearningService
-
+from .memory import (
+    LearningKnowledgeMemory,
+)
 
 _llm_instance: LangChainLLM | None = None
 
@@ -43,16 +45,27 @@ class BusinessLearningAgent:
 
     def __init__(
         self,
+        namespace: str,
+        scopes: list[str] = []
     ) -> None:
+
+        knowledge_store = LearningKnowledgeMemory(
+            namespace=namespace,
+            scopes=scopes,
+        )
 
         self._agent = Agent(
             name="BLA",
             llm=_get_llm(),
             instructions=system_prompt,
             tools=[],
+            memory=knowledge_store,
+            enable_self_reflection=False,
+            enable_runtime_rag=False,
+            enable_runtime_mem=True
         )
 
-        self._learning_service = LearningService()
+        self._learning_service = LearningService(knowledge=knowledge_store)
 
     @property
     def agent(self) -> Agent:

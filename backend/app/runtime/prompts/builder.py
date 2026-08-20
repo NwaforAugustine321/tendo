@@ -160,7 +160,7 @@ class PromptBuilder:
         #
         # Memory
         #
-        if self._context.run_context.enable_runtime_rag_mem:
+        if self._context.run_context.session._agent._enable_runtime_mem:
 
             prompt = await (
                 self._build_memory_prompt()
@@ -172,7 +172,7 @@ class PromptBuilder:
                 )
 
         # Retrieved knowledge
-        if self._context.run_context.enable_runtime_rag_mem:
+        if self._context.run_context.session._agent._enable_runtime_rag:
             prompt = await (
                 self._build_rag_prompt()
             )

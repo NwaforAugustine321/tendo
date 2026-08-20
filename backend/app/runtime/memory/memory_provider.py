@@ -30,7 +30,7 @@ class MemoryProvider:
         self,
         *,
         store: MemoryStore,
-        reflection: MemoryReflectionEngine,
+        reflection: MemoryReflectionEngine | None = None,
         optimizer: Optimizer | None = None,
     ) -> None:
 
@@ -177,6 +177,9 @@ class MemoryProvider:
         self,
         ctx: RunContext,
     ) -> None:
+
+        if not self._reflection:
+            return
 
         reflection = await self._reflection.reflect(
             ctx,

@@ -188,6 +188,43 @@ class LearningEvent:
             cursor=cursor,
         )
 
+    async def get_next_pending_document(
+        self,
+        *,
+        business_id: str,
+    ) -> list[dict[str, Any]]:
+        """
+        Fetch the next pending document using status-based query.
+        Source of truth — never misses events.
+        """
+
+        business_id = self._validate_business_id(
+            business_id,
+        )
+
+        return await self._rpc.fetch_next_pending_document(
+            business_id=business_id,
+        )
+
+    async def mark_document_processed(
+        self,
+        *,
+        business_id: str,
+        document_key: str,
+    ) -> None:
+        """
+        Bulk update all chunks of a document to 'processed' status.
+        """
+
+        business_id = self._validate_business_id(
+            business_id,
+        )
+
+        await self._rpc.mark_document_processed(
+            business_id=business_id,
+            document_key=document_key,
+        )
+
     async def get_cursor(
         self,
         *,

@@ -378,6 +378,94 @@ class LearningEventRPC(
         )
 
     # ==========================================================
+    # Status-based document discovery
+    # ==========================================================
+
+    async def fetch_next_pending_document(
+        self,
+        *,
+        business_id: str,
+    ) -> list[dict[str, Any]]:
+        """
+        Find the next pending document by querying
+        business_events with status='pending'.
+
+        Returns all chunks of the first pending document
+        ordered by chunk_index.
+        """
+
+        business_id = self._validate_business_id(
+            business_id,
+        )
+
+        # Find the first pending event (ordered by sequence_id)
+        response = (
+            self._db
+            .table(self.EVENT_TABLE)
+            .select("*")
+            .eq("business_id", business_id)
+            .eq("status", "pending")
+            .order("sequence_id", desc=False)
+            .limit(1)
+            .execute()
+        )
+
+        events = response.data or []
+
+        if not events:
+            return []
+
+        first_event = events[0]
+        document_key = first_event.get("document_key")
+
+        if not document_key:
+            return [first_event]
+
+        document_key = self._validate_document_key(
+            str(document_key),
+        )
+
+        # Fetch all chunks for this document
+        document_response = (
+            self._db
+            .table(self.EVENT_TABLE)
+            .select("*")
+            .eq("business_id", business_id)
+            .eq("document_key", document_key)
+            .order("chunk_index", desc=False)
+            .execute()
+        )
+
+        return document_response.data or []
+
+    async def mark_document_processed(
+        self,
+        *,
+        business_id: str,
+        document_key: str,
+    ) -> None:
+        """
+        Bulk update all chunks of a document to status='processed'.
+        """
+
+        business_id = self._validate_business_id(
+            business_id,
+        )
+
+        document_key = self._validate_document_key(
+            document_key,
+        )
+
+        (
+            self._db
+            .table(self.EVENT_TABLE)
+            .update({"status": "processed"})
+            .eq("business_id", business_id)
+            .eq("document_key", document_key)
+            .execute()
+        )
+
+    # ==========================================================
     # Document chunks
     # ==========================================================
 

@@ -61,12 +61,22 @@ class LanceMemoryStore(
     LanceDB implementation of MemoryStore.
     """
 
+    #
+    # Tables that are always available for retrieval,
+    # regardless of which table this store writes to.
+    #
+    DEFAULT_READ_TABLES: tuple[str, ...] = (
+        "memory",
+        "business_knowledge",
+    )
+
     def __init__(
         self,
         *,
         db: lancedb.DBConnection | None = None,
         namespace: str,
         table_name: str = "memory",
+        read_tables: list[str] | None = None,
         uri: str | Path = "./data/memory",
         embeddings: EmbeddingProvider | None = None,
         scopes: list[str] | None = None,
@@ -94,9 +104,29 @@ class LanceMemoryStore(
             self._embeddings.dimension,
         )
 
+        # Write table — always a single explicit table.
         self._table = self._get_or_create_table(
             table_name,
         )
+
+        requested_read_names = (
+            list(read_tables)
+            if read_tables is not None
+            else list(self.DEFAULT_READ_TABLES)
+        )
+
+        all_read_names = list(
+            dict.fromkeys(
+                [table_name] + requested_read_names,
+            )
+        )
+
+        self._read_table_names = all_read_names
+
+        self._read_tables: list[lancedb.table.Table] = [
+            self._get_or_create_table(name)
+            for name in all_read_names
+        ]
 
     def _get_or_create_table(
         self,
@@ -133,29 +163,44 @@ class LanceMemoryStore(
 
         merged_scopes = list(set(self._scopes + (scopes or [])))
 
-        rows = (
-            self._table.search(vector)
-            .metric("cosine")
-            .limit(limit)
-        )
+        # Query all read tables and merge results
+        all_rows: list[dict[str, Any]] = []
 
-        if merged_scopes:
-            escaped = ", ".join(f"'{s}'" for s in merged_scopes)
-            rows = rows.where(f"array_has_any(scopes, [{escaped}])")
+        for table in self._read_tables:
+            try:
+                search = (
+                    table.search(vector)
+                    .metric("cosine")
+                    .limit(limit)
+                )
 
-        rows = rows.to_list()
+                if merged_scopes:
+                    escaped = ", ".join(f"'{s}'" for s in merged_scopes)
+                    search = search.where(
+                        f"array_has_any(scopes, [{escaped}])")
+
+                rows = search.to_list()
+                all_rows.extend(rows)
+            except Exception:
+                continue
+
+        # Sort by distance (lower = more similar)
+        all_rows.sort(key=lambda r: r.get("_distance", 1.0))
+
+        # Apply limit after merging
+        all_rows = all_rows[:limit]
 
         # Filter out results that are too far from the query
-        # Cosine distance: 0 = identical, ~0.6-0.7 = somewhat related, >1.0 = unrelated
         relevant_rows = [
-            row for row in rows
+            row for row in all_rows
             if row.get("_distance", 1.0) <= distance_threshold
         ]
 
-        selected_rows = rows if self._ignore_threshold else relevant_rows
+        selected_rows = all_rows if self._ignore_threshold else relevant_rows
         _logger.info(
             f"Mem retrieve: query='{query[:50]}', "
             f"rows_found={len(selected_rows)}, "
+            f"tables={self._read_table_names}"
         )
 
         return MemoryContext(
@@ -254,30 +299,35 @@ class LanceMemoryStore(
         threshold: float = 0.92,
     ) -> bool:
         """
-        Check if a semantically similar memory already exists.
+        Check if a semantically similar memory already exists
+        across all read tables.
         Returns True if a match with cosine similarity >= threshold is found.
         """
 
-        try:
-            results = (
-                self._table.search(vector)
-                .metric("cosine")
-                .limit(1)
-                .to_list()
-            )
+        for table in self._read_tables:
+            try:
+                results = (
+                    table.search(vector)
+                    .metric("cosine")
+                    .limit(1)
+                    .to_list()
+                )
 
-            if not results:
-                return False
+                if not results:
+                    continue
 
-            distance = results[0].get("_distance", 1.0)
+                distance = results[0].get("_distance", 1.0)
 
-            # Cosine distance: 0 = identical, 1 = completely different.
-            # similarity = 1 - distance
-            # We want: similarity >= threshold → distance <= (1 - threshold)
-            return distance <= (1.0 - threshold)
+                # Cosine distance: 0 = identical, 1 = completely different.
+                # similarity = 1 - distance
+                # We want: similarity >= threshold → distance <= (1 - threshold)
+                if distance <= (1.0 - threshold):
+                    return True
 
-        except Exception:
-            return False
+            except Exception:
+                continue
+
+        return False
 
     async def _update(
         self,

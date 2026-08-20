@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -10,19 +11,19 @@ from .memory import (
 )
 from .models import LearningResult
 
+logger = logging.getLogger(__name__)
+
 
 class LearningService:
 
     def __init__(
         self,
+        knowledge: LearningKnowledgeMemory
     ) -> None:
 
         self._event = LearningEvent()
 
-        self._knowledge = LearningKnowledgeMemory(
-            namespace="",
-            scopes=[],
-        )
+        self._knowledge: LearningKnowledgeMemory = knowledge
 
     @property
     def event(
@@ -67,34 +68,22 @@ class LearningService:
         # We NEVER move to another document until the current
         # document has been completely processed and committed.
         #
-        # The cursor is kept in memory and passed forward so
-        # we don't depend on re-reading from DB each iteration.
+        # Source of truth: status column on business_events.
+        # bla_cursors is kept as optimization only.
         # ======================================================
 
-        # Fetch the initial cursor from DB once.
-        current_cursor = await self._event.get_cursor(
-            business_id=business_id,
-        )
+        document_count = 0
 
         while True:
 
             documents = (
-                await self._event.get_next_documents_after(
+                await self._event.get_next_pending_document(
                     business_id=business_id,
-                    cursor=current_cursor,
                 )
             )
 
             if not documents:
                 return final_result
-
-            # --------------------------------------------------
-            # get_next_documents_after() returns the next document
-            # according to the business event sequence.
-            #
-            # We intentionally process only the first document.
-            # After it is committed, the loop fetches the next one.
-            # --------------------------------------------------
 
             document = documents[0]
 
@@ -121,8 +110,31 @@ class LearningService:
                 batch_size=batch_size,
             )
 
-            # Update in-memory cursor to the committed value
-            current_cursor = committed_cursor
+            # Mark all chunks of this document as processed
+            await self._event.mark_document_processed(
+                business_id=business_id,
+                document_key=document_key,
+            )
+
+            document_count += 1
+
+            # --------------------------------------------------
+            # This document is fully learned, saved and
+            # committed. Report it before moving on to the
+            # next document's chunks.
+            # --------------------------------------------------
+
+            logger.info(
+                "BLA document processing completed: "
+                "business_id=%s "
+                "document_key=%s "
+                "documents_done=%s "
+                "learned respond=%s",
+                business_id,
+                document_key,
+                document_count,
+                str(result.knowledge),
+            )
 
             final_result = result
 
@@ -223,14 +235,27 @@ class LearningService:
                     "must be a string.",
                 )
 
-            start_index = last_chunk_index + 1
+            # --------------------------------------------------
+            # chunk_index is 1-based, while `chunks` is a
+            # 0-based list.
+            #
+            # chunk_index k  ->  chunks[k - 1]
+            #
+            # Resuming therefore starts at list position
+            # `last_chunk_index` (which is chunk_index k + 1).
+            # --------------------------------------------------
+
+            start_index = last_chunk_index
 
             # --------------------------------------------------
             # Make sure checkpoint is actually inside this
             # document.
             # --------------------------------------------------
 
-            if last_chunk_index >= len(chunks):
+            if (
+                last_chunk_index < 1
+                or last_chunk_index > len(chunks)
+            ):
 
                 raise RuntimeError(
                     "Checkpoint chunk index is outside "
@@ -241,7 +266,7 @@ class LearningService:
                 )
 
             checkpoint_chunk = chunks[
-                last_chunk_index
+                last_chunk_index - 1
             ]
 
             if int(
@@ -256,7 +281,7 @@ class LearningService:
 
         else:
 
-            last_chunk_index = -1
+            last_chunk_index = 0
             last_sequence_id = -1
             accumulated_payload = ""
             start_index = 0
@@ -281,7 +306,7 @@ class LearningService:
                 accumulated_payload=accumulated_payload,
                 learn=learn,
                 total_chunks=len(chunks),
-                last_chunk_index=len(chunks) - 1,
+                last_chunk_index=len(chunks),
             )
 
             self._validate_result(
@@ -304,7 +329,7 @@ class LearningService:
                 document_key=document_key,
             )
 
-            return result
+            return result, final_sequence_id
 
         # ======================================================
         # Process chunks sequentially.

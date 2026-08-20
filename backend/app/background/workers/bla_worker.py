@@ -13,6 +13,9 @@ from ..worker import BackgroundWorker
 from ...runtime.agent_hub.bla.agent import (
     BusinessLearningAgent,
 )
+from ...runtime.agent_hub.bla.event import (
+    LearningEvent,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -43,13 +46,9 @@ class BLABackgroundWorker(
 
         self._rpc = rpc
 
-        self._bla = BusinessLearningAgent()
+        self._bla: BusinessLearningAgent | None = None
 
-        self._event = (
-            self._bla
-            .learning_service
-            .event
-        )
+        self._event = LearningEvent()
 
         task = asyncio.create_task(
             self._initialize_business_bla_jobs(
@@ -227,17 +226,18 @@ class BLABackgroundWorker(
             batch_size,
         )
 
-        result = await self._bla.learn(
-            business_id=job_id,
-            batch_size=batch_size,
+        business_id = payload.get('business_id', '')
+
+        scopes = [f"business/{business_id}"]
+
+        self._bla = BusinessLearningAgent(
+            namespace=business_id,
+            scopes=scopes
         )
 
-        logger.info(
-            "BLA processing completed: "
-            "business_id=%s "
-            "learned respond=%s",
-            job_id,
-            str(result.knowledge)
+        result = await self._bla.learn(
+            business_id=business_id,
+            batch_size=batch_size,
         )
 
         if hasattr(

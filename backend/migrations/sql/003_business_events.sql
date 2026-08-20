@@ -25,6 +25,9 @@ create table if not exists public.business_events (
 
     payload text not null,
 
+    status text not null default 'pending'
+        check (status in ('pending', 'processed')),
+
     created_at timestamptz not null
         default now(),
 
@@ -53,6 +56,10 @@ create table if not exists public.business_events (
             length(trim(payload)) > 0
         )
 );
+
+-- Migration for existing databases
+alter table public.business_events
+    add column if not exists status text not null default 'pending';
 
 
 -- ============================================================
@@ -84,4 +91,23 @@ create index if not exists idx_business_events_type
 on public.business_events (
     business_id,
     event_type
+);
+
+
+-- Index for finding pending events efficiently
+create index if not exists idx_business_events_pending
+on public.business_events (
+    business_id,
+    status,
+    sequence_id
+)
+where status = 'pending';
+
+
+-- Index for bulk update by document_key
+create index if not exists idx_business_events_document_status
+on public.business_events (
+    business_id,
+    document_key,
+    status
 );

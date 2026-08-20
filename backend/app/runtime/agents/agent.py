@@ -85,12 +85,17 @@ class Agent:
         rag: RAGProvider | None = None,
         max_iteration: int = 6,
         max_reasoning_steps: int = 2,
-        enable_runtime_rag_mem: bool | None = False
+        enable_runtime_rag: bool | None = False,
+        enable_runtime_mem: bool | None = False,
+        enable_self_reflection: bool = True
     ) -> None:
 
         self._name = name
         self._description = description
         self._instructions = instructions
+        self._enable_self_reflection = enable_self_reflection
+        self._enable_runtime_mem = enable_runtime_mem
+        self._enable_runtime_rag = enable_runtime_rag
 
         self._llm = llm
 
@@ -99,7 +104,6 @@ class Agent:
         self._rag = rag
         self._max_iterations = max_iteration
         self._max_reasoning_steps = max_reasoning_steps
-        self._enable_runtime_rag_mem = enable_runtime_rag_mem
 
         self._tools = list(
             tools or [],
@@ -352,6 +356,5 @@ class Agent:
         return AgentSession(
             agent=self,
             session_id=session_id,
-            emitter=emitter,
-            enable_runtime_rag_mem=self._enable_runtime_rag_mem
+            emitter=emitter
         )
