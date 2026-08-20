@@ -14,7 +14,6 @@ from app.db.tools.data_sources import (
 from app.integrations.whatsapp.meta import verify_challenge, validate_signature
 from app.integrations.whatsapp.normalizer import normalize
 from app.integrations.whatsapp.models import ConfigurationError, NormalizedMessage
-from app.services.records import add_record_content, create_record
 from ..background.factory import create_task
 
 logger = logging.getLogger(__name__)

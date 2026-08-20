@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, BackgroundTasks, Query
 
 from app.lib.auth_dependency import get_current_user
-from app.record_knowledge.models import CreateFolderRequest, CreateRecordRequest, UpdateRecordRequest, AddContentRequest
-from app.services.records import (
+from app.models.records import CreateRecordRequest, UpdateRecordRequest, AddContentRequest
+from app.db.tools.records import (
     create_folder, get_folders, get_folder, update_folder, delete_folder,
     create_record, get_records, get_all_records, get_record, update_record, delete_record,
     add_record_content, get_record_contents, delete_record_content
