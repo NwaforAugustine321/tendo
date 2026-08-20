@@ -35,7 +35,7 @@ create table if not exists public.business_events (
 
     constraint business_events_chunk_index_valid
         check (
-            chunk_index >= 0
+            chunk_index >= 1
         ),
 
     constraint business_events_total_chunks_valid
@@ -45,7 +45,7 @@ create table if not exists public.business_events (
 
     constraint business_events_chunk_index_within_total
         check (
-            chunk_index < total_chunks
+            chunk_index <= total_chunks
         ),
 
     constraint business_events_payload_not_empty

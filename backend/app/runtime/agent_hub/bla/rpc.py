@@ -479,7 +479,7 @@ class LearningEventRPC(
                 self.CURSOR_TABLE,
             )
             .select(
-                "cursor",
+                "cursor, status",
             )
             .eq(
                 "business_id",
@@ -492,6 +492,12 @@ class LearningEventRPC(
         if not response or not response.data:
 
             return None
+
+        # Only return cursor if the last operation completed
+        if response.data.get("status") == "processing":
+            # Return the cursor value anyway — the checkpoint system
+            # handles resuming mid-document
+            pass
 
         cursor = response.data.get(
             "cursor",
@@ -529,6 +535,38 @@ class LearningEventRPC(
                 {
                     "business_id": business_id,
                     "cursor": cursor,
+                    "status": "completed",
+                },
+                on_conflict="business_id",
+            )
+            .execute()
+        )
+
+    async def mark_cursor_processing(
+        self,
+        *,
+        business_id: str,
+        cursor: int,
+    ) -> None:
+
+        business_id = self._validate_business_id(
+            business_id,
+        )
+
+        cursor = self._validate_required_cursor(
+            cursor,
+        )
+
+        (
+            self._db
+            .table(
+                self.CURSOR_TABLE,
+            )
+            .upsert(
+                {
+                    "business_id": business_id,
+                    "cursor": cursor,
+                    "status": "processing",
                 },
                 on_conflict="business_id",
             )

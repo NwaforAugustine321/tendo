@@ -719,12 +719,19 @@ create table if not exists public.bla_cursors (
 
     cursor bigint null,
 
+    status text not null default 'processing'
+        check (status in ('processing', 'completed')),
+
     created_at timestamptz not null
         default now(),
 
     updated_at timestamptz not null
         default now()
 );
+
+-- Migration for existing databases
+alter table public.bla_cursors
+    add column if not exists status text not null default 'processing';
 
 
 create or replace function public.update_bla_cursors_updated_at()

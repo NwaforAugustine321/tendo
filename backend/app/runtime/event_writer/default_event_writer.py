@@ -44,9 +44,9 @@ class EventWriter(
                     "document_key cannot be empty.",
                 )
 
-            if chunk_index < 0:
+            if chunk_index < 1:
                 raise ValueError(
-                    "chunk_index cannot be negative.",
+                    "chunk_index must be at least 1.",
                 )
 
             if total_chunks <= 0:
@@ -54,9 +54,9 @@ class EventWriter(
                     "total_chunks must be greater than zero.",
                 )
 
-            if chunk_index >= total_chunks:
+            if chunk_index > total_chunks:
                 raise ValueError(
-                    "chunk_index must be less than total_chunks.",
+                    "chunk_index must not exceed total_chunks.",
                 )
 
             if not isinstance(payload, str):

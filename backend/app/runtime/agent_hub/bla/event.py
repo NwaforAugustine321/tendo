@@ -95,6 +95,23 @@ class LearningEvent:
             cursor=cursor,
         )
 
+    async def mark_processing(
+        self,
+        *,
+        business_id: str,
+        cursor: int,
+    ) -> None:
+        """Mark the cursor as processing (work in progress)."""
+
+        business_id = self._validate_business_id(
+            business_id,
+        )
+
+        await self._rpc.mark_cursor_processing(
+            business_id=business_id,
+            cursor=cursor,
+        )
+
     # ==========================================================
     # Event batches
     # ==========================================================
@@ -149,6 +166,43 @@ class LearningEvent:
         return await self._rpc.fetch_next_document(
             business_id=business_id,
             cursor=cursor,
+        )
+
+    async def get_next_documents_after(
+        self,
+        *,
+        business_id: str,
+        cursor: int | None,
+    ) -> list[dict[str, Any]]:
+        """
+        Fetch the next document after the given cursor value
+        without re-reading the cursor from DB.
+        """
+
+        business_id = self._validate_business_id(
+            business_id,
+        )
+
+        return await self._rpc.fetch_next_document(
+            business_id=business_id,
+            cursor=cursor,
+        )
+
+    async def get_cursor(
+        self,
+        *,
+        business_id: str,
+    ) -> int | None:
+        """
+        Return the current cursor value for the business.
+        """
+
+        business_id = self._validate_business_id(
+            business_id,
+        )
+
+        return await self._rpc.get_cursor(
+            business_id=business_id,
         )
 
     # ==========================================================

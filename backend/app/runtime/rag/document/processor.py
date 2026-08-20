@@ -111,6 +111,7 @@ class DocumentProcessor(
 
             for chunk_index, chunk in enumerate(
                 result.entries,
+                start=1,
             ):
 
                 chunk.metadata.update(

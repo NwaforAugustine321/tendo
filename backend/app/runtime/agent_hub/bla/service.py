@@ -66,13 +66,22 @@ class LearningService:
         #
         # We NEVER move to another document until the current
         # document has been completely processed and committed.
+        #
+        # The cursor is kept in memory and passed forward so
+        # we don't depend on re-reading from DB each iteration.
         # ======================================================
+
+        # Fetch the initial cursor from DB once.
+        current_cursor = await self._event.get_cursor(
+            business_id=business_id,
+        )
 
         while True:
 
             documents = (
-                await self._event.get_next_documents(
+                await self._event.get_next_documents_after(
                     business_id=business_id,
+                    cursor=current_cursor,
                 )
             )
 
@@ -80,7 +89,7 @@ class LearningService:
                 return final_result
 
             # --------------------------------------------------
-            # get_next_documents() returns the next document
+            # get_next_documents_after() returns the next document
             # according to the business event sequence.
             #
             # We intentionally process only the first document.
@@ -105,12 +114,15 @@ class LearningService:
 
             document_key = document_key.strip()
 
-            result = await self._process_document(
+            result, committed_cursor = await self._process_document(
                 business_id=business_id,
                 document_key=document_key,
                 learn=learn,
                 batch_size=batch_size,
             )
+
+            # Update in-memory cursor to the committed value
+            current_cursor = committed_cursor
 
             final_result = result
 
@@ -131,7 +143,7 @@ class LearningService:
             Any,
         ],
         batch_size: int,
-    ) -> LearningResult:
+    ) -> tuple[LearningResult, int]:
 
         # ------------------------------------------------------
         # Get all chunks for the document.
@@ -161,6 +173,13 @@ class LearningService:
         self._validate_document_chunks(
             document_key=document_key,
             chunks=chunks,
+        )
+
+        # Mark cursor as processing before starting work
+        target_sequence_id = int(chunks[-1]["sequence_id"])
+        await self._event.mark_processing(
+            business_id=business_id,
+            cursor=target_sequence_id,
         )
 
         # ------------------------------------------------------
@@ -467,7 +486,7 @@ class LearningService:
             document_key=document_key,
         )
 
-        return result
+        return result, final_sequence_id
 
     # ==========================================================
     # Final checkpoint recovery

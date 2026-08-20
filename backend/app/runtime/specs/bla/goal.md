@@ -1,101 +1,87 @@
-Your goal is to extract and preserve the meaningful memory that should
-remain about the subject after considering the available information.
+Your goal is to develop and preserve durable memory about the subject.
 
-You are producing memory, not a summary, report, explanation, or
-description of the source.
+Do not merely extract facts from the available information.
 
-Treat the provided information as evidence. Extract what that evidence
-establishes or meaningfully reveals about the subject.
+Understand what the information means as a whole and preserve the
+understanding that would remain useful later.
 
-A good memory is a discrete, reusable statement that another process can
-understand later without needing the original information.
+Treat the available information as evidence from which understanding
+can be developed.
 
-Each memory should capture something worth remembering, such as:
+A useful memory should capture meaningful understanding about the
+subject, including facts when they matter, but also the relationships,
+context, state, changes, outcomes, patterns, dependencies, causes,
+consequences, or other connections that make those facts meaningful.
 
-- a fact
-- an event
-- an entity
-- a relationship
-- a state
-- a change
-- a decision
-- an outcome
-- a behavior
-- a pattern
-- a dependency
-- a cause or consequence
-- a meaningful observation
-- a correction or contradiction
-- another specific piece of understanding supported by the evidence
+Prefer connected understanding over isolated facts.
 
-Do not describe the source itself unless the source's properties are
-actually relevant to the subject.
+For example, if the information shows that several values contribute
+to a total, preserve the relationship between them rather than storing
+each value as an unrelated fact.
 
-Do not focus on document type, formatting, layout, headings, spelling,
-presentation, or extraction structure unless those details themselves
-matter to the subject.
+If several observations together reveal a state, event, decision,
+pattern, or outcome, preserve that combined understanding.
 
-Do not turn the information into a generic explanation of what this type
-of document, record, object, or event normally contains.
+Do not turn every extracted value, field, name, date, or attribute into
+a separate memory merely because it is present.
 
-Do not produce a report about what you found.
+A fact is worth preserving when it contributes to understanding the
+subject or may be useful for understanding the subject later.
 
-Do not produce sections such as:
-"Summary"
-"Interpretation"
-"Contextual insights"
-"Durable knowledge"
-"Knowledge points"
-or similar headings.
+Do not describe the source merely because it is a document, message,
+record, image, or other information source.
 
-Do not repeat the same fact in different forms.
+Do not focus on formatting, layout, headings, presentation, extraction
+structure, or document structure unless those properties are themselves
+meaningful to the subject.
 
-Preserve important names, values, quantities, dates, relationships, and
-other specific details when they are supported by the evidence.
+Do not produce a generic explanation of what this type of thing
+normally means.
 
-Do not generalize a specific fact into a generic statement when the
-specific fact is what makes the memory useful.
+Do not produce a report about what was observed.
+
+Do not explain your extraction process.
+
+Do not explain what should be remembered.
+
+Simply preserve the resulting understanding.
 
 Compare the new information with existing memory.
 
-If new information confirms existing memory, retain the understanding
-without unnecessarily repeating it.
+If it confirms what is already known, strengthen or retain the existing
+understanding without unnecessarily repeating it.
 
-If new information adds detail, extend the existing understanding.
+If it adds important detail, incorporate that detail into the broader
+understanding.
 
-If new information contradicts existing memory, preserve the corrected
-understanding and make the correction clear.
+If multiple pieces of information are related, connect them when that
+relationship is supported by the evidence.
 
-If new information connects previously separate facts, preserve the
-meaningful connection.
+If new information changes an existing understanding, preserve the
+updated understanding and replace or correct what is no longer valid.
 
-If the evidence is uncertain, preserve the uncertainty rather than
-inventing an explanation.
+If information is uncertain or ambiguous, preserve the uncertainty
+rather than inventing an explanation.
 
-Do not infer facts merely because they are typical, probable, or expected.
+Do not infer facts merely because they are typical, probable, or
+expected.
 
-The subject is not assumed to be a business, person, customer, product,
-transaction, document, or any other predefined category. Let the nature
-of the subject emerge from the evidence.
+The subject is not assumed to be a business, person, customer,
+transaction, document, product, or any other predefined category.
+Let the nature of the subject emerge from the evidence.
 
-Return only the memory statements.
+The result should represent what is now understood about the subject,
+not a transcription of what was provided.
 
-Each memory must be one clear sentence or short statement.
-
-Each memory must be understandable without the original source.
-
-Return one memory per line.
+Return only the resulting durable memory.
 
 Do not return JSON.
-
 Do not return metadata.
-
 Do not return reasoning.
-
 Do not return headings.
-
 Do not return bullets or numbering.
 
-If there is nothing meaningful worth remembering, return exactly:
+If there is no meaningful new or updated understanding worth preserving,
+return exactly:
 
 NONE

@@ -371,7 +371,7 @@ async def create_task(
     interval_unit: IntervalUnit | None = None,
     id: str = '',
     priority: int = 0,
-    max_attempts: int = 1
+    max_attempts: int = 2
 ):
     try:
         rpc = DatabaseBackgroundJobRPC()
