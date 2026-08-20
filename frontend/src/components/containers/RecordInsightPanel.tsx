@@ -3,6 +3,7 @@ import { Sparkles, Lightbulb, Loader2 } from "lucide-react";
 import clsx from "clsx";
 import { useWorkspaceStore } from "../../store/workspace";
 import { useBusinessStore } from "../../store/business";
+import { useEventReceiver } from "../../hooks/useEmitReceiver";
 import * as recordsApi from "../../lib/services/records";
 
 type InsightEntry = {
@@ -89,37 +90,42 @@ export function RecordInsightPanel() {
       });
   }, [businessId]);
 
-  // Listen for new processing completions
+  // Listen for new processing completions via useEventReceiver
+  const { events: documentProgressEvents } = useEventReceiver([
+    "document.progress",
+  ]);
+
   useEffect(() => {
-    if (!businessId) return;
-
-    const handleStatus = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.status === "completed" && detail?.record_id) {
-        recordsApi
-          .getRecord(detail.record_id)
-          .then((record) => {
+    if (!businessId || documentProgressEvents.length === 0) return;
+    const latest = documentProgressEvents[documentProgressEvents.length - 1];
+    const detail = latest.data as any;
+    const status = (detail?.status || "").toLowerCase();
+    if (status === "completed" && detail?.data) {
+      // Refresh records to get updated insights
+      recordsApi
+        .getRecentRecords()
+        .then(({ records }) => {
+          const allInsights: InsightEntry[] = [];
+          for (const record of records) {
             const aiInsights = record?.ai_insight || [];
-            const newEntries: InsightEntry[] = aiInsights.map((entry: any) => ({
-              id: `${record.id}-${entry.version}`,
-              insight: entry.insight,
-              suggested_questions: entry.suggested_questions || [],
-              timestamp: entry.timestamp,
-            }));
-            setInsights((prev) => {
-              const existingIds = new Set(prev.map((i) => i.id));
-              const fresh = newEntries.filter((e) => !existingIds.has(e.id));
-              return [...fresh, ...prev];
-            });
-          })
-          .catch(() => {});
-      }
-    };
-
-    window.addEventListener("tendo:record-processing", handleStatus);
-    return () =>
-      window.removeEventListener("tendo:record-processing", handleStatus);
-  }, [businessId]);
+            for (const entry of aiInsights) {
+              allInsights.push({
+                id: `${record.id}-${entry.version}`,
+                insight: entry.insight,
+                suggested_questions: entry.suggested_questions || [],
+                timestamp: entry.timestamp,
+              });
+            }
+          }
+          allInsights.sort(
+            (a, b) =>
+              new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+          );
+          setInsights(allInsights);
+        })
+        .catch(() => {});
+    }
+  }, [documentProgressEvents, businessId]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

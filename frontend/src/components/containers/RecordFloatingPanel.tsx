@@ -16,7 +16,11 @@ import { toast } from "sonner";
 import { FloatingPanel } from "./FloatingPanel";
 import { useWorkspaceStore } from "../../store/workspace";
 import { useBusinessStore } from "../../store/business";
-import { useSocketEvent } from "../../lib/ws";
+import { useEventReceiver } from "../../hooks/useEmitReceiver";
+import {
+  showProcessingToast,
+  dismissProcessingToast,
+} from "../atoms/ProcessingNotification";
 import type { Record } from "../../lib/workspace/types";
 import * as recordsApi from "../../lib/services/records";
 
@@ -137,6 +141,9 @@ function RecordContentTab({
   const [insightExpanded, setInsightExpanded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pollIntervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(
+    new Map(),
+  );
 
   // Fetch insight via API
   useEffect(() => {
@@ -165,23 +172,54 @@ function RecordContentTab({
       });
   }, [recordId]);
 
-  useSocketEvent(
-    "record_processing_status",
-    (data: any) => {
-      if (data?.record_id === recordId && data?.status === "completed") {
-        if (data?.summary) {
-          setInsight(data.summary);
-        }
-        if (data?.suggested_questions?.length) {
-          setSuggestedQuestions(data.suggested_questions);
-        } else if (data?.suggestions?.length) {
-          setSuggestedQuestions(data.suggestions);
-        }
-        setLoadingInsight(false);
+  const { events: documentProgressEvents } = useEventReceiver([
+    "document.progress",
+  ]);
+
+  // Handle document.progress events for insight updates and stop polling
+  useEffect(() => {
+    if (documentProgressEvents.length === 0) return;
+    const latest = documentProgressEvents[documentProgressEvents.length - 1];
+    const data = latest.data as any;
+    const status = (data?.status || "").toLowerCase();
+    if (status === "completed") {
+      if (data?.data?.summary) {
+        setInsight(data.data.summary);
       }
-    },
-    [recordId],
-  );
+      if (data?.data?.suggested_questions?.length) {
+        setSuggestedQuestions(data.data.suggested_questions);
+      }
+      setLoadingInsight(false);
+      // Stop all polling
+      pollIntervalsRef.current.forEach((interval) => clearInterval(interval));
+      pollIntervalsRef.current.clear();
+      setContents((prev) =>
+        prev.map((c) => (c._processing ? { ...c, _processing: false } : c)),
+      );
+      if (recordId) {
+        recordsApi
+          .getRecordContents(recordId)
+          .then((updated) => {
+            setContents(updated);
+          })
+          .catch(() => {});
+      }
+    } else if (status === "failed") {
+      pollIntervalsRef.current.forEach((interval) => clearInterval(interval));
+      pollIntervalsRef.current.clear();
+      setContents((prev) =>
+        prev.map((c) => (c._processing ? { ...c, _processing: false } : c)),
+      );
+      if (recordId) {
+        recordsApi
+          .getRecordContents(recordId)
+          .then((updated) => {
+            setContents(updated);
+          })
+          .catch(() => {});
+      }
+    }
+  }, [documentProgressEvents, recordId]);
 
   // Fetch all record contents on mount
   // Auto-scroll to bottom when new content is added
@@ -201,6 +239,10 @@ function RecordContentTab({
       setLoadingContent(false);
       return;
     }
+    // Clear any existing poll intervals from previous recordId
+    pollIntervalsRef.current.forEach((interval) => clearInterval(interval));
+    pollIntervalsRef.current.clear();
+
     setLoadingContent(true);
     recordsApi
       .getRecordContents(recordId)
@@ -215,16 +257,24 @@ function RecordContentTab({
                 const found = updated.find((u: any) => u.id === c.id);
                 if (found && found.status !== "processing") {
                   clearInterval(pollInterval);
+                  pollIntervalsRef.current.delete(c.id);
+                  dismissProcessingToast("Document processed");
                   setContents((prev) =>
                     prev.map((p) =>
                       p.id === c.id ? { ...found, _processing: false } : p,
                     ),
                   );
+                  // Update insight when content is available
+                  if (found.content) {
+                    setInsight(found.content);
+                    setLoadingInsight(false);
+                  }
                 }
               } catch {
                 /* retry */
               }
             }, 4000);
+            pollIntervalsRef.current.set(c.id, pollInterval);
             setContents((prev) =>
               prev.map((p) =>
                 p.id === c.id
@@ -237,6 +287,11 @@ function RecordContentTab({
       })
       .catch(() => {})
       .finally(() => setLoadingContent(false));
+
+    return () => {
+      pollIntervalsRef.current.forEach((interval) => clearInterval(interval));
+      pollIntervalsRef.current.clear();
+    };
   }, [recordId]);
 
   useEffect(() => {
@@ -279,6 +334,7 @@ function RecordContentTab({
             type,
             base64,
           );
+          showProcessingToast("Processing document...");
           const contentId = result.content.id;
 
           setContents((prev) =>
@@ -304,16 +360,23 @@ function RecordContentTab({
               const found = updated.find((c: any) => c.id === contentId);
               if (found && found.status !== "processing") {
                 clearInterval(pollInterval);
+                pollIntervalsRef.current.delete(contentId);
+                dismissProcessingToast("Document processed");
                 setContents((prev) =>
                   prev.map((c) =>
                     c.id === contentId ? { ...found, _processing: false } : c,
                   ),
                 );
+                if (found.content) {
+                  setInsight(found.content);
+                  setLoadingInsight(false);
+                }
               }
             } catch {
               /* retry */
             }
           }, 4000);
+          pollIntervalsRef.current.set(contentId, pollInterval);
         } catch {
           setContents((prev) => prev.filter((c) => c.id !== tempId));
           toast.error("Failed to upload file");
@@ -335,6 +398,7 @@ function RecordContentTab({
         addingType,
         newContent.trim(),
       );
+      showProcessingToast("Processing content...");
       const contentId = result.content.id;
       setContents((prev) => [
         ...prev,
@@ -357,16 +421,23 @@ function RecordContentTab({
           const found = updated.find((c: any) => c.id === contentId);
           if (found && found.status !== "processing") {
             clearInterval(pollInterval);
+            pollIntervalsRef.current.delete(contentId);
+            dismissProcessingToast("Document processed");
             setContents((prev) =>
               prev.map((c) =>
                 c.id === contentId ? { ...found, _processing: false } : c,
               ),
             );
+            if (found.content) {
+              setInsight(found.content);
+              setLoadingInsight(false);
+            }
           }
         } catch {
           /* retry */
         }
       }, 4000);
+      pollIntervalsRef.current.set(contentId, pollInterval);
     } catch {
       toast.error("Failed to save");
     } finally {

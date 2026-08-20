@@ -18,39 +18,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["records"])
 
 
-@router.get("/folders")
-async def list_folders(business_id: str = Query(...), user=Depends(get_current_user)):
-    import logging
-    logger = logging.getLogger(__name__)
-    result = await get_folders(business_id)
-    return result
-
-
-@router.post("/folders")
-async def create_folder_endpoint(body: CreateFolderRequest, user=Depends(get_current_user)):
-    return await create_folder(body.business_id, body.name, body.icon, body.color)
-
-
-@router.get("/folders/{folder_id}")
-async def get_folder_endpoint(folder_id: str, business_id: str = Query(...), user=Depends(get_current_user)):
-    return await get_folder(business_id, folder_id)
-
-
-@router.put("/folders/{folder_id}")
-async def update_folder_endpoint(folder_id: str, body: CreateFolderRequest, user=Depends(get_current_user)):
-    return await update_folder(body.business_id, folder_id, name=body.name, icon=body.icon, color=body.color)
-
-
-@router.delete("/folders/{folder_id}")
-async def delete_folder_endpoint(folder_id: str, business_id: str = Query(...), user=Depends(get_current_user)):
-    return await delete_folder(business_id, folder_id)
-
-
-@router.get("/folders/{folder_id}/records")
-async def list_records(folder_id: str, business_id: str = Query(...), user=Depends(get_current_user)):
-    return await get_records(business_id, folder_id)
-
-
 @router.get("/records")
 async def list_all_records(business_id: str = Query(...), user=Depends(get_current_user)):
     return await get_all_records(business_id)
@@ -110,7 +77,8 @@ async def add_content_endpoint(record_id: str, body: AddContentRequest, backgrou
             "business_id": body.business_id,
             "content_type": processing_content_type,
             "user_id": user["user_id"],
-            "content": body.content
+            "content": body.content,
+            "record_id": record_id
         }
     )
     # background_tasks.add_task(process_content_background, body.business_id,
@@ -128,7 +96,8 @@ async def delete_content_endpoint(record_id: str, content_id: str, business_id: 
 @router.get("/records/{record_id}/understanding")
 async def record_understanding(record_id: str, business_id: str = Query(...), user=Depends(get_current_user)):
     try:
-        return await content_insight_generator(business_id, record_id)
+        # return await content_insight_generator(business_id, record_id)
+        return {"insight": "", "suggestions": []}
     except Exception as e:
         logger.error(f"Understanding generation failed: {e}", exc_info=True)
         return {"insight": "", "suggestions": []}

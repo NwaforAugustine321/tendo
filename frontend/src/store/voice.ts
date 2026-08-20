@@ -195,7 +195,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
           }
         },
         onMessage: (data: any) => {
-          if (data?.type === "progress" && data?.payload?.message) {
+          if (data?.type === "agent.progress" && data?.payload?.message) {
             set({ statusText: data.payload.message });
           }
         },
@@ -440,7 +440,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
             }
           },
           onMessage: (data: any) => {
-            if (data?.type === "progress" && data?.payload?.message) {
+            if (data?.type === "agent.progress" && data?.payload?.message) {
               set({ statusText: data.payload.message });
             }
           },

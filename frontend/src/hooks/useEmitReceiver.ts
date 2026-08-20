@@ -3,8 +3,8 @@ import { connectSocket } from "../lib/ws";
 import type { Socket } from "socket.io-client";
 
 export type RuntimeEvent = {
-  type: string;
-  payload: Record<string, unknown>;
+  event: string;
+  data: Record<string, unknown>;
 };
 
 export function useEventReceiver(events?: string[]) {
@@ -17,24 +17,23 @@ export function useEventReceiver(events?: string[]) {
     socketRef.current = socket;
 
     const handler = (raw: RuntimeEvent | string) => {
-      let event: RuntimeEvent;
+      let parsed: RuntimeEvent;
 
       try {
-        event = typeof raw === "string" ? JSON.parse(raw) : raw;
+        parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
       } catch {
         return;
       }
 
-      if (!event || typeof event.type !== "string") {
+      if (!parsed || typeof parsed.event !== "string") {
         return;
       }
 
-      // Normalize: ensure payload exists
-      if (!event.payload && (event as any).data) {
-        event = { ...event, payload: (event as any).data };
+      if (!parsed.data) {
+        parsed = { ...parsed, data: {} };
       }
 
-      setReceived((prev) => [...prev, event]);
+      setReceived((prev) => [...prev, parsed]);
     };
 
     if (events?.length) {
@@ -64,13 +63,13 @@ export function useEventReceiver(events?: string[]) {
     setReceived([]);
   }, []);
 
-  const clearType = useCallback((type: string) => {
-    setReceived((prev) => prev.filter((event) => event.type !== type));
+  const clearEvent = useCallback((eventName: string) => {
+    setReceived((prev) => prev.filter((e) => e.event !== eventName));
   }, []);
 
   return {
     events: received,
     clear,
-    clearType,
+    clearEvent,
   };
 }

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from app.db.tools.records import (
     add_record_content, create_record,
-    update_record_content,
+    update_record_content, get_record
 )
 from app.communication.events import ApplicationEvent
 from ...runtime.rag.lancedb import LanceRAGStore
@@ -50,23 +50,6 @@ class BusinessDocumentProcessorBWorker(
 
         try:
 
-            job_id = self.get_id(
-                job,
-            )
-
-            if job_id is None:
-                raise ValueError(
-                    "Document processing job requires 'id'.",
-                )
-
-            job_id = job_id.strip()
-
-            if not job_id:
-                raise ValueError(
-                    "Document processing job 'id' "
-                    "cannot be empty.",
-                )
-
             payload = self.get_payload(
                 job,
             )
@@ -86,6 +69,48 @@ class BusinessDocumentProcessorBWorker(
                 "event": "document.progress",
             }
 
+            processing_payload.update({
+                "status": "Processing",
+                "message": 'Document is Processing'
+            })
+            await get_event_bus().publish(
+                ApplicationEvent(
+                    event="document.progress",
+                    source="document_processor",
+                    delivery=EventDelivery.APP,
+                    data=processing_payload,
+                ),
+            )
+
+            job_id = self.get_id(
+                job,
+            )
+
+            if job_id is None:
+                raise ValueError(
+                    "Document processing job requires 'id'.",
+                )
+
+            job_id = job_id.strip()
+
+            if not job_id:
+                processing_payload.update({
+                    "status": "Failed",
+                    "message": 'Document Processing Failed'
+                })
+                await get_event_bus().publish(
+                    ApplicationEvent(
+                        event="document.progress",
+                        source="document_processor",
+                        delivery=EventDelivery.APP,
+                        data=processing_payload,
+                    ),
+                )
+                raise ValueError(
+                    "Document processing job 'id' "
+                    "cannot be empty.",
+                )
+
             business_id = payload.get(
                 "business_id",
             )
@@ -96,6 +121,10 @@ class BusinessDocumentProcessorBWorker(
 
             content = payload.get(
                 "content",
+            )
+
+            record_id = payload.get(
+                "record_id",
             )
 
             if not business_id:
@@ -153,9 +182,12 @@ class BusinessDocumentProcessorBWorker(
             hash_id = uuid4().hex[:6]
             title = f"#{hash_id}"
 
-            record = await create_record(
-                business_id, title
-            )
+            if record_id:
+                record = await get_record(business_id, record_id)
+            else:
+                record = await create_record(
+                    business_id, title
+                )
 
             record_id = record.get("id", "")
 
@@ -187,7 +219,12 @@ class BusinessDocumentProcessorBWorker(
 
             processing_payload.update({
                 "status": "Completed",
-                "message": 'Document Processing Completed'
+                "message": 'Document Processing Completed',
+                "data": {
+                    "title": title,
+                    "summary": summary,
+                    "suggested_questions": suggested_questions
+                }
             })
             await get_event_bus().publish(
                 ApplicationEvent(

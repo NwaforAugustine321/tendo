@@ -33,7 +33,7 @@ type NavItem = {
 };
 
 const PRIMARY_NAV: NavItem[] = [
-  { to: "/app", label: "Activities", icon: <Inbox size={18} />, end: true },
+  { to: "/app", label: "Inbox & Files", icon: <Inbox size={18} />, end: true },
   {
     to: "/app/insights",
     label: "Quick Insight",

@@ -82,6 +82,9 @@ class RedisTransport(EventTransport):
             pubsub = self._redis.pubsub()
 
             try:
+                # Force a fresh connection check before subscribing
+                await self._redis.ping()
+
                 await pubsub.subscribe(
                     channel,
                 )
@@ -141,9 +144,11 @@ class RedisTransport(EventTransport):
                     await pubsub.unsubscribe(
                         channel,
                     )
+                except Exception:
+                    pass
 
+                try:
                     await pubsub.aclose()
-
                 except Exception:
                     pass
 

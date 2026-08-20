@@ -115,5 +115,5 @@ class BusinessLearningAgent:
         )
 
         return LearningResult(
-            knowledge=response.text,
+            knowledge=[response.text] if response.text else [],
         )

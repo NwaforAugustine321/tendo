@@ -9,7 +9,7 @@ import {
   Clock,
   ArrowLeft,
   Search,
-  Activity,
+  Inbox as InboxIcon,
   AlertTriangle,
   Sparkles,
   Type,
@@ -29,7 +29,11 @@ import type { BusinessInsight } from "../../../lib/workspace/dashboard-types";
 import { useBusinessStore } from "../../../store/business";
 import { useWorkspaceStore } from "../../../store/workspace";
 import * as recordsApi from "../../../lib/services/records";
-import { useSocketEvent } from "../../../lib/ws";
+import { useEventReceiver } from "../../../hooks/useEmitReceiver";
+import {
+  showProcessingToast,
+  dismissProcessingToast,
+} from "../../../components/atoms/ProcessingNotification";
 import { toast } from "sonner";
 import type { InboxTab, InboxMessage } from "./types";
 import { TABS } from "./types";
@@ -163,6 +167,9 @@ function MessageDetail({
   const dragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
   const contentScrollRef = useRef<HTMLDivElement>(null);
+  const pollIntervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(
+    new Map(),
+  );
 
   // Chat panel resize state
   const [chatPanelWidth, setChatPanelWidth] = useState(340);
@@ -280,23 +287,53 @@ function MessageDetail({
       });
   }, [recordId]);
 
-  useSocketEvent(
-    "record_processing_status",
-    (data: any) => {
-      if (data?.record_id === recordId && data?.status === "completed") {
-        if (data?.summary) {
-          setInsight(data.summary);
-        }
-        if (data?.suggested_questions?.length) {
-          setSuggestedQuestions(data.suggested_questions);
-        } else if (data?.suggestions?.length) {
-          setSuggestedQuestions(data.suggestions);
-        }
-        setLoadingInsight(false);
+  const { events: documentProgressEvents } = useEventReceiver([
+    "document.progress",
+  ]);
+
+  // Handle document.progress events — update insights and stop polling
+  useEffect(() => {
+    if (documentProgressEvents.length === 0) return;
+    const latest = documentProgressEvents[documentProgressEvents.length - 1];
+    const data = latest.data as any;
+    const status = (data?.status || "").toLowerCase();
+    if (status === "completed") {
+      if (data?.data?.summary) {
+        setInsight(data.data.summary);
       }
-    },
-    [recordId],
-  );
+      if (data?.data?.suggested_questions?.length) {
+        setSuggestedQuestions(data.data.suggested_questions);
+      }
+      setLoadingInsight(false);
+      pollIntervalsRef.current.forEach((interval) => clearInterval(interval));
+      pollIntervalsRef.current.clear();
+      setContents((prev) =>
+        prev.map((c) => (c._processing ? { ...c, _processing: false } : c)),
+      );
+      if (recordId) {
+        recordsApi
+          .getRecordContents(recordId)
+          .then((updated) => {
+            setContents(updated);
+          })
+          .catch(() => {});
+      }
+    } else if (status === "failed") {
+      pollIntervalsRef.current.forEach((interval) => clearInterval(interval));
+      pollIntervalsRef.current.clear();
+      setContents((prev) =>
+        prev.map((c) => (c._processing ? { ...c, _processing: false } : c)),
+      );
+      if (recordId) {
+        recordsApi
+          .getRecordContents(recordId)
+          .then((updated) => {
+            setContents(updated);
+          })
+          .catch(() => {});
+      }
+    }
+  }, [documentProgressEvents, recordId]);
 
   // Auto-scroll to bottom when new content is added
   useEffect(() => {
@@ -316,6 +353,10 @@ function MessageDetail({
       setLoadingContent(false);
       return;
     }
+    // Clear any existing poll intervals from previous recordId
+    pollIntervalsRef.current.forEach((interval) => clearInterval(interval));
+    pollIntervalsRef.current.clear();
+
     setLoadingContent(true);
     recordsApi
       .getRecordContents(recordId)
@@ -331,24 +372,23 @@ function MessageDetail({
                 const found = updated.find((u: any) => u.id === c.id);
                 if (found && found.status !== "processing") {
                   clearInterval(pollInterval);
-                  if (found.status === "failed") {
-                    setContents((prev) =>
-                      prev.map((p) =>
-                        p.id === c.id ? { ...found, _processing: false } : p,
-                      ),
-                    );
-                  } else {
-                    setContents((prev) =>
-                      prev.map((p) =>
-                        p.id === c.id ? { ...found, _processing: false } : p,
-                      ),
-                    );
+                  pollIntervalsRef.current.delete(c.id);
+                  dismissProcessingToast("Document processed");
+                  setContents((prev) =>
+                    prev.map((p) =>
+                      p.id === c.id ? { ...found, _processing: false } : p,
+                    ),
+                  );
+                  if (found.content) {
+                    setInsight(found.content);
+                    setLoadingInsight(false);
                   }
                 }
               } catch {
                 /* retry */
               }
             }, 4000);
+            pollIntervalsRef.current.set(c.id, pollInterval);
             // Mark as processing in UI
             setContents((prev) =>
               prev.map((p) =>
@@ -362,6 +402,11 @@ function MessageDetail({
       })
       .catch(() => {})
       .finally(() => setLoadingContent(false));
+
+    return () => {
+      pollIntervalsRef.current.forEach((interval) => clearInterval(interval));
+      pollIntervalsRef.current.clear();
+    };
   }, [recordId]);
 
   useEffect(() => {
@@ -405,6 +450,7 @@ function MessageDetail({
           type,
           base64,
         );
+        showProcessingToast("Processing document...");
         const contentId = result.content.id;
 
         // Replace temp card with real one
@@ -431,24 +477,23 @@ function MessageDetail({
             const found = updated.find((c: any) => c.id === contentId);
             if (found && found.status !== "processing") {
               clearInterval(pollInterval);
-              if (found.status === "failed") {
-                setContents((prev) =>
-                  prev.map((c) =>
-                    c.id === contentId ? { ...c, _processing: false } : c,
-                  ),
-                );
-              } else {
-                setContents((prev) =>
-                  prev.map((c) =>
-                    c.id === contentId ? { ...found, _processing: false } : c,
-                  ),
-                );
+              pollIntervalsRef.current.delete(contentId);
+              dismissProcessingToast("Document processed");
+              setContents((prev) =>
+                prev.map((c) =>
+                  c.id === contentId ? { ...found, _processing: false } : c,
+                ),
+              );
+              if (found.content) {
+                setInsight(found.content);
+                setLoadingInsight(false);
               }
             }
           } catch {
             /* retry */
           }
         }, 4000);
+        pollIntervalsRef.current.set(contentId, pollInterval);
       } catch {
         setContents((prev) => prev.filter((c) => c.id !== tempId));
       } finally {
@@ -467,6 +512,7 @@ function MessageDetail({
         addingType,
         newContent.trim(),
       );
+      showProcessingToast("Processing content...");
       const contentId = result.content.id;
       setContents((prev) => [
         ...prev,
@@ -489,24 +535,23 @@ function MessageDetail({
           const found = updated.find((c: any) => c.id === contentId);
           if (found && found.status !== "processing") {
             clearInterval(pollInterval);
-            if (found.status === "failed") {
-              setContents((prev) =>
-                prev.map((c) =>
-                  c.id === contentId ? { ...c, _processing: false } : c,
-                ),
-              );
-            } else {
-              setContents((prev) =>
-                prev.map((c) =>
-                  c.id === contentId ? { ...found, _processing: false } : c,
-                ),
-              );
+            pollIntervalsRef.current.delete(contentId);
+            dismissProcessingToast("Document processed");
+            setContents((prev) =>
+              prev.map((c) =>
+                c.id === contentId ? { ...found, _processing: false } : c,
+              ),
+            );
+            if (found.content) {
+              setInsight(found.content);
+              setLoadingInsight(false);
             }
           }
         } catch {
           /* retry */
         }
       }, 4000);
+      pollIntervalsRef.current.set(contentId, pollInterval);
     } catch {
       toast.error("Failed to save");
     } finally {
@@ -1264,27 +1309,28 @@ export function Inbox() {
   }, [currentProfile?.id, liveInsights]);
 
   // Listen for record_updated to show content after processing
-  useSocketEvent(
-    "record_updated",
-    (data: any) => {
-      if (data?.business_id !== currentProfile?.id) return;
-      const rid = `record-${data.id}`;
-      setLiveInsights((prev) =>
-        prev.map((m) => {
-          if (m.id !== rid) return m;
-          const preview = data.first_content || m.preview;
-          return {
-            ...m,
-            sender: data.title || m.sender,
-            subject: preview ? preview.slice(0, 80) : m.subject,
-            preview: preview || m.preview,
-            body: preview || m.body,
-          };
-        }),
-      );
-    },
-    [currentProfile?.id],
-  );
+  const { events: recordUpdatedEvents } = useEventReceiver(["record_updated"]);
+
+  useEffect(() => {
+    if (recordUpdatedEvents.length === 0) return;
+    const latest = recordUpdatedEvents[recordUpdatedEvents.length - 1];
+    const data = latest.data as any;
+    if (data?.business_id !== currentProfile?.id) return;
+    const rid = `record-${data.id}`;
+    setLiveInsights((prev) =>
+      prev.map((m) => {
+        if (m.id !== rid) return m;
+        const preview = data.first_content || m.preview;
+        return {
+          ...m,
+          sender: data.title || m.sender,
+          subject: preview ? preview.slice(0, 80) : m.subject,
+          preview: preview || m.preview,
+          body: preview || m.body,
+        };
+      }),
+    );
+  }, [recordUpdatedEvents, currentProfile?.id]);
 
   // Determine which messages to show based on tab
   const getMessages = (): InboxMessage[] => {
@@ -1559,7 +1605,7 @@ export function Inbox() {
           <div className="text-center px-6">
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800/60">
               {activeTab === "primary" && (
-                <Activity size={22} className="text-zinc-500" />
+                <InboxIcon size={22} className="text-zinc-500" />
               )}
               {activeTab === "attention" && (
                 <AlertTriangle size={22} className="text-red-400" />
@@ -1569,13 +1615,13 @@ export function Inbox() {
               )}
             </div>
             <p className="text-[14px] font-medium text-zinc-300">
-              {activeTab === "primary" && "No activities yet"}
+              {activeTab === "primary" && "No items yet"}
               {activeTab === "attention" && "Nothing needs attention"}
               {activeTab === "recommendations" && "No recommendations yet"}
             </p>
             <p className="mt-1 text-[12px] text-zinc-500">
               {activeTab === "primary" &&
-                "Business activities and records will appear here as you interact with Tendo."}
+                "Your inbox and files will appear here as you interact with Tendo."}
               {activeTab === "attention" &&
                 "High priority items that require your action will show up here."}
               {activeTab === "recommendations" &&

@@ -125,6 +125,16 @@ create table if not exists background_jobs (
 
 
 -- ============================================================
+-- RLS POLICY
+-- ============================================================
+
+ALTER TABLE background_jobs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "service_role_manage" ON background_jobs
+    FOR ALL USING (true) WITH CHECK (true);
+
+
+-- ============================================================
 -- MIGRATION FOR EXISTING DATABASES
 -- ============================================================
 
@@ -741,3 +751,94 @@ execute function public.update_bla_cursors_updated_at();
 
 create index if not exists idx_bla_cursors_business_id
 on public.bla_cursors(business_id);
+
+
+
+-- ============================================================
+-- BLA Learning Checkpoints
+-- ============================================================
+
+create table if not exists public.bla_checkpoints (
+    business_id uuid not null
+        references public.business_profiles(id)
+        on delete cascade,
+
+    document_key uuid not null,
+
+    last_chunk_index integer not null,
+
+    last_sequence_id bigint not null,
+
+    accumulated_payload text not null,
+
+    total_chunks integer not null,
+
+    created_at timestamptz not null
+        default now(),
+
+    updated_at timestamptz not null
+        default now(),
+
+    primary key (
+        business_id,
+        document_key
+    ),
+
+    constraint bla_checkpoints_chunk_index_valid
+        check (last_chunk_index >= 0),
+
+    constraint bla_checkpoints_sequence_valid
+        check (last_sequence_id >= 0),
+
+    constraint bla_checkpoints_total_chunks_valid
+        check (total_chunks > 0),
+
+    constraint bla_checkpoints_payload_not_empty
+        check (length(trim(accumulated_payload)) > 0),
+
+    constraint bla_checkpoints_chunk_within_total
+        check (last_chunk_index < total_chunks)
+);
+
+
+-- ============================================================
+-- Updated-at trigger
+-- ============================================================
+
+create or replace function public.update_bla_checkpoints_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+    new.updated_at = now();
+
+    return new;
+end;
+$$;
+
+
+drop trigger if exists bla_checkpoints_updated_at
+on public.bla_checkpoints;
+
+
+create trigger bla_checkpoints_updated_at
+before update on public.bla_checkpoints
+for each row
+execute function public.update_bla_checkpoints_updated_at();
+
+
+-- ============================================================
+-- Index
+-- ============================================================
+
+create index if not exists idx_bla_checkpoints_business
+on public.bla_checkpoints (
+    business_id
+);
+
+
+create index if not exists idx_bla_checkpoints_document
+on public.bla_checkpoints (
+    business_id,
+    document_key
+);

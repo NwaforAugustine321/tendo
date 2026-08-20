@@ -50,7 +50,7 @@ export function Conversation({
     toggleMic,
     setStatusText,
   } = useVoiceStore();
-  const { events: statusEvents } = useEventReceiver(["progress"]);
+  const { events: statusEvents } = useEventReceiver(["agent.progress"]);
 
   const isConnected =
     connectionState === "connected" ||
@@ -159,10 +159,8 @@ export function Conversation({
   useEffect(() => {
     if (statusEvents.length > 0) {
       const latest = statusEvents[statusEvents.length - 1];
-      const msg =
-        (latest.payload as any)?.message ||
-        (latest.payload as any)?.payload?.message ||
-        "";
+      const data = latest.data as any;
+      const msg = data?.payload?.message || data?.message || "";
       if (msg) setStatusText(msg);
     }
   }, [statusEvents]);

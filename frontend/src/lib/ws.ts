@@ -95,22 +95,6 @@ function setupSocketListeners(socket: Socket): void {
   socket.on("disconnect", () => {
     _heartbeat?.stop();
   });
-
-  socket.on("record_processing_status", (data: any) => {
-    window.dispatchEvent(
-      new CustomEvent("tendo:record-processing", {
-        detail: data,
-      }),
-    );
-  });
-
-  socket.on("snapshot_updated", (data: any) => {
-    window.dispatchEvent(
-      new CustomEvent("tendo:snapshot-updated", {
-        detail: data,
-      }),
-    );
-  });
 }
 
 function getSocket(): Socket {

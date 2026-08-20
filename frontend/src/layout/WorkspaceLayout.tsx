@@ -9,7 +9,7 @@ import { ProcessingNotification } from "../components/atoms/ProcessingNotificati
 import { useWorkspaceStore } from "../store/workspace";
 import { useBusinessStore } from "../store/business";
 import { useVoiceStore } from "../store/voice";
-import { connectSocket } from "../lib/ws";
+import { useEventReceiver } from "../hooks/useEmitReceiver";
 
 export function WorkspaceLayout() {
   const location = useLocation();
@@ -34,41 +34,29 @@ export function WorkspaceLayout() {
     };
   }, [currentProfile?.id]);
 
-  // Listen for progress events from Socket.IO and forward to voice store.
+  // Listen for agent.progress events via useEventReceiver
+  const { events: agentProgressEvents } = useEventReceiver(["agent.progress"]);
+
   useEffect(() => {
-    const socket = connectSocket();
+    if (agentProgressEvents.length === 0) return;
+    const latest = agentProgressEvents[agentProgressEvents.length - 1];
+    const data = latest.data as any;
+    const status = data?.payload?.status || "";
+    const message = data?.payload?.message || data?.message || "";
 
-    const handler = (raw: any) => {
-      const event = typeof raw === "string" ? JSON.parse(raw) : raw;
-      const status =
-        event?.data?.payload?.status || event?.payload?.status || "";
-      const message =
-        event?.data?.payload?.message ||
-        event?.payload?.message ||
-        event?.payload?.payload?.message ||
-        event?.message ||
-        "";
+    if (
+      status === "completed" ||
+      status === "failed" ||
+      status === "cancelled"
+    ) {
+      setStatusText("");
+      return;
+    }
 
-      if (
-        status === "completed" ||
-        status === "failed" ||
-        status === "cancelled"
-      ) {
-        setStatusText("");
-        return;
-      }
-
-      if (message) {
-        setStatusText(message);
-      }
-    };
-
-    socket.on("progress", handler);
-
-    return () => {
-      socket.off("progress", handler);
-    };
-  }, []);
+    if (message) {
+      setStatusText(message);
+    }
+  }, [agentProgressEvents]);
 
   return (
     <div className="flex h-dvh max-h-dvh flex-col overflow-hidden bg-[#0a0a0a] text-zinc-100">

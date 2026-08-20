@@ -70,18 +70,18 @@ def _create_callbacks(
             return
 
         payload = {
-            "type": "progress",
+            "type": "agent.progress",
             "payload": {
                 "status": event.status.value,
                 "message": event.message,
             },
             "user_id": user_id,
-            "event": "progress",
+            "event": "agent.progress",
         }
 
         await get_event_bus().publish(
             ApplicationEvent(
-                event="progress",
+                event="agent.progress",
                 source="voice-agent",
                 delivery=EventDelivery.APP,
                 data=payload,

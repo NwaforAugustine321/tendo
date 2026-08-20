@@ -69,17 +69,17 @@ class EventWriter(
                     "payload cannot be empty.",
                 )
 
-                self._db.table("business_events")\
-                    .insert(
-                    {
-                        "business_id": business_id,
-                        "event_type": event_type,
-                        "document_key": document_key,
-                        "chunk_index": chunk_index,
-                        "total_chunks": total_chunks,
-                        "payload": payload,
-                    }
-                ).execute()
+            self._db.table("business_events")\
+                .insert(
+                {
+                    "business_id": business_id,
+                    "event_type": event_type,
+                    "document_key": document_key,
+                    "chunk_index": chunk_index,
+                    "total_chunks": total_chunks,
+                    "payload": payload,
+                }
+            ).execute()
 
         except Exception as e:
             raise e

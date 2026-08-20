@@ -1,59 +1,66 @@
-import { useEffect, useState } from 'react'
-import { Loader2, CheckCircle2, XCircle } from 'lucide-react'
-import clsx from 'clsx'
+import { useEffect, useRef } from "react";
+import { toast } from "sonner";
+import { useEventReceiver } from "../../hooks/useEmitReceiver";
 
-type ProcessingStatus = {
-  status: string
-  record_id: string
-  error?: string | null
+const DOCUMENT_PROCESSING_TOAST_ID = "document-processing";
+
+export function showProcessingToast(message?: string) {
+  toast.loading(message || "Processing document...", {
+    id: DOCUMENT_PROCESSING_TOAST_ID,
+  });
+}
+
+export function dismissProcessingToast(message?: string) {
+  if (message) {
+    toast.success(message, {
+      id: DOCUMENT_PROCESSING_TOAST_ID,
+      duration: 4000,
+    });
+  } else {
+    toast.dismiss(DOCUMENT_PROCESSING_TOAST_ID);
+  }
 }
 
 export function ProcessingNotification() {
-  const [notifications, setNotifications] = useState<ProcessingStatus[]>([])
+  const { events, clear } = useEventReceiver(["document.progress"]);
+  const lastProcessedRef = useRef(0);
 
   useEffect(() => {
-    const handleStatus = (e: Event) => {
-      const detail = (e as CustomEvent).detail as ProcessingStatus
-      setNotifications((prev) => {
-        const existing = prev.findIndex((n) => n.record_id === detail.record_id)
-        if (existing >= 0) {
-          const updated = [...prev]
-          updated[existing] = detail
-          return updated
-        }
-        return [...prev, detail]
-      })
+    if (events.length <= lastProcessedRef.current) return;
 
-      if (detail.status === 'completed' || detail.status === 'failed') {
-        setTimeout(() => {
-          setNotifications((prev) => prev.filter((n) => n.record_id !== detail.record_id))
-        }, 4000)
+    const newEvents = events.slice(lastProcessedRef.current);
+    lastProcessedRef.current = events.length;
+
+    for (const event of newEvents) {
+      const data = event.data as any;
+      const status = (data?.status || "").toLowerCase();
+      const message = data?.message || "";
+
+      if (status === "completed") {
+        toast.success(message || "Document processing completed", {
+          id: DOCUMENT_PROCESSING_TOAST_ID,
+          duration: 4000,
+        });
+      } else if (status === "failed") {
+        toast.error(message || "Document processing failed", {
+          id: DOCUMENT_PROCESSING_TOAST_ID,
+          duration: 4000,
+        });
+      } else if (status === "processing") {
+        toast.loading(message || "Processing document...", {
+          id: DOCUMENT_PROCESSING_TOAST_ID,
+        });
       }
     }
+  }, [events]);
 
-    window.addEventListener('tendo:record-processing', handleStatus)
-    return () => window.removeEventListener('tendo:record-processing', handleStatus)
-  }, [])
+  // Clear accumulated events periodically to avoid memory buildup
+  useEffect(() => {
+    if (events.length > 50) {
+      lastProcessedRef.current = 0;
+      clear();
+    }
+  }, [events.length, clear]);
 
-  if (notifications.length === 0) return null
-
-  return (
-    <div className="fixed top-6 right-6 z-[150] flex flex-col gap-3">
-      {notifications.map((n) => (
-        <div
-          key={n.record_id}
-          className="flex items-center gap-3 rounded-xl px-5 py-3.5 shadow-2xl transition-all duration-300 min-w-[260px] bg-[#0a0a0a] border border-zinc-800 text-zinc-200"
-        >
-          {n.status === 'processing' && <Loader2 size={18} className="animate-spin text-zinc-400" />}
-          {n.status === 'completed' && <CheckCircle2 size={18} className="text-zinc-400" />}
-          {n.status === 'failed' && <XCircle size={18} className="text-red-400" />}
-          <span className="text-sm font-medium text-white">
-            {n.status === 'processing' && 'Processing...'}
-            {n.status === 'completed' && 'Content processed'}
-            {n.status === 'failed' && (n.error || 'Processing failed')}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
+  return null;
 }
