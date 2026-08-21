@@ -7,8 +7,7 @@ from fastapi import BackgroundTasks
 from app.config.settings import settings
 from app.db.client import get_client
 from app.db.tools.data_sources import (
-    get_business_id_by_phone_number,
-    get_business_owner_by_phone_number,
+    get_whatsapp_business_owner,
     get_whatsapp_data_sources,
 )
 from app.integrations.whatsapp.meta import verify_challenge, validate_signature
@@ -103,7 +102,7 @@ async def handle_whatsapp_webhook(raw_body: bytes, signature: str | None, payloa
             value = change["value"]
             phone_number_id = value.get("metadata", {}).get("phone_number_id")
 
-            owner = get_business_owner_by_phone_number(
+            owner = get_whatsapp_business_owner(
                 phone_number_id) if phone_number_id else None
 
             business_id, user_id = owner if owner else (None, None)
@@ -125,6 +124,15 @@ async def handle_whatsapp_webhook(raw_body: bytes, signature: str | None, payloa
                 if content:
                     logger.info("Processing %s content for business %s",
                                 content_type, business_id)
+
+                if not user_id:
+                    logger.warning(
+                        "No owning user_id found for business %s "
+                        "(phone_number_id %s) — skipping document job",
+                        business_id,
+                        phone_number_id,
+                    )
+                    return 200, message
 
                 await create_task(
                     job_type='document_processing',
