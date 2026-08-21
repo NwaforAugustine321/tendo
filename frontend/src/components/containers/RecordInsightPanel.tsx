@@ -4,6 +4,7 @@ import clsx from "clsx";
 import { useWorkspaceStore } from "../../store/workspace";
 import { useBusinessStore } from "../../store/business";
 import { useEventReceiver } from "../../hooks/useEmitReceiver";
+import { explainPrompt } from "../../lib/workspace/constants";
 import * as recordsApi from "../../lib/services/records";
 
 type InsightEntry = {
@@ -213,9 +214,7 @@ export function RecordInsightPanel() {
                     useWorkspaceStore.getState().setDashboardChatVisible(true);
                     useWorkspaceStore
                       .getState()
-                      .setPendingChatMessage(
-                        `List the key points and important information? "${entry.insight}"`,
-                      );
+                      .setPendingChatMessage(explainPrompt(entry.insight));
                   }}
                   className="flex items-center gap-1 rounded-full px-2.5 py-1 border border-[#3ecf8e]/30 bg-[#3ecf8e]/5 text-[10px] text-[#3ecf8e] hover:bg-[#3ecf8e]/10 hover:border-[#3ecf8e]/50 transition-colors"
                 >

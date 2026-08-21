@@ -22,6 +22,7 @@ import {
   dismissProcessingToast,
 } from "../atoms/ProcessingNotification";
 import type { Record } from "../../lib/workspace/types";
+import { EXPLAIN_PROMPT } from "../../lib/workspace/constants";
 import * as recordsApi from "../../lib/services/records";
 
 function formatRelativeTime(dateStr: string): string {
@@ -641,11 +642,7 @@ function RecordContentTab({
                   </div>
                   <button
                     type="button"
-                    onClick={() =>
-                      onOpenDetail(
-                        "List the key points and important information?",
-                      )
-                    }
+                    onClick={() => onOpenDetail(EXPLAIN_PROMPT)}
                     className="flex items-center gap-1 rounded-full px-1.5 py-0.5 mt-2 border border-emerald-500/30 bg-emerald-500/5 text-[8px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                   >
                     <Sparkles size={7} />
@@ -698,11 +695,7 @@ function RecordContentTab({
                     ))}
                     <button
                       type="button"
-                      onClick={() =>
-                        onOpenDetail(
-                          "List the key points and important information?",
-                        )
-                      }
+                      onClick={() => onOpenDetail(EXPLAIN_PROMPT)}
                       className="flex items-center gap-1 rounded-full px-1.5 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[8px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                     >
                       <Sparkles size={7} />
@@ -720,11 +713,7 @@ function RecordContentTab({
                   </div>
                   <button
                     type="button"
-                    onClick={() =>
-                      onOpenDetail(
-                        "List the key points and important information?",
-                      )
-                    }
+                    onClick={() => onOpenDetail(EXPLAIN_PROMPT)}
                     className="flex items-center gap-1 rounded-full px-1.5 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[8px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                   >
                     <Sparkles size={7} />

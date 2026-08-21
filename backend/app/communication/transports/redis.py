@@ -5,6 +5,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from datetime import timedelta
+from typing import Any
 
 from redis.asyncio import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -21,6 +22,7 @@ class RedisTransport(EventTransport):
 
     _SOCKET_USER_PREFIX = "socket:user:"
     _SOCKET_SID_PREFIX = "socket:sid:"
+    _SNAP_PREFIX = "snap:"
 
     def __init__(
         self,
@@ -34,7 +36,6 @@ class RedisTransport(EventTransport):
         payload: str,
     ) -> None:
         """Publish a payload to a Redis channel."""
-
         try:
             await self._redis.publish(
                 channel,
@@ -65,7 +66,6 @@ class RedisTransport(EventTransport):
         channel: str,
     ) -> AsyncIterator[str]:
         """Subscribe to a Redis channel."""
-
         return self._subscribe(
             channel,
         )
@@ -74,7 +74,6 @@ class RedisTransport(EventTransport):
         self,
         channel: str,
     ) -> AsyncIterator[str]:
-
         backoff = 1.0
         max_backoff = 30.0
 
@@ -152,12 +151,15 @@ class RedisTransport(EventTransport):
                 except Exception:
                     pass
 
+    # ==========================================================
+    # Socket helpers
+    # ==========================================================
+
     def _user_socket_key(
         self,
         user_id: str,
     ) -> str:
         """Return the Redis key containing a user's active SIDs."""
-
         return (
             f"{self._SOCKET_USER_PREFIX}"
             f"{user_id}"
@@ -168,7 +170,6 @@ class RedisTransport(EventTransport):
         sid: str,
     ) -> str:
         """Return the Redis key for an individual Socket.IO SID."""
-
         return (
             f"{self._SOCKET_SID_PREFIX}"
             f"{sid}"
@@ -189,7 +190,6 @@ class RedisTransport(EventTransport):
             socket:user:{user_id} -> active SID set
             socket:sid:{sid}       -> user ID with expiration
         """
-
         if not user_id or not sid:
             return
 
@@ -229,7 +229,6 @@ class RedisTransport(EventTransport):
         The user SID set is cleaned lazily when expired SIDs
         are encountered.
         """
-
         if not user_id:
             return []
 
@@ -247,6 +246,7 @@ class RedisTransport(EventTransport):
         active_sids: list[str] = []
 
         for sid in sids:
+
             sid_key = self._socket_key(
                 sid,
             )
@@ -282,7 +282,6 @@ class RedisTransport(EventTransport):
         Returns True when the SID key exists and its expiration
         was successfully refreshed.
         """
-
         if not sid:
             return False
 
@@ -304,7 +303,6 @@ class RedisTransport(EventTransport):
         sid: str,
     ) -> None:
         """Remove a Socket.IO connection from Redis."""
-
         if not user_id or not sid:
             return
 
@@ -347,7 +345,6 @@ class RedisTransport(EventTransport):
 
         Returns None when the SID has expired or does not exist.
         """
-
         if not sid:
             return None
 
@@ -365,9 +362,220 @@ class RedisTransport(EventTransport):
 
         return user_id
 
+    # ==========================================================
+    # Snap
+    # ==========================================================
+
+    def _snap_key(
+        self,
+        key: str,
+    ) -> str:
+        """
+        Return the Redis key for a Snap record.
+
+        Snap records are intentionally isolated under their own
+        namespace so they do not interfere with other Redis data.
+        """
+        return (
+            f"{self._SNAP_PREFIX}"
+            f"{key}"
+        )
+
+    async def snap_set(
+        self,
+        *,
+        key: str,
+        value: dict[str, Any],
+        ttl: timedelta,
+    ) -> None:
+        """
+        Store a short-lived Snap record.
+
+        The value is serialized as JSON and automatically expires
+        after the supplied TTL.
+        """
+        if not key:
+            raise ValueError(
+                "key cannot be empty.",
+            )
+
+        if not isinstance(
+            value,
+            dict,
+        ):
+            raise TypeError(
+                "value must be a dictionary.",
+            )
+
+        if ttl.total_seconds() <= 0:
+            raise ValueError(
+                "ttl must be greater than zero.",
+            )
+
+        payload = json.dumps(
+            value,
+            default=str,
+        )
+
+        await self._redis.set(
+            self._snap_key(key),
+            payload,
+            ex=ttl,
+        )
+
+    async def snap_get(
+        self,
+        *,
+        key: str,
+    ) -> dict[str, Any] | None:
+        """
+        Retrieve a Snap record.
+
+        Returns None when the record does not exist or has expired.
+        """
+        if not key:
+            return None
+
+        payload = await self._redis.get(
+            self._snap_key(key),
+        )
+
+        if payload is None:
+            return None
+
+        try:
+            value = json.loads(
+                payload,
+            )
+        except (
+            json.JSONDecodeError,
+            TypeError,
+        ):
+            return None
+
+        if not isinstance(
+            value,
+            dict,
+        ):
+            return None
+
+        return value
+
+    async def snap_delete(
+        self,
+        *,
+        key: str,
+    ) -> bool:
+        """
+        Delete a Snap record.
+
+        Returns True when a record was deleted.
+        """
+        if not key:
+            return False
+
+        deleted = await self._redis.delete(
+            self._snap_key(key),
+        )
+
+        return bool(
+            deleted,
+        )
+
+    async def snap_exists(
+        self,
+        *,
+        key: str,
+    ) -> bool:
+        """Return whether a Snap record currently exists."""
+        if not key:
+            return False
+
+        return bool(
+            await self._redis.exists(
+                self._snap_key(key),
+            )
+        )
+
+    async def snap_expire(
+        self,
+        *,
+        key: str,
+        ttl: timedelta,
+    ) -> bool:
+        """
+        Update the TTL of an existing Snap record.
+
+        Returns True when the expiration was applied.
+        """
+        if not key:
+            return False
+
+        if ttl.total_seconds() <= 0:
+            raise ValueError(
+                "ttl must be greater than zero.",
+            )
+
+        return bool(
+            await self._redis.expire(
+                self._snap_key(key),
+                ttl,
+            )
+        )
+
+    async def snap_keys(
+        self,
+        *,
+        pattern: str = "*",
+    ) -> list[str]:
+        """
+        Return Snap keys matching a pattern.
+
+        Returned keys do not include the internal Snap prefix.
+        """
+        keys: list[str] = []
+
+        async for key in self._redis.scan_iter(
+            match=self._snap_key(pattern),
+        ):
+            if isinstance(
+                key,
+                bytes,
+            ):
+                key = key.decode(
+                    "utf-8",
+                )
+
+            if key.startswith(
+                self._SNAP_PREFIX,
+            ):
+                key = key[
+                    len(self._SNAP_PREFIX):
+                ]
+
+            keys.append(
+                key,
+            )
+
+        return keys
+
+    async def snap_count(
+        self,
+        *,
+        pattern: str = "*",
+    ) -> int:
+        """Return the number of active Snap records matching a pattern."""
+        count = 0
+
+        async for _ in self._redis.scan_iter(
+            match=self._snap_key(pattern),
+        ):
+            count += 1
+
+        return count
+
     async def close(self) -> None:
         """Close the Redis connection."""
-
         await self._redis.aclose()
 
 

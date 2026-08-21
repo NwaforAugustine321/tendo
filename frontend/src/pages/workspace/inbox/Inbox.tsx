@@ -26,6 +26,10 @@ import { Dashboard } from "../Dashboard";
 import { getInsights } from "../../../lib/services/insights";
 import { getSnapshot } from "../../../lib/services/snapshot";
 import type { BusinessInsight } from "../../../lib/workspace/dashboard-types";
+import {
+  EXPLAIN_PROMPT,
+  explainPrompt,
+} from "../../../lib/workspace/constants";
 import { useBusinessStore } from "../../../store/business";
 import { useWorkspaceStore } from "../../../store/workspace";
 import * as recordsApi from "../../../lib/services/records";
@@ -116,6 +120,49 @@ function CollapsibleSection({
         />
       </button>
       {open && <div className="px-4 pb-4 pt-0">{children}</div>}
+    </div>
+  );
+}
+
+// --- Summary text + "Ask Tendo" link ---
+
+/**
+ * A summary only exists once processing has produced text.
+ * Raw data URLs and the processing placeholder are not summaries.
+ */
+function hasSummary(text: string | undefined | null): boolean {
+  if (!text) return false;
+  const value = text.trim();
+  if (!value) return false;
+  if (value.startsWith("data:")) return false;
+  if (value.startsWith("[Processing")) return false;
+  return true;
+}
+
+function SummaryBlock({
+  summary,
+  textClass = "text-[13px]",
+}: {
+  summary: string;
+  textClass?: string;
+}) {
+  if (!hasSummary(summary)) return null;
+
+  return (
+    <div className={clsx("leading-relaxed text-zinc-300", textClass)}>
+      <span className="whitespace-pre-wrap">{summary}</span>{" "}
+      <button
+        type="button"
+        onClick={() =>
+          useWorkspaceStore
+            .getState()
+            .setPendingChatMessage(explainPrompt(summary))
+        }
+        title="Ask Tendo to explain this summary in the open chat session"
+        className="inline-flex items-baseline align-baseline text-[10px] text-[#3ecf8e] underline hover:text-[#3ecf8e]/80 transition-colors"
+      >
+        Ask Tendo
+      </button>
     </div>
   );
 }
@@ -647,9 +694,7 @@ function MessageDetail({
                       onClick={() => {
                         useWorkspaceStore
                           .getState()
-                          .setPendingChatMessage(
-                            "List the key points and important information?",
-                          );
+                          .setPendingChatMessage(EXPLAIN_PROMPT);
                       }}
                       className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                     >
@@ -710,9 +755,7 @@ function MessageDetail({
                       onClick={() => {
                         useWorkspaceStore
                           .getState()
-                          .setPendingChatMessage(
-                            "List the key points and important information?",
-                          );
+                          .setPendingChatMessage(EXPLAIN_PROMPT);
                       }}
                       className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                     >
@@ -756,9 +799,7 @@ function MessageDetail({
                     onClick={() => {
                       useWorkspaceStore
                         .getState()
-                        .setPendingChatMessage(
-                          "List the key points and important information?",
-                        );
+                        .setPendingChatMessage(EXPLAIN_PROMPT);
                     }}
                     className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                   >
@@ -818,12 +859,7 @@ function MessageDetail({
                         className="max-w-[150px] max-h-[100px] rounded-md cursor-pointer hover:opacity-80 transition-opacity"
                       />
                     </a>
-                    {content.content &&
-                      !content.content.startsWith("data:") && (
-                        <div className="text-[13px] leading-relaxed text-zinc-300 whitespace-pre-wrap">
-                          {content.content}
-                        </div>
-                      )}
+                    <SummaryBlock summary={content.content} />
                   </div>
                 ) : [
                     "audio",
@@ -844,12 +880,7 @@ function MessageDetail({
                       src={content.file_url || content.content}
                       className="w-[280px]"
                     />
-                    {content.content &&
-                      !content.content.startsWith("data:") && (
-                        <div className="text-[13px] leading-relaxed text-zinc-300 whitespace-pre-wrap">
-                          {content.content}
-                        </div>
-                      )}
+                    <SummaryBlock summary={content.content} />
                   </div>
                 ) : content.content_type === "pdf" ? (
                   <div className="flex items-start gap-3">
@@ -871,13 +902,13 @@ function MessageDetail({
                         </object>
                       </a>
                     )}
-                    {content.content &&
-                      !content.content.startsWith("data:") && (
-                        <div className="text-[13px] leading-relaxed text-zinc-300 whitespace-pre-wrap">
-                          {content.content}
-                        </div>
-                      )}
+                    <SummaryBlock summary={content.content} />
                   </div>
+                ) : hasSummary(content.content) ? (
+                  <SummaryBlock
+                    summary={content.content}
+                    textClass="text-[14px]"
+                  />
                 ) : (
                   <div className="text-[14px] leading-relaxed text-zinc-300 whitespace-pre-wrap">
                     {content.content}
