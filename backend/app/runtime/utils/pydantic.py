@@ -4,6 +4,15 @@ from typing import Any
 
 from pydantic import BaseModel, TypeAdapter
 
+# The only keys an array node may carry and still be collapsed into a
+# JSON array literal. Anything else (description, minItems, maxItems)
+# carries meaning the literal form cannot express, so those nodes keep
+# their schema form.
+_ARRAY_ENVELOPE_KEYS = {
+    "type",
+    "items",
+}
+
 
 def resolve_refs(schema: dict[str, Any]) -> dict[str, Any]:
     """
@@ -49,6 +58,39 @@ def resolve_refs(schema: dict[str, Any]) -> dict[str, Any]:
     return resolved
 
 
+def unwrap_arrays(node: Any) -> Any:
+    """
+    Render array schemas as JSON array literals so the shape in the
+    prompt mirrors the shape the model has to produce.
+
+    ``{"type": "array", "items": {...}}`` becomes ``[{...}]``.
+
+    Nodes carrying anything beyond ``type`` and ``items`` (a
+    description, ``minItems``, ``maxItems``) keep their schema form,
+    since the literal form cannot express those.
+    """
+
+    if isinstance(node, dict):
+        items = node.get("items")
+
+        if (
+            node.get("type") == "array"
+            and isinstance(items, dict)
+            and not (set(node) - _ARRAY_ENVELOPE_KEYS)
+        ):
+            return [unwrap_arrays(items)]
+
+        return {
+            key: unwrap_arrays(value)
+            for key, value in node.items()
+        }
+
+    if isinstance(node, list):
+        return [unwrap_arrays(item) for item in node]
+
+    return node
+
+
 def pydantic_to_string(model: Any) -> str:
     """
     Render any type annotation's JSON schema as a string,
@@ -83,6 +125,6 @@ def pydantic_to_string(model: Any) -> str:
         return "{}"
 
     return json.dumps(
-        resolve_refs(schema),
+        unwrap_arrays(resolve_refs(schema)),
         indent=2,
     )

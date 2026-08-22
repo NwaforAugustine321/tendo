@@ -11,6 +11,8 @@ create table snaps (
     why_it_matters text not null,
     action text not null,
 
+    domain text not null default '';
+
     status text not null default 'active',
 
     created_at timestamptz not null default now()

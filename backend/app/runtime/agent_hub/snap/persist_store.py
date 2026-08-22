@@ -160,6 +160,7 @@ class SnapPersistence(
             "message": snap.snap.message,
             "why_it_matters": snap.snap.why_it_matters,
             "action": snap.snap.action,
+            "domain": snap.snap.domain,
             "status": snap.status,
         }
 
@@ -178,6 +179,7 @@ class SnapPersistence(
             message=value["message"],
             why_it_matters=value["why_it_matters"],
             action=value["action"],
+            domain=value["domain"],
         )
 
         return SnapRecord(

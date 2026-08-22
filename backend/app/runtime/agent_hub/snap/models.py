@@ -8,7 +8,7 @@ SnapType = Literal[
     "recommendation",
     "attention",
     "warning",
-    "opportunity"
+    "opportunity",
 ]
 
 SnapPriority = Literal[
@@ -16,6 +16,19 @@ SnapPriority = Literal[
     "medium",
     "high",
     "critical",
+]
+
+SnapDomain = Literal[
+    "growth",
+    "operations",
+    "finances",
+    "revenue",
+    "sales",
+    "marketing",
+    "customers",
+    "product",
+    "people",
+    "others"
 ]
 
 
@@ -38,6 +51,8 @@ class SnapModel:
     why_it_matters: str
 
     action: str
+
+    domain: SnapDomain
 
 
 SnapStatus = Literal[

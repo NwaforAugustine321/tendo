@@ -26,23 +26,39 @@ HISTORY_MESSAGE_CHARS = 500
 
 
 REWRITE_QUERY_PROMPT = """
-Rewrite the message into a concise semantic retrieval query for memory, history, and knowledge relevant to the current objective.
+Convert the current task into one concise semantic search query.
 
-Use the conversation context to understand what the message refers to. Resolve pronouns, references,
-and omitted subjects when the context makes them clear. Preserve exact names, entities, dates, and
-quantities from the context.
+The query must describe the information that should be retrieved
+from memory.
 
-If the message depends on information established in the context, include the resolved information
-in the query. If it is already self-contained, preserve its meaning without unnecessary changes.
+Use the available context to resolve references, names, entities,
+dates, identifiers, and other details when relevant.
 
-Focus on the information that needs to be retrieved, not the action being performed.
-Do not add assumptions or information not supported by the context.
+Preserve the intent of the task.
 
-<Context>:
-{context}
+Do not answer the task.
+Do not analyze the information.
+Do not generate signals.
+Do not classify the information.
+Do not return JSON.
+Do not return an array.
+Do not return an empty result.
 
-Return one plain-text query (30-50 max-word). No explanation.
+Always return a non-empty plain-text retrieval query.
+
+Keep the query under 150 characters.
+
+<task>
+{task}
+<task>
+
+Return only the retrieval query.
+
 """
+
+# <Context>
+# {context}
+# </Context>
 
 
 class MemoryProvider:
@@ -185,17 +201,11 @@ class MemoryProvider:
         messages = [
             {
                 "role": "system",
-                "content": REWRITE_QUERY_PROMPT.format(
-                    context=(
-                        self._run_context(ctx)
-                        or "(no additional context)"
-                    ),
-                ),
-            },
-            {
-                "role": "user",
-                "content": query,
-            },
+                "content": REWRITE_QUERY_PROMPT.replace(
+                    "{task}", query
+                )
+
+            }
         ]
 
         try:

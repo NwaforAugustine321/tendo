@@ -250,6 +250,7 @@ class SnapService(
             message=snap_data["message"],
             why_it_matters=snap_data["why_it_matters"],
             action=snap_data["action"],
+            domain=snap_data["domain"]
         )
 
         return SnapRecord(

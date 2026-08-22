@@ -149,7 +149,7 @@ class LanceMemoryStore(
         *,
         query: str,
         limit: int = 5,
-        distance_threshold: float = 0.75,
+        distance_threshold: float = 0.5,
         scopes: list[str] | None = None,
 
     ) -> MemoryContext:

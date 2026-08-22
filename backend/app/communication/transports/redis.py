@@ -9,6 +9,7 @@ from typing import Any
 
 from redis.asyncio import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from ..config import EventBusConfig
 from ..events import ApplicationEvent
@@ -477,25 +478,41 @@ class RedisTransport(Transport):
             sid,
         )
 
-        async with self._redis.pipeline(
-            transaction=True,
-        ) as pipe:
-            await (
-                pipe.srem(
-                    user_key,
-                    sid,
+        # Disconnect cleanup is best effort: SID keys carry a TTL,
+        # so a lost Redis connection here resolves on expiry rather
+        # than failing the disconnect handler.
+        try:
+            async with self._redis.pipeline(
+                transaction=True,
+            ) as pipe:
+                await (
+                    pipe.srem(
+                        user_key,
+                        sid,
+                    )
+                    .delete(
+                        sid_key,
+                    )
+                    .execute()
                 )
-                .delete(
-                    sid_key,
-                )
-                .execute()
-            )
 
-        if await self._redis.scard(
-            user_key,
-        ) == 0:
-            await self._redis.delete(
+            if await self._redis.scard(
                 user_key,
+            ) == 0:
+                await self._redis.delete(
+                    user_key,
+                )
+
+        except (
+            RedisConnectionError,
+            RedisTimeoutError,
+            ConnectionResetError,
+            OSError,
+        ) as exc:
+            logger.warning(
+                "Redis socket cleanup failed for sid %s: %s",
+                sid,
+                exc,
             )
 
     async def get_socket_user(

@@ -254,6 +254,7 @@ class SnapBackgroundWorker(
                     snap.snap.why_it_matters
                 ),
                 "action": snap.snap.action,
+                "domain": snap.snap.domain,
                 "status": snap.status,
             }
             for snap in existing_snaps
@@ -293,6 +294,7 @@ class SnapBackgroundWorker(
                         record.snap.why_it_matters
                     ),
                     "action": record.snap.action,
+                    "domain": record.snap.domain,
                     "status": record.status,
                 },
             )

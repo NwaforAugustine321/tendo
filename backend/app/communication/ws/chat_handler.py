@@ -302,14 +302,31 @@ async def message(
 @sio.event
 async def disconnect(
     sid,
+    reason=None,
 ):
-    """Remove a disconnected Socket.IO connection."""
+    """
+    Remove a disconnected Socket.IO connection.
+
+    python-socketio passes a disconnect reason to this handler, so
+    the parameter is accepted and optional for older versions.
+    """
 
     logger.info(
-        "Socket.IO disconnected: %s",
+        "Socket.IO disconnected: %s (%s)",
         sid,
+        reason or "unknown reason",
     )
 
-    await connection_registry.remove(
-        sid,
-    )
+    try:
+        await connection_registry.remove(
+            sid,
+        )
+
+    except Exception as exc:
+        # Cleanup is best effort. Connection entries carry a TTL,
+        # so a failed removal expires on its own.
+        logger.warning(
+            "Failed to clean up Socket.IO connection %s: %s",
+            sid,
+            exc,
+        )

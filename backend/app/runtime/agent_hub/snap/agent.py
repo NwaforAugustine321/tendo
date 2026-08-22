@@ -17,7 +17,8 @@ from app.runtime.utils.spec_loader import LoaderAgentSpec
 from .models import (
     SnapModel,
     SnapPriority,
-    SnapType
+    SnapType,
+    SnapDomain
 )
 from app.runtime.utils.pydantic import pydantic_to_string
 from app.runtime.memory.factory import create_memory_provider
@@ -35,11 +36,12 @@ _MAX_TITLE_LENGTH = 80
 _MAX_MESSAGE_LENGTH = 240
 _MAX_WHY_IT_MATTERS_LENGTH = 180
 _MAX_ACTION_LENGTH = 160
+_MAX_DOMAIN_LENGTH = 30
 
 
 class SnapOutput(BaseModel):
     """
-    Strict schema for Snap objects.
+    Strict schema for user-relevant Signal objects.
     """
 
     model_config = ConfigDict(
@@ -48,71 +50,72 @@ class SnapOutput(BaseModel):
 
     type: SnapType = Field(
         description=(
-            "The category of the Snap. "
-            "Use recommendation for a suggested action, "
-            "attention for something that deserves review, "
-            "warning for a potential risk or problem, "
-            "opportunity for a potentially valuable development"
+            "The kind of signal being surfaced. "
+            "Use recommendation for a useful suggested action, "
+            "attention for information the user should notice or review, "
+            "warning for a potential risk, problem, or anomaly, "
+            "or opportunity for a potentially valuable development."
+        ),
+    )
+
+    domain: SnapDomain = Field(
+        description=(
+            "The  domain that the Signal belongs to. "
+            "Use the most specific domain supported by the available "
+            "information. Do not invent a domain that is "
+            "not supported by the Signal."
         ),
     )
 
     priority: SnapPriority = Field(
         description=(
-            "The urgency or importance of the Snap. "
-            "Use low for minor items, medium for items worth "
-            "attention, high for important items requiring timely "
-            "action, and critical for matters requiring immediate "
-            "attention."
+            "How important the signal is relative to the user's "
+            "configured interests and preferences. "
+            "Use low for minor relevance, medium for meaningful "
+            "relevance, high for important or time-sensitive signals, "
+            "and critical for matters requiring immediate attention."
         ),
     )
 
     confidence: float = Field(
-        ge=0.0,
-        le=1.0,
         description=(
-            "Confidence that the Snap is meaningful and supported "
-            "by the available information. A value between 0.0 "
-            "and 1.0, where 1.0 represents very high confidence."
+            "Confidence that the signal is both supported by the "
+            "available information and relevant to the user's "
+            "configured preferences. 1.0 means very high confidence."
         ),
     )
 
     title: str = Field(
-        min_length=1,
-        max_length=_MAX_TITLE_LENGTH,
         description=(
-            "A concise title that summarizes the key signal. "
+            "A concise title describing the specific signal that "
+            "matches the user's configured preferences. "
             "Maximum 80 characters."
         ),
     )
 
     message: str = Field(
-        min_length=1,
-        max_length=_MAX_MESSAGE_LENGTH,
         description=(
-            "A concise explanation of what was observed or "
-            "identified. It should communicate the important "
-            "signal without unnecessary detail. Maximum "
-            "240 characters."
+            "A concise description of the relevant information "
+            "identified in the available context. State what was "
+            "observed and why it matches the user's interests or "
+            "configured preferences. Maximum 240 characters."
         ),
     )
 
     why_it_matters: str = Field(
-        min_length=1,
-        max_length=_MAX_WHY_IT_MATTERS_LENGTH,
         description=(
-            "A concise explanation of why the signal is important "
-            "or why the user should care about it. Maximum "
-            "180 characters."
+            "A concise explanation of why this information matters "
+            "to the user specifically, based on their configured "
+            "preferences or notification criteria. Maximum 180 "
+            "characters."
         ),
     )
 
     action: str = Field(
-        min_length=1,
-        max_length=_MAX_ACTION_LENGTH,
         description=(
-            "A concise recommended next step or action the user "
-            "can take in response to the Snap. Maximum "
-            "160 characters."
+            "A concise, evidence-based next step when one is "
+            "reasonably useful. Do not invent an action merely to "
+            "complete the field. Maximum 160 characters."
         ),
     )
 
@@ -144,32 +147,63 @@ system_prompt = (
     f"{spec.backstory}\n\n"
     f"{spec.role}\n\n"
     f"{spec.goal}\n\n"
-    "The runtime context available to you is the only basis "
-    "for generating Signals from 5-10 signals.\n\n"
+
+    "Ignore information that does not match the user's "
+    "configured preferences.\n"
+
+    "Do not summarize information simply because it is present.\n"
+
+    "Do not invent findings, causes, implications, or "
+    "recommendations that are not supported by the available "
+    "information.\n"
+
     "Do not ask for additional information.\n"
-    "Do not generate a Signals about missing context.\n"
-    "Do not generate a generic or hypothetical Signals.\n"
-    f"Return only the JSON array of signal objects inside the "
-    f"<{_SNAP_TAG}>...</{_SNAP_TAG}> tag.\n"
-    f"If no meaningful signal is supported, return "
+
+    "Generate a separate Signal for each materially distinct "
+    "finding that matches the user's preferences.\n"
+
+    "Do not use the existing signal content for query or reterival.\n"
+    "Existing signal is given to you to avoid regenerating signal that currently exist.\n"
+    "If signal already exist do not generate. Insteady exclude from generated signals\n"
+
+    f"Do not add any tag except <{_SNAP_TAG}>.\n"
+
+    f"Return only the JSON array of Signal objects inside "
+    f"the <{_SNAP_TAG}>...</{_SNAP_TAG}> tag.\n"
+
+    f"If no meaningful Signal is supported, return "
     f"<{_SNAP_TAG}>[]</{_SNAP_TAG}>.\n\n"
-    "Every field is length limited. A response that exceeds any "
-    "limit is rejected, so keep each field within its budget:\n"
+
+    "Every field is length limited. A response that exceeds "
+    "any limit is rejected. Keep each field within its budget:\n"
+
     f"- title: at most {_MAX_TITLE_LENGTH} characters\n"
     f"- message: at most {_MAX_MESSAGE_LENGTH} characters\n"
     f"- why_it_matters: at most {_MAX_WHY_IT_MATTERS_LENGTH} characters\n"
     f"- action: at most {_MAX_ACTION_LENGTH} characters\n\n"
-    "<Output Format>:\n\n"
+    f"- confidence: at range of 0.0 to 1.0\n\n"
+    f"- domain: at most {_MAX_DOMAIN_LENGTH} characters\n\n"
+
+    "<Existing Signals>:\n{existing_signals}\n"
+    "<Output Format>\n"
     f"<{_SNAP_TAG}>\n"
     f"{pydantic_to_string(SnapOutputList)}\n"
-    f"</{_SNAP_TAG}>\n\n"
+    f"</{_SNAP_TAG}>\n"
 )
 
+preferences = """
+Documents, Story, business growth, operational problems, delays, unusual activity,
+recurring issues, important changes in performance, and situations that
+may require intervention.
+"""
 
 trigger_prompt = (
-    "Review all available information and identify any meaningful "
-    "findings worth surfacing. Consider each relevant piece of "
-    "information and their relationships.\n\n"
+    "Evaluate the available information against the preferred Signals and "
+    "generate signals from those informatin that needs attentions. "
+    "A Signal is a specific finding in the available information that matches "
+    "one or more of the user's preferred Signal types and is supported by evidence.\n\n"
+    "Create a separate Signal for each materially distinct finding.\n"
+    f"<Preferred Signals>:\n{preferences}\n\n"
 )
 
 
@@ -180,27 +214,34 @@ class SnapAgent:
         namespace: str,
         scopes: list[str] = [],
     ) -> None:
-
-        self._agent = Agent(
-            name="SNAP",
-            llm=_get_llm(),
-            instructions=system_prompt,
-            memory=create_memory_provider(
-                namespace=namespace,
-                scopes=scopes,
-                ignore_threshold=True
-            ),
-            enable_self_reflection=False,
-            enable_runtime_rag=False,
-            enable_runtime_mem=True,
-            max_iteration=4,
-            max_reasoning_steps=2
+        self._agent: Agent
+        self._llm = _get_llm()
+        self._mem = create_memory_provider(
+            namespace=namespace,
+            scopes=scopes,
+            ignore_threshold=True
         )
 
     @property
     def agent(self) -> Agent:
 
         return self._agent
+
+    def _format_snaps(self, snaps: list[dict[str, Any]]) -> str:
+
+        lines = []
+        for snap in snaps:
+            _snap = (
+                f"type:{snap.get('type')}\n"
+                f"title:{snap.get('title')}\n"
+                f"message:{snap.get('message')}\n"
+                f"why_it_matters:{snap.get('why_it_matters')}\n"
+                f"action:{snap.get('action')}\n"
+                f"domain:{snap.get('domain')}\n"
+            )
+            lines.append(_snap)
+
+        return '\n'.join(lines)
 
     async def generate(
         self,
@@ -209,14 +250,25 @@ class SnapAgent:
         existing_snaps: list[dict[str, Any]],
     ) -> list[SnapModel]:
 
-        print('existing signals', existing_snaps)
-
         business_id = business_id.strip()
 
         if not business_id:
             raise ValueError(
                 "business_id cannot be empty.",
             )
+
+        self._agent = Agent(
+            name="SNAP",
+            llm=self._llm,
+            instructions=system_prompt
+            .replace("{existing_signals}", self._format_snaps(snaps=existing_snaps)),
+            memory=self._mem,
+            enable_self_reflection=False,
+            enable_runtime_rag=False,
+            enable_runtime_mem=True,
+            max_iteration=4,
+            max_reasoning_steps=2
+        )
 
         session = self._agent.create_session()
 
@@ -229,8 +281,6 @@ class SnapAgent:
             response = await session.run(
                 prompt,
             )
-
-            print(response)
 
             try:
 
@@ -354,4 +404,5 @@ class SnapAgent:
             message=output.message.strip(),
             why_it_matters=output.why_it_matters.strip(),
             action=output.action.strip(),
+            domain=output.domain.strip()
         )
