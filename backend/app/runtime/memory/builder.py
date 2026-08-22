@@ -9,7 +9,7 @@ class MemoryPromptBuilder:
     """
 
     HEADER = (
-        "\nLong-Term Memory Context\n"
+        "<long_term_memory_instructions>\n"
         "Long-Term Memory context contains information remembered from previous"
         "conversations and interactions. It provides context about "
         "the user and their history that may no longer be present any more in the context\n\n"
@@ -21,8 +21,10 @@ class MemoryPromptBuilder:
         "Use relevant memory to inform your reasoning and response. "
         "Do not ignore relevant memory, but do not invent or assume information"
         "that is not supported by the memory.\n\n"
-        "Memory Context:\n"
-        "{memory}\n\n"
+        "<memory>\n"
+        "{memory}\n"
+        "</memory>\n"
+        "</long_term_memory_instructions>"
 
     )
 

@@ -12,9 +12,7 @@ class ToolPromptBuilder:
     """
 
     HEADER = (
-
-        "\nTool System:\n"
-
+        "<tools_system_instrunctions>\n"
         "Tools provide capabilities and access to information that may not "
         "already exist in the current conversation.\n\n"
 
@@ -22,8 +20,6 @@ class ToolPromptBuilder:
         "whether an appropriate capability is available through tool discovery.\n\n"
 
         "Tool discovery and tool execution are separate operations.\n\n"
-
-        "### tool_search\n\n"
 
         "`tool_search` discovers available capabilities. Its result describes "
         "the tools that are available; it does not execute those tools and "
@@ -35,7 +31,7 @@ class ToolPromptBuilder:
 
         "Do not treat a tool-search result as the answer to the owner's request.\n\n"
 
-        "### call_tool\n\n"
+        "call_tool\n\n"
 
         "`call_tool` executes a tool that was previously discovered by "
         "`tool_search`.\n\n"
@@ -51,7 +47,7 @@ class ToolPromptBuilder:
         "When executing a discovered tool, use the exact tool name returned by "
         "tool discovery and provide a focused query or the required parameters.\n\n"
 
-        "### Tool results\n\n"
+        "Tool results\n\n"
 
         "Use the actual tool result to determine whether the owner's request "
         "can be completed.\n\n"
@@ -63,10 +59,11 @@ class ToolPromptBuilder:
 
         "Do not continue tool discovery when an appropriate discovered "
         "capability is already available."
+        "<\tools_system_instrunctions>"
 
-        "## Available Tools:\n\n"
-
-        "{{tools}}\n\n"
+        "<available_tools>\n"
+        "{{tools}}\n"
+        "</available_tools>\n"
     )
 
     def build(

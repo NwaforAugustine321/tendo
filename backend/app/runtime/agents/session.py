@@ -235,12 +235,6 @@ class AgentSession:
         PromptState is intentionally preserved because it
         belongs to the session rather than to one execution.
         """
-        await self._emitter.emit(
-            EventType.PROGRESS,
-            StatusEvent(
-                status=Status.STARTING,
-            ),
-        )
 
         if self._agent.conversation is not None:
 

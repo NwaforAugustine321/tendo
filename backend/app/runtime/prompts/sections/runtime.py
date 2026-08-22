@@ -12,11 +12,12 @@ class RuntimePromptBuilder:
     """
 
     HEADER = (
-        "\nRuntime Environment:\n"
+        "\n<runtime_configurations>\n"
         "This is the runtime configuration throughout the task.\n"
         "Max Interaction Steps: {{max_iterations}}\n"
         "Do not exceed the maximum steps. If the task is incomplete when the limit is reached, "
         "provide the best final response and exit."
+        "</runtime_configurations>"
 
     )
 

@@ -10,7 +10,7 @@ class ConversationPromptBuilder:
     Builds the conversation history prompt.
     """
     HEADER = (
-        "\nConversation History:\n"
+        "\n<conversation_history_instrunctions>\n"
         "Use this conversation history to maintain continuity and understand the "
         "ongoing business context. It contains previous interactions, discussions, "
         "requests, decisions, questions, answers, preferences, clarifications, "
@@ -18,10 +18,13 @@ class ConversationPromptBuilder:
         "Use relevant history when reasoning, responding, or continuing ongoing work. "
         "Prioritize recent and relevant information while using earlier interactions "
         "when necessary to preserve continuity and consistency.\n"
-        "Conversation Summary Context:\n"
-        "{summary}\n\n"
-        "Previous Messages Context:\n"
-        "{previous_messages}\n\n"
+        "<conversation_summary>\n"
+        "{summary}\n"
+        "<\conversation_summary>\n"
+        "<conversation_history>\n"
+        "{previous_messages}\n"
+        "<\conversation_history>\n"
+        "<\conversation_history_instrunctions>\n"
     )
 
     def build(

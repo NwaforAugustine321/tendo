@@ -9,7 +9,7 @@ class RAGPromptBuilder:
     """
 
     HEADER = (
-        "\nCentral Knowledge:\n"
+        "\n<central_knowledge_instructions>\n"
         "Central Knowledge context contains accumulated business information and "
         "understanding. It may include business operations, activities, "
         "processes, data, entities, relationships, facts, evidence, findings, "
@@ -20,8 +20,10 @@ class RAGPromptBuilder:
         "Use relevant knowledge to inform your reasoning, decisions, and responses. "
         "Distinguish established information from interpretations and assumptions, "
         "and do not invent unsupported information.\n\n"
-        "Central Knowledge Context:\n"
-        "{central_knowledge}\n\n"
+        "<central_knowledge>\n"
+        "{central_knowledge}\n"
+        "<\central_knowledge>\n"
+        "<central_knowledge_instructions>\n"
     )
 
     def build(
