@@ -89,7 +89,3 @@ const PRIORITY_TAG_COLORS: Record<string, string> = {
 export function priorityTagClass(priority: string): string {
   return PRIORITY_TAG_COLORS[priority] || PRIORITY_TAG_COLORS.low;
 }
-
-export function formatConfidence(confidence: number): string {
-  return `${Math.round(confidence * 100)}%`;
-}

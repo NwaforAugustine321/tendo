@@ -162,6 +162,76 @@ function Indicator({
   );
 }
 
+function SkeletonBar({ className }: { className?: string }) {
+  return (
+    <div className={clsx("animate-pulse rounded bg-zinc-800/70", className)} />
+  );
+}
+
+function IndicatorSkeleton() {
+  return (
+    <div className="rounded-lg border border-zinc-800/40 bg-[#0f0f0f] p-3">
+      <div className="flex items-center gap-1.5">
+        <SkeletonBar className="h-3 w-3 rounded-full" />
+        <SkeletonBar className="h-2 w-20" />
+      </div>
+      <SkeletonBar className="mt-2.5 h-4 w-12" />
+      <SkeletonBar className="mt-2 h-2 w-24" />
+    </div>
+  );
+}
+
+function GaugeSkeleton() {
+  return (
+    <div
+      className="flex items-center justify-center"
+      style={{ height: CHART_HEIGHT }}
+    >
+      <div className="h-[86px] w-[86px] animate-pulse rounded-full border-[10px] border-zinc-800/70" />
+    </div>
+  );
+}
+
+/** Mirrors the horizontal bars of the category chart. */
+function RowBarsSkeleton() {
+  const widths = ["w-1/3", "w-4/5", "w-1/5", "w-2/3"];
+
+  return (
+    <div
+      className="flex flex-col justify-center gap-3"
+      style={{ height: CHART_HEIGHT }}
+    >
+      {widths.map((width, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <SkeletonBar className="h-2 w-14 shrink-0" />
+          <SkeletonBar className={clsx("h-2.5", width)} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Mirrors the vertical columns of the priority and domain charts. */
+function ColumnBarsSkeleton({ bars }: { bars: number }) {
+  const heights = ["h-1/3", "h-3/4", "h-1/2", "h-2/3", "h-2/5", "h-4/5"];
+
+  return (
+    <div className="flex items-end gap-3" style={{ height: CHART_HEIGHT }}>
+      {Array.from({ length: bars }).map((_, i) => (
+        <div key={i} className="flex h-full flex-1 flex-col justify-end gap-2">
+          <SkeletonBar
+            className={clsx(
+              "w-full rounded-b-none",
+              heights[i % heights.length],
+            )}
+          />
+          <SkeletonBar className="h-1.5 w-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Radial gauge for a single 0..100 percentage. */
 function Gauge({
   percent,
@@ -221,13 +291,32 @@ export function SnapOverview({ active, saved, businessName, loading }: Props) {
     return (
       <div className="flex flex-col">
         {greeting}
-        <div className="grid grid-cols-1 gap-4 px-6 pb-6 sm:grid-cols-2 xl:grid-cols-4">
-          {[...Array(8)].map((_, i) => (
-            <div
-              key={i}
-              className="h-[104px] animate-pulse rounded-lg border border-zinc-800/40 bg-[#0f0f0f]"
-            />
-          ))}
+
+        <div className="flex flex-col gap-3 px-6 pb-6">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[...Array(4)].map((_, i) => (
+              <IndicatorSkeleton key={i} />
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Panel title="Confidence">
+              <GaugeSkeleton />
+            </Panel>
+            <Panel title="Urgency load">
+              <GaugeSkeleton />
+            </Panel>
+            <Panel title="Category">
+              <RowBarsSkeleton />
+            </Panel>
+            <Panel title="Priority mix">
+              <ColumnBarsSkeleton bars={4} />
+            </Panel>
+          </div>
+
+          <Panel title="Domains affected">
+            <ColumnBarsSkeleton bars={6} />
+          </Panel>
         </div>
       </div>
     );

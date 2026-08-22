@@ -52,7 +52,6 @@ import {
   snapToSender,
   snapTypeToColor,
   priorityTagClass,
-  formatConfidence,
 } from "./helpers";
 
 function Tag({
@@ -99,7 +98,6 @@ function snapToMessage(snap: Snap, tab: InboxTab): InboxMessage {
     avatarColor: snapTypeToColor(snap.type),
     snapId: snap.snap_id,
     snapPriority: snap.priority,
-    snapConfidence: snap.confidence,
     snapDomain: snap.domain,
   };
 }
@@ -1838,11 +1836,6 @@ export function Inbox() {
                   )}
                   {msg.snapDomain && msg.snapDomain !== "others" && (
                     <Tag label="Domain">{msg.snapDomain}</Tag>
-                  )}
-                  {msg.snapConfidence !== undefined && (
-                    <Tag label="Confidence">
-                      {formatConfidence(msg.snapConfidence)}
-                    </Tag>
                   )}
                 </div>
               ) : (

@@ -23,7 +23,6 @@ export type InboxMessage = {
   avatarColor: string;
   snapId?: string;
   snapPriority?: SnapPriority;
-  snapConfidence?: number;
   snapDomain?: string;
 };
 
