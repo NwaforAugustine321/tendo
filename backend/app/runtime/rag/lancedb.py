@@ -151,8 +151,8 @@ class LanceRAGStore(
         self,
         *,
         query: str,
-        limit: int = 5,
-        distance_threshold: float = 0.75,
+        limit: int = 25,
+        distance_threshold: float = 0.5,
         scopes: list[str] | None = None
     ) -> RAGContext:
 
