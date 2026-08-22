@@ -196,6 +196,13 @@ class BackgroundScheduler:
                 wait=wait,
             )
 
+            # Dispatch no longer awaits job execution, so stopping the
+            # scheduler leaves detached job tasks running. Drain them
+            # explicitly instead of abandoning them to stale-job
+            # recovery.
+            if wait:
+                await self._dispatcher.runner.drain()
+
         except Exception:
             logger.exception(
                 "[BackgroundScheduler] "

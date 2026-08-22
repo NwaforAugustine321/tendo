@@ -44,8 +44,6 @@ class InputSafetyGuardrail(Guardrail):
             content,
         )
 
-        print('guard input', result)
-
         if result.user_safety == "unsafe":
 
             return GuardrailResult(

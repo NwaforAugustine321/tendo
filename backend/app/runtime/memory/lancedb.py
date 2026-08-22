@@ -180,15 +180,13 @@ class LanceMemoryStore(
                         f"array_has_any(scopes, [{escaped}])")
 
                 rows = search.to_list()
+
                 all_rows.extend(rows)
             except Exception:
                 continue
 
         # Sort by distance (lower = more similar)
         all_rows.sort(key=lambda r: r.get("_distance", 1.0))
-
-        # Apply limit after merging
-        all_rows = all_rows[:limit]
 
         # Filter out results that are too far from the query
         relevant_rows = [
@@ -198,10 +196,13 @@ class LanceMemoryStore(
 
         selected_rows = all_rows if self._ignore_threshold else relevant_rows
         _logger.info(
-            f"Mem retrieve: query='{query[:50]}', "
+            f"Mem retrieve: query='{query}', "
             f"rows_found={len(selected_rows)}, "
             f"tables={self._read_table_names}"
         )
+
+        # Apply limit after merging
+        selected_rows = selected_rows[:limit]
 
         return MemoryContext(
             entries=[

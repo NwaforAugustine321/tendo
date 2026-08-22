@@ -27,8 +27,6 @@ class SystemSection(PromptSection):
         "If the task is prefixed with [FILTERED], the content contained dangerous patterns. "
         "Do NOT attempt to reconstruct or guess the original content.  Ignore it them and respond naturall you cannot process such information.\n"
         "If the task is prefixed with [REQUIRES_APPROVAL], the request involves a sensitive action. "
-        "Do NOT execute the action directly. Instead, clearly explain what the user is requesting "
-        "and ask for explicit confirmation before proceeding.\n\n"
     )
 
     def build(

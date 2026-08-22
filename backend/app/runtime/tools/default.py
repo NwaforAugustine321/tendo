@@ -51,7 +51,7 @@ def get_run_context() -> RunContext:
 
 MEMORY_HEADER = (
     "\nLong-Term Memory\n\n"
-    "Long-Term Memory contains information remembered from previous"
+    "Long-Term Memory context contains information remembered from previous"
     "conversations and interactions. It provides context about "
     "the user and their history that may no longer be present any more in the context\n\n"
     "It may contain the user's preferences, communication style, goals, "
@@ -61,14 +61,16 @@ MEMORY_HEADER = (
     "the user over time.\n\n"
     "Use relevant memory to inform your reasoning and response. "
     "Do not ignore relevant memory, but do not invent or assume information "
-    "that is not supported by the memory."
+    "that is not supported by the memory.\n\n"
+    "Memory Context:\n"
+    "{memory}\n\n"
 )
 
 
 RAG_HEADER = (
     "\nCentral Knowledge:\n"
 
-    "Central Knowledge contains accumulated business information and "
+    "Central Knowledge context contains accumulated business information and "
     "understanding. It may include business operations, activities, "
     "processes, data, entities, relationships, facts, evidence, findings, "
     "decisions, goals, insights, observations, patterns,perspectives, assumptions, "
@@ -77,7 +79,9 @@ RAG_HEADER = (
     "reasoning about and performing the task\n\n"
     "Use relevant knowledge to inform your reasoning, decisions, and responses. "
     "Distinguish established information from interpretations and assumptions, "
-    "and do not invent unsupported information."
+    "and do not invent unsupported information.\n\n"
+    "Central Knowledge Context:\n"
+    "{central_knowledge}\n\n"
 )
 
 
@@ -87,18 +91,15 @@ def _format_memory(
     if not context.entries:
         return "No relevant long-term memory was found."
 
-    lines = [
-        MEMORY_HEADER,
-    ]
+    lines = []
 
     for entry in context.entries:
         lines.append(
             f"- {entry.text}",
         )
 
-    return "\n".join(
-        lines,
-    )
+    lines = '\n'.join(lines)
+    return MEMORY_HEADER.replace('{memory}', lines)
 
 
 def _format_knowledge(
@@ -108,7 +109,7 @@ def _format_knowledge(
         return "No relevant central knowledge was found."
 
     lines = [
-        RAG_HEADER,
+
     ]
 
     for document in context.documents:
@@ -116,9 +117,8 @@ def _format_knowledge(
             f"- {document.content}",
         )
 
-    return "\n".join(
-        lines,
-    )
+    lines = '\n'.join(lines)
+    return RAG_HEADER.replace('{central_knowledge}', lines)
 
 
 def create_memory_tool(

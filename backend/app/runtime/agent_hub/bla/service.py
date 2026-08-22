@@ -62,16 +62,6 @@ class LearningService:
 
         final_result = LearningResult()
 
-        # ======================================================
-        # Process one document at a time.
-        #
-        # We NEVER move to another document until the current
-        # document has been completely processed and committed.
-        #
-        # Source of truth: status column on business_events.
-        # bla_cursors is kept as optimization only.
-        # ======================================================
-
         document_count = 0
 
         while True:
@@ -117,12 +107,6 @@ class LearningService:
             )
 
             document_count += 1
-
-            # --------------------------------------------------
-            # This document is fully learned, saved and
-            # committed. Report it before moving on to the
-            # next document's chunks.
-            # --------------------------------------------------
 
             logger.info(
                 "BLA document processing completed: "

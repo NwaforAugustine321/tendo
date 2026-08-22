@@ -265,7 +265,7 @@ async def content_insight_generator(business_id: str, record_id: str) -> dict:
                 response = await session.run(trigger_prompt)
                 response_text = response.text if hasattr(
                     response, "text") else str(response)
-                print(f"Overview raw response >>>: {response_text[:500]}")
+
                 contents, suggestions = _parse_response(
                     response_text,
                     content_tags=["insight"],

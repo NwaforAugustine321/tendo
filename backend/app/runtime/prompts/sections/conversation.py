@@ -17,7 +17,11 @@ class ConversationPromptBuilder:
         "commitments, tasks, and other context established during the conversation.\n"
         "Use relevant history when reasoning, responding, or continuing ongoing work. "
         "Prioritize recent and relevant information while using earlier interactions "
-        "when necessary to preserve continuity and consistency."
+        "when necessary to preserve continuity and consistency.\n"
+        "Conversation Summary Context:\n"
+        "{summary}\n\n"
+        "Previous Messages Context:\n"
+        "{previous_messages}\n\n"
     )
 
     def build(
@@ -31,22 +35,14 @@ class ConversationPromptBuilder:
         if context.empty:
             return ""
 
-        lines: list[str] = [
-            self.HEADER,
-        ]
+        lines: list[str] = []
 
         #
         # Conversation summary.
         #
         if context.summary:
-
-            lines.extend(
-                [
-                    "",
-                    "\nConversation Summary",
-                    context.summary.strip(),
-                ]
-            )
+            self.HEADER = self.HEADER.replace(
+                "{summary}", context.summary.strip())
 
         #
         # Previous messages.
@@ -58,13 +54,6 @@ class ConversationPromptBuilder:
         ]
 
         if messages:
-
-            lines.extend(
-                [
-                    "",
-                    "\nPrevious Messages",
-                ]
-            )
 
             for message in messages:
 
@@ -81,9 +70,8 @@ class ConversationPromptBuilder:
                     content = str(content)
 
                 lines.append(
-                    f"{role if role != 'system' else ''}: {content.strip()}"
+                    f"<{role if role != 'system' else ''}>: {content.strip()}"
                 )
 
-        return "\n".join(
-            lines,
-        )
+        lines = "\n".join(lines)
+        return self.HEADER.replace('{previous_messages}', lines)

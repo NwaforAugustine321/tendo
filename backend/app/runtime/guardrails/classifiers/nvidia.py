@@ -107,6 +107,4 @@ class NvidiaSafetyClassifier(
             ]
         )
 
-        print(response)
-
         return response

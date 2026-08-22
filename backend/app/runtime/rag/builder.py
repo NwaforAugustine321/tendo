@@ -10,7 +10,7 @@ class RAGPromptBuilder:
 
     HEADER = (
         "\nCentral Knowledge:\n"
-        "Central Knowledge contains accumulated business information and "
+        "Central Knowledge context contains accumulated business information and "
         "understanding. It may include business operations, activities, "
         "processes, data, entities, relationships, facts, evidence, findings, "
         "decisions, goals, insights, observations, patterns,perspectives, assumptions, "
@@ -20,6 +20,8 @@ class RAGPromptBuilder:
         "Use relevant knowledge to inform your reasoning, decisions, and responses. "
         "Distinguish established information from interpretations and assumptions, "
         "and do not invent unsupported information.\n\n"
+        "Central Knowledge Context:\n"
+        "{central_knowledge}\n\n"
     )
 
     def build(
@@ -30,7 +32,7 @@ class RAGPromptBuilder:
         if context.empty:
             return ""
 
-        lines = [self.HEADER]
+        lines = []
 
         for document in context.documents:
 
@@ -38,4 +40,5 @@ class RAGPromptBuilder:
                 f"- {document.content}"
             )
 
-        return "\n".join(lines)
+        lines = '\n'.join(lines)
+        return self.HEADER.replace('{central_knowledge}', lines)

@@ -12,17 +12,16 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 
 from ..config import EventBusConfig
 from ..events import ApplicationEvent
-from ..interfaces import EventBus, EventTransport
+from ..interfaces import EventBus, Transport
 
 logger = logging.getLogger(__name__)
 
 
-class RedisTransport(EventTransport):
+class RedisTransport(Transport):
     """Redis implementation of the generic event transport."""
 
     _SOCKET_USER_PREFIX = "socket:user:"
     _SOCKET_SID_PREFIX = "socket:sid:"
-    _SNAP_PREFIX = "snap:"
 
     def __init__(
         self,
@@ -150,6 +149,170 @@ class RedisTransport(EventTransport):
                     await pubsub.aclose()
                 except Exception:
                     pass
+
+    # ==========================================================
+    # Key/value storage
+    #
+    # Values are stored as JSON so callers can persist and read
+    # back plain dictionaries.
+    # ==========================================================
+
+    async def set(
+        self,
+        *,
+        key: str,
+        value: dict[str, Any],
+        ttl: timedelta | None = None,
+    ) -> None:
+        """
+        Store a JSON-serializable value, optionally with a TTL.
+        """
+
+        if not key:
+            raise ValueError(
+                "key cannot be empty.",
+            )
+
+        payload = json.dumps(
+            value,
+            default=str,
+        )
+
+        if ttl is not None:
+            await self._redis.set(
+                key,
+                payload,
+                ex=ttl,
+            )
+            return
+
+        await self._redis.set(
+            key,
+            payload,
+        )
+
+    async def get(
+        self,
+        *,
+        key: str,
+    ) -> dict[str, Any] | None:
+        """
+        Read a stored value.
+
+        Returns None when the key is absent or does not hold a
+        JSON object.
+        """
+
+        if not key:
+            return None
+
+        raw = await self._redis.get(
+            key,
+        )
+
+        if raw is None:
+            return None
+
+        if isinstance(
+            raw,
+            bytes,
+        ):
+            raw = raw.decode(
+                "utf-8",
+            )
+
+        try:
+            decoded = json.loads(
+                raw,
+            )
+        except (
+            json.JSONDecodeError,
+            TypeError,
+            ValueError,
+        ):
+            return None
+
+        if not isinstance(
+            decoded,
+            dict,
+        ):
+            return None
+
+        return decoded
+
+    async def delete(
+        self,
+        *,
+        key: str,
+    ) -> None:
+        """
+        Remove a key. Missing keys are ignored.
+        """
+
+        if not key:
+            return
+
+        await self._redis.delete(
+            key,
+        )
+
+    async def expire(
+        self,
+        *,
+        key: str,
+        ttl: timedelta,
+    ) -> bool:
+        """
+        Reset a key's TTL.
+
+        Returns False when the key does not exist.
+        """
+
+        if not key:
+            return False
+
+        return bool(
+            await self._redis.expire(
+                key,
+                ttl,
+            )
+        )
+
+    async def keys(
+        self,
+        *,
+        pattern: str,
+    ) -> list[str]:
+        """
+        Return keys matching a pattern.
+
+        SCAN is used instead of KEYS because KEYS is O(N) and
+        blocks the Redis server for the duration of the sweep.
+        """
+
+        if not pattern:
+            return []
+
+        found: list[str] = []
+
+        async for key in self._redis.scan_iter(
+            match=pattern,
+            count=100,
+        ):
+
+            if isinstance(
+                key,
+                bytes,
+            ):
+                key = key.decode(
+                    "utf-8",
+                )
+
+            found.append(
+                key,
+            )
+
+        return found
 
     # ==========================================================
     # Socket helpers
@@ -362,222 +525,6 @@ class RedisTransport(EventTransport):
 
         return user_id
 
-    # ==========================================================
-    # Snap
-    # ==========================================================
-
-    def _snap_key(
-        self,
-        key: str,
-    ) -> str:
-        """
-        Return the Redis key for a Snap record.
-
-        Snap records are intentionally isolated under their own
-        namespace so they do not interfere with other Redis data.
-        """
-        return (
-            f"{self._SNAP_PREFIX}"
-            f"{key}"
-        )
-
-    async def snap_set(
-        self,
-        *,
-        key: str,
-        value: dict[str, Any],
-        ttl: timedelta,
-    ) -> None:
-        """
-        Store a short-lived Snap record.
-
-        The value is serialized as JSON and automatically expires
-        after the supplied TTL.
-        """
-        if not key:
-            raise ValueError(
-                "key cannot be empty.",
-            )
-
-        if not isinstance(
-            value,
-            dict,
-        ):
-            raise TypeError(
-                "value must be a dictionary.",
-            )
-
-        if ttl.total_seconds() <= 0:
-            raise ValueError(
-                "ttl must be greater than zero.",
-            )
-
-        payload = json.dumps(
-            value,
-            default=str,
-        )
-
-        await self._redis.set(
-            self._snap_key(key),
-            payload,
-            ex=ttl,
-        )
-
-    async def snap_get(
-        self,
-        *,
-        key: str,
-    ) -> dict[str, Any] | None:
-        """
-        Retrieve a Snap record.
-
-        Returns None when the record does not exist or has expired.
-        """
-        if not key:
-            return None
-
-        payload = await self._redis.get(
-            self._snap_key(key),
-        )
-
-        if payload is None:
-            return None
-
-        try:
-            value = json.loads(
-                payload,
-            )
-        except (
-            json.JSONDecodeError,
-            TypeError,
-        ):
-            return None
-
-        if not isinstance(
-            value,
-            dict,
-        ):
-            return None
-
-        return value
-
-    async def snap_delete(
-        self,
-        *,
-        key: str,
-    ) -> bool:
-        """
-        Delete a Snap record.
-
-        Returns True when a record was deleted.
-        """
-        if not key:
-            return False
-
-        deleted = await self._redis.delete(
-            self._snap_key(key),
-        )
-
-        return bool(
-            deleted,
-        )
-
-    async def snap_exists(
-        self,
-        *,
-        key: str,
-    ) -> bool:
-        """Return whether a Snap record currently exists."""
-        if not key:
-            return False
-
-        return bool(
-            await self._redis.exists(
-                self._snap_key(key),
-            )
-        )
-
-    async def snap_expire(
-        self,
-        *,
-        key: str,
-        ttl: timedelta,
-    ) -> bool:
-        """
-        Update the TTL of an existing Snap record.
-
-        Returns True when the expiration was applied.
-        """
-        if not key:
-            return False
-
-        if ttl.total_seconds() <= 0:
-            raise ValueError(
-                "ttl must be greater than zero.",
-            )
-
-        return bool(
-            await self._redis.expire(
-                self._snap_key(key),
-                ttl,
-            )
-        )
-
-    async def snap_keys(
-        self,
-        *,
-        pattern: str = "*",
-    ) -> list[str]:
-        """
-        Return Snap keys matching a pattern.
-
-        Returned keys do not include the internal Snap prefix.
-        """
-        keys: list[str] = []
-
-        async for key in self._redis.scan_iter(
-            match=self._snap_key(pattern),
-        ):
-            if isinstance(
-                key,
-                bytes,
-            ):
-                key = key.decode(
-                    "utf-8",
-                )
-
-            if key.startswith(
-                self._SNAP_PREFIX,
-            ):
-                key = key[
-                    len(self._SNAP_PREFIX):
-                ]
-
-            keys.append(
-                key,
-            )
-
-        return keys
-
-    async def snap_count(
-        self,
-        *,
-        pattern: str = "*",
-    ) -> int:
-        """Return the number of active Snap records matching a pattern."""
-        count = 0
-
-        async for _ in self._redis.scan_iter(
-            match=self._snap_key(pattern),
-        ):
-            count += 1
-
-        return count
-
-    async def close(self) -> None:
-        """Close the Redis connection."""
-        await self._redis.aclose()
-
 
 class RedisEventBus(EventBus):
     """
@@ -589,7 +536,7 @@ class RedisEventBus(EventBus):
 
     def __init__(
         self,
-        transport: EventTransport,
+        transport: Transport,
         *,
         channel: str = "application.events",
     ) -> None:
@@ -668,12 +615,17 @@ class RedisEventBus(EventBus):
 
 
 def create_redis_transport(
-    config: EventBusConfig,
+    config: EventBusConfig | None = None,
+    url: str | None = None
 ) -> RedisTransport:
 
-    url = config.options.get(
-        "url",
-    )
+    if url:
+        url = url
+
+    if config:
+        url = config.options.get(
+            "url",
+        )
 
     if not url:
         raise ValueError(

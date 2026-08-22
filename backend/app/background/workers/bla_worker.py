@@ -46,8 +46,6 @@ class BLABackgroundWorker(
 
         self._rpc = rpc
 
-        self._bla: BusinessLearningAgent | None = None
-
         self._event = LearningEvent()
 
         task = asyncio.create_task(
@@ -78,16 +76,6 @@ class BLABackgroundWorker(
                 exc,
                 exc_info=exc,
             )
-
-    @property
-    def bla(
-        self,
-    ) -> BusinessLearningAgent:
-        """
-        Return the Business Learning Agent.
-        """
-
-        return self._bla
 
     async def _initialize_business_bla_jobs(
         self,
@@ -140,16 +128,16 @@ class BLABackgroundWorker(
                 if not business_id:
                     continue
 
-                await self._rpc.enqueue(
-                    job_type=self.job_type,
-                    id=business_id,
-                    payload={
-                        "business_id": business_id,
-                        "batch_size": batch_size,
-                    },
-                    interval_value=12,
-                    interval_unit=IntervalUnit.HOURS,
-                )
+                # await self._rpc.enqueue(
+                #     job_type=self.job_type,
+                #     id=business_id,
+                #     payload={
+                #         "business_id": business_id,
+                #         "batch_size": batch_size,
+                #     },
+                #     interval_value=12,
+                #     interval_unit=IntervalUnit.HOURS,
+                # )
 
                 total += 1
 
@@ -230,12 +218,12 @@ class BLABackgroundWorker(
 
         scopes = [f"business/{business_id}"]
 
-        self._bla = BusinessLearningAgent(
+        bla_agent = BusinessLearningAgent(
             namespace=business_id,
             scopes=scopes
         )
 
-        result = await self._bla.learn(
+        result = await bla_agent.learn(
             business_id=business_id,
             batch_size=batch_size,
         )

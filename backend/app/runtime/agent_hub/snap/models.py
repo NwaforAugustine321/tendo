@@ -8,8 +8,7 @@ SnapType = Literal[
     "recommendation",
     "attention",
     "warning",
-    "opportunity",
-    "question",
+    "opportunity"
 ]
 
 SnapPriority = Literal[

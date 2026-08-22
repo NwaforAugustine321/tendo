@@ -42,6 +42,7 @@ class BackgroundRunner:
         registry: WorkerRegistry,
         worker_name: str,
         heartbeat_interval: float = 30.0,
+        max_concurrency: int = 10,
     ) -> None:
         if rpc is None:
             raise ValueError(
@@ -63,10 +64,22 @@ class BackgroundRunner:
                 "heartbeat_interval must be greater than zero.",
             )
 
+        if max_concurrency <= 0:
+            raise ValueError(
+                "max_concurrency must be greater than zero.",
+            )
+
         self._rpc = rpc
         self._registry = registry
         self._worker_name = worker_name.strip()
         self._heartbeat_interval = heartbeat_interval
+        self._max_concurrency = max_concurrency
+
+        # Jobs currently executing in this instance.
+        #
+        # Dispatch does not await these, so the dispatch tick stays
+        # short regardless of how long individual jobs run.
+        self._in_flight: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
     # Properties
@@ -96,6 +109,27 @@ class BackgroundRunner:
 
         return self._heartbeat_interval
 
+    @property
+    def max_concurrency(self) -> int:
+        """Return the concurrent job execution budget."""
+
+        return self._max_concurrency
+
+    @property
+    def in_flight(self) -> int:
+        """Return the number of jobs currently executing."""
+
+        return len(self._in_flight)
+
+    @property
+    def available_capacity(self) -> int:
+        """Return how many more jobs may be started right now."""
+
+        return max(
+            0,
+            self._max_concurrency - len(self._in_flight),
+        )
+
     # ------------------------------------------------------------------
     # Dispatch
     # ------------------------------------------------------------------
@@ -106,7 +140,18 @@ class BackgroundRunner:
         limit: int = 10,
     ) -> int:
         """
-        Claim and execute one batch of background jobs.
+        Claim one batch of background jobs and start executing them.
+
+        This does NOT wait for the claimed jobs to finish. Execution
+        runs in detached tasks so the dispatch cycle stays short and
+        the scheduler keeps its configured cadence even while
+        long-running jobs are in flight.
+
+        Only as many jobs as there is free capacity are claimed.
+        `claim` marks a job running and sets its initial heartbeat, so
+        a claimed job must begin executing immediately. Buffering
+        claimed jobs would let them look stale to recovery while they
+        are still waiting to start.
 
         PostgreSQL atomically claims the jobs, so multiple
         application instances can safely execute this method
@@ -114,10 +159,11 @@ class BackgroundRunner:
 
         Args:
             limit:
-                Maximum number of jobs to claim.
+                Maximum number of jobs to claim, further capped by
+                the remaining concurrency budget.
 
         Returns:
-            Number of jobs successfully claimed.
+            Number of jobs successfully claimed and started.
 
         Raises:
             Exception:
@@ -128,58 +174,144 @@ class BackgroundRunner:
         if limit <= 0:
             return 0
 
+        capacity = self.available_capacity
+
+        if capacity <= 0:
+            logger.debug(
+                "[BackgroundRunner] At capacity, nothing claimed: "
+                "worker=%s in_flight=%s max_concurrency=%s",
+                self._worker_name,
+                len(self._in_flight),
+                self._max_concurrency,
+            )
+
+            return 0
+
         jobs = await self._rpc.claim(
             worker_name=self._worker_name,
-            limit=limit,
+            limit=min(
+                limit,
+                capacity,
+            ),
         )
 
         if not jobs:
             return 0
 
-        logger.info(
-            "[BackgroundRunner] Jobs claimed: "
-            "worker=%s count=%s",
-            self._worker_name,
-            len(jobs),
-        )
-
-        tasks = [
-            asyncio.create_task(
+        for job in jobs:
+            task = asyncio.create_task(
                 self._execute(
                     job,
                 ),
+                name=(
+                    "background-job:"
+                    f"{job.get('id') if isinstance(job, dict) else '?'}"
+                ),
             )
-            for job in jobs
-        ]
 
-        results = await asyncio.gather(
-            *tasks,
-            return_exceptions=True,
+            self._in_flight.add(
+                task,
+            )
+
+            task.add_done_callback(
+                self._on_execution_done,
+            )
+
+        logger.info(
+            "[BackgroundRunner] Jobs claimed: "
+            "worker=%s count=%s in_flight=%s max_concurrency=%s",
+            self._worker_name,
+            len(jobs),
+            len(self._in_flight),
+            self._max_concurrency,
         )
 
-        for job, result in zip(
-            jobs,
-            results,
-        ):
-            if isinstance(
-                result,
-                BaseException,
-            ):
-                logger.error(
-                    "[BackgroundRunner] "
-                    "Unexpected execution error: "
-                    "job_id=%s",
-                    job.get("id")
-                    if isinstance(job, dict)
-                    else None,
-                    exc_info=(
-                        type(result),
-                        result,
-                        result.__traceback__,
-                    ),
-                )
-
         return len(jobs)
+
+    def _on_execution_done(
+        self,
+        task: asyncio.Task[None],
+    ) -> None:
+        """
+        Release capacity and surface unexpected execution errors.
+
+        `_execute` already handles job failures and reports them to
+        the durable store, so anything reaching here is a defect in
+        the runner itself rather than a failed job.
+        """
+
+        self._in_flight.discard(
+            task,
+        )
+
+        if task.cancelled():
+            return
+
+        exc = task.exception()
+
+        if exc is not None:
+            logger.error(
+                "[BackgroundRunner] "
+                "Unexpected execution error: task=%s",
+                task.get_name(),
+                exc_info=exc,
+            )
+
+    # ------------------------------------------------------------------
+    # Shutdown
+    # ------------------------------------------------------------------
+
+    async def drain(
+        self,
+        *,
+        timeout: float | None = None,
+    ) -> int:
+        """
+        Wait for in-flight jobs to finish.
+
+        Detached execution tasks are not owned by APScheduler, so
+        shutdown must drain them explicitly or jobs are abandoned
+        mid-execution and left to stale-job recovery.
+
+        Args:
+            timeout:
+                Seconds to wait before giving up. None waits
+                indefinitely.
+
+        Returns:
+            Number of jobs still in flight after draining.
+        """
+
+        if not self._in_flight:
+            return 0
+
+        pending = set(
+            self._in_flight,
+        )
+
+        logger.info(
+            "[BackgroundRunner] Draining in-flight jobs: "
+            "worker=%s count=%s timeout=%s",
+            self._worker_name,
+            len(pending),
+            timeout,
+        )
+
+        done, still_pending = await asyncio.wait(
+            pending,
+            timeout=timeout,
+        )
+
+        if still_pending:
+            logger.warning(
+                "[BackgroundRunner] "
+                "Drain timed out with jobs still running: "
+                "worker=%s count=%s",
+                self._worker_name,
+                len(still_pending),
+            )
+
+        return len(still_pending)
 
     # ------------------------------------------------------------------
     # Job execution

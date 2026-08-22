@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .model import SnapModel, SnapRecord
+from .models import SnapModel, SnapRecord
 from .repository import SnapPersistenceI
 
-from app.db.supabase import get_client
+from app.db.client import get_client
 
 
 class SnapPersistence(
@@ -13,13 +13,10 @@ class SnapPersistence(
 ):
 
     _TABLE = "snaps"
+    _BUSINESS_TABLE = "business_profiles"
 
     def __init__(self) -> None:
-        self._client = get_client()
-
-    # ==========================================================
-    # Save
-    # ==========================================================
+        self._db = get_client()
 
     async def save(
         self,
@@ -32,7 +29,7 @@ class SnapPersistence(
         )
 
         response = (
-            self._client
+            self._db
             .table(self._TABLE)
             .upsert(
                 payload,
@@ -50,10 +47,6 @@ class SnapPersistence(
             response.data[0],
         )
 
-    # ==========================================================
-    # Get
-    # ==========================================================
-
     async def get(
         self,
         *,
@@ -62,7 +55,7 @@ class SnapPersistence(
     ) -> SnapRecord | None:
 
         response = (
-            self._client
+            self._db
             .table(self._TABLE)
             .select("*")
             .eq(
@@ -84,9 +77,51 @@ class SnapPersistence(
             response.data[0],
         )
 
-    # ==========================================================
-    # Delete
-    # ==========================================================
+    async def fetch_business_ids(
+        self,
+        *,
+        offset: int,
+        limit: int,
+    ) -> list[str]:
+
+        if offset < 0:
+            raise ValueError(
+                "offset cannot be negative.",
+            )
+
+        if limit <= 0:
+            raise ValueError(
+                "limit must be greater than zero.",
+            )
+
+        response = (
+            self._db
+            .table(
+                self._BUSINESS_TABLE,
+            )
+            .select(
+                "id",
+            )
+            .order(
+                "id",
+                desc=False,
+            )
+            .range(
+                offset,
+                offset + limit - 1,
+            )
+            .execute()
+        )
+
+        return [
+            str(
+                row["id"],
+            )
+            for row in (
+                response.data or []
+            )
+            if row.get("id") is not None
+        ]
 
     async def delete(
         self,
@@ -96,7 +131,7 @@ class SnapPersistence(
     ) -> None:
 
         (
-            self._client
+            self._db
             .table(self._TABLE)
             .delete()
             .eq(
@@ -109,10 +144,6 @@ class SnapPersistence(
             )
             .execute()
         )
-
-    # ==========================================================
-    # Serialization
-    # ==========================================================
 
     @staticmethod
     def _serialize(
@@ -131,10 +162,6 @@ class SnapPersistence(
             "action": snap.snap.action,
             "status": snap.status,
         }
-
-    # ==========================================================
-    # Deserialization
-    # ==========================================================
 
     @staticmethod
     def _deserialize(

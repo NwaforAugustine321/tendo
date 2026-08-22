@@ -12,6 +12,7 @@ from .runner import BackgroundRunner
 from .scheduler import BackgroundScheduler
 from .worker import BackgroundWorker
 from .workers.bla_worker import BLABackgroundWorker
+from .workers.snap_worker import SnapBackgroundWorker
 from .workers.business_document_processor_worker import BusinessDocumentProcessorBWorker
 from .interfaces import IntervalUnit
 
@@ -285,6 +286,8 @@ def create_background_job_system(
         BLABackgroundWorker(rpc=rpc),
     )
 
+    application_workers.append(SnapBackgroundWorker(rpc=rpc))
+
     application_workers.append(
         BusinessDocumentProcessorBWorker()
     )
@@ -303,6 +306,9 @@ def create_background_job_system(
         worker_name=config.worker_name,
         heartbeat_interval=(
             config.heartbeat_interval_seconds
+        ),
+        max_concurrency=(
+            config.effective_max_concurrency
         ),
     )
 
@@ -347,6 +353,7 @@ def create_background_job_system(
         "worker=%s "
         "workers=%s "
         "batch_size=%s "
+        "max_concurrency=%s "
         "dispatch_interval=%ss "
         "recovery_interval=%ss "
         "heartbeat_interval=%ss "
@@ -354,6 +361,7 @@ def create_background_job_system(
         config.worker_name,
         len(registry),
         config.batch_size,
+        config.effective_max_concurrency,
         config.dispatch_interval_seconds,
         config.recovery_interval_seconds,
         config.heartbeat_interval_seconds,

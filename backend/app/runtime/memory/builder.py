@@ -9,8 +9,8 @@ class MemoryPromptBuilder:
     """
 
     HEADER = (
-        "\nLong-Term Memory\n\n"
-        "Long-Term Memory contains information remembered from previous"
+        "\nLong-Term Memory Context\n"
+        "Long-Term Memory context contains information remembered from previous"
         "conversations and interactions. It provides context about "
         "the user and their history that may no longer be present any more in the context\n\n"
         "It may contain the user's preferences, communication style, goals, "
@@ -19,8 +19,10 @@ class MemoryPromptBuilder:
         "have shared, and other information that is useful for understanding "
         "the user over time.\n\n"
         "Use relevant memory to inform your reasoning and response. "
-        "Do not ignore relevant memory, but do not invent or assume information "
-        "that is not supported by the memory."
+        "Do not ignore relevant memory, but do not invent or assume information"
+        "that is not supported by the memory.\n\n"
+        "Memory Context:\n"
+        "{memory}\n\n"
 
     )
 
@@ -35,7 +37,7 @@ class MemoryPromptBuilder:
         if context.empty:
             return ""
 
-        lines = [self.HEADER]
+        lines = []
 
         for entry in context.entries:
 
@@ -43,4 +45,5 @@ class MemoryPromptBuilder:
                 f"- {entry.text}"
             )
 
-        return "\n".join(lines)
+        lines = '\n'.join(lines)
+        return self.HEADER.replace('{memory}', lines)

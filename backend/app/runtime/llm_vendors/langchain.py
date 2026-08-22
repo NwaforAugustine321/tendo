@@ -197,6 +197,16 @@ class LangChainLLM(LLM):
         return self._model
 
     @property
+    def base_model(
+        self,
+    ) -> BaseChatModel:
+        """
+        The untouched provider model.
+        """
+
+        return self._base_model
+
+    @property
     def prepared(
         self,
     ) -> bool:

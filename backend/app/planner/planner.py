@@ -562,6 +562,9 @@ async def _run_one_specialist(
             ),
             instructions=system_prompt,
             tools=[],
+            enable_runtime_mem=True,
+            enable_runtime_rag=True,
+            enable_self_reflection=True
         )
 
         specialist_session = agent.create_session(
@@ -942,6 +945,10 @@ class Planner:
                     self._session,
                 ),
             ],
+
+            enable_runtime_mem=True,
+            enable_runtime_rag=True,
+            enable_self_reflection=True,
 
             middleware=[
                 ToolLoggingMiddleware(),

@@ -31,5 +31,3 @@ async def handle_business_persist_activties(
     if not busines_id:
 
         return
-
-    print(event)

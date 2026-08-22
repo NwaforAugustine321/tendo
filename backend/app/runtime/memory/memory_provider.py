@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from app.runtime.agents.run_context import RunContext
 from app.runtime.conversation.context import ConversationContext
 from app.runtime.context_manager.optimizers.default_optimizer import (
@@ -13,6 +15,34 @@ from app.runtime.context_manager.optimizers.optimizer import (
 from .context import MemoryContext
 from .reflection import MemoryReflectionEngine
 from .store import MemoryStore
+
+
+logger = logging.getLogger(__name__)
+
+
+HISTORY_MESSAGES = 8
+
+HISTORY_MESSAGE_CHARS = 500
+
+
+REWRITE_QUERY_PROMPT = """
+Rewrite the message into a concise semantic retrieval query for memory, history, and knowledge relevant to the current objective.
+
+Use the conversation context to understand what the message refers to. Resolve pronouns, references,
+and omitted subjects when the context makes them clear. Preserve exact names, entities, dates, and
+quantities from the context.
+
+If the message depends on information established in the context, include the resolved information
+in the query. If it is already self-contained, preserve its meaning without unnecessary changes.
+
+Focus on the information that needs to be retrieved, not the action being performed.
+Do not add assumptions or information not supported by the context.
+
+<Context>:
+{context}
+
+Return one plain-text query (30-50 max-word). No explanation.
+"""
 
 
 class MemoryProvider:
@@ -75,7 +105,7 @@ class MemoryProvider:
     ) -> list:
         return []
 
-    def build_query(
+    async def build_query(
         self,
         ctx: RunContext,
     ) -> str:
@@ -83,28 +113,83 @@ class MemoryProvider:
         Build the memory retrieval query from the current run.
         """
 
-        return ctx.user_request.strip()
+        return await self._rewrite_query(ctx)
+
+    def _run_context(
+        self,
+        ctx: RunContext,
+    ) -> str:
+        """
+        Messages from the current run, as a context block.
+        """
+
+        lines: list[str] = []
+
+        for message in ctx.messages[-HISTORY_MESSAGES:]:
+
+            if not message.content:
+                continue
+
+            role = str(
+                getattr(
+                    message.role,
+                    "value",
+                    message.role,
+                ),
+            )
+
+            if role not in ("user", "assistant"):
+                continue
+
+            content = message.content
+
+            if not isinstance(content, str):
+                content = str(content)
+
+            content = content.strip()
+
+            if len(content) > HISTORY_MESSAGE_CHARS:
+                content = (
+                    content[:HISTORY_MESSAGE_CHARS] + "..."
+                )
+
+            lines.append(
+                f"<{role}>: {content}",
+            )
+
+        return "\n".join(lines)
 
     async def _rewrite_query(
         self,
-        query: str,
+        ctx: RunContext,
     ) -> str:
         """
         Rewrite a query into focused memory search phrases.
         """
 
-        from app.llm.client import get_client
+        query = (ctx.user_request or "").strip()
 
-        llm = get_client()
+        if not query:
+            return ""
+
+        llm = ctx.session._agent._llm
+
+        model = (
+            getattr(llm, "base_model", None)
+            or getattr(llm, "model", None)
+        )
+
+        if model is None:
+            return query
 
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "Rewrite the following user message into 1-3 short, "
-                    "focused search phrases for retrieving relevant memories. "
-                    "Output only the search phrases, one per line. "
-                    "No explanation."
+                "content": REWRITE_QUERY_PROMPT.format(
+                    context=(
+                        self._run_context(ctx)
+                        or "(no additional context)"
+                    ),
                 ),
             },
             {
@@ -114,7 +199,7 @@ class MemoryProvider:
         ]
 
         try:
-            response = await llm.ainvoke(
+            response = await model.ainvoke(
                 messages,
             )
 
@@ -137,13 +222,13 @@ class MemoryProvider:
                 content,
             ).strip()
 
-            return (
-                rewritten
-                if rewritten
-                else query
-            )
+            return rewritten if rewritten else query
 
         except Exception:
+            logger.debug(
+                "Memory query rewrite skipped.",
+                exc_info=True,
+            )
             return query
 
     async def retrieve(
@@ -153,13 +238,10 @@ class MemoryProvider:
     ) -> MemoryContext:
         """
         Retrieve relevant memories.
-
-        If an explicit query is provided, it is used directly.
-        Otherwise the query is built from the RunContext.
         """
 
         if query is None:
-            query = self.build_query(
+            query = await self.build_query(
                 ctx,
             )
 

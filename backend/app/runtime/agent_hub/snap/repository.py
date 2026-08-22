@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import timedelta
 
 from .interface import SnapI
-from .model import SnapModel, SnapRecord
+from .models import SnapModel, SnapRecord
 
 
 class SnapPersistenceI(ABC):
@@ -37,6 +38,15 @@ class SnapPersistenceI(ABC):
     ) -> None:
         raise NotImplementedError
 
+    @abstractmethod
+    async def fetch_business_ids(
+        self,
+        *,
+        offset: int,
+        limit: int,
+    ) -> list[str]:
+        raise NotImplementedError
+
 
 class SnapRepository(
     SnapI,
@@ -52,10 +62,6 @@ class SnapRepository(
         self._service = service
         self._persistence = persistence
 
-    # ==========================================================
-    # Create
-    # ==========================================================
-
     async def create(
         self,
         *,
@@ -67,10 +73,6 @@ class SnapRepository(
             business_id=business_id,
             snap=snap,
         )
-
-    # ==========================================================
-    # Get
-    # ==========================================================
 
     async def get(
         self,
@@ -98,10 +100,6 @@ class SnapRepository(
             snap_id=snap_id,
         )
 
-    # ==========================================================
-    # List
-    # ==========================================================
-
     async def list(
         self,
         *,
@@ -113,10 +111,6 @@ class SnapRepository(
             business_id=business_id,
             limit=limit,
         )
-
-    # ==========================================================
-    # Active
-    # ==========================================================
 
     async def get_active(
         self,
@@ -130,9 +124,27 @@ class SnapRepository(
             limit=limit,
         )
 
-    # ==========================================================
-    # Complete
-    # ==========================================================
+    async def fetch_business_ids(
+        self,
+        *,
+        offset: int,
+        limit: int,
+    ) -> list[str]:
+
+        if offset < 0:
+            raise ValueError(
+                "offset must be greater than or equal to zero.",
+            )
+
+        if limit <= 0:
+            raise ValueError(
+                "limit must be greater than zero.",
+            )
+
+        return await self._persistence.fetch_business_ids(
+            offset=offset,
+            limit=limit,
+        )
 
     async def complete(
         self,
@@ -177,10 +189,6 @@ class SnapRepository(
             snap=completed,
         )
 
-    # ==========================================================
-    # Save
-    # ==========================================================
-
     async def save(
         self,
         *,
@@ -220,10 +228,6 @@ class SnapRepository(
 
         return saved
 
-    # ==========================================================
-    # Delete
-    # ==========================================================
-
     async def delete(
         self,
         *,
@@ -241,4 +245,26 @@ class SnapRepository(
         await self._persistence.delete(
             business_id=business_id,
             snap_id=snap_id,
+        )
+
+    async def refresh(
+        self,
+        *,
+        business_id: str,
+        snap_id: str,
+        ttl: timedelta | None = None,
+    ) -> bool:
+
+        # Refreshing extends the ephemeral lifetime only.
+        #
+        # Durable persistence does not expire, so there is
+        # nothing to refresh there.
+        #
+        # Returns False when the Snap is no longer live in
+        # Redis, which is the case once it has been saved
+        # or has already expired.
+        return await self._service.refresh(
+            business_id=business_id,
+            snap_id=snap_id,
+            ttl=ttl,
         )

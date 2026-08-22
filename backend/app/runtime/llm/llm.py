@@ -51,6 +51,23 @@ class LLM(ABC):
     # ------------------------------------------------------------------
 
     @property
+    def model(
+        self,
+    ) -> Any:
+
+        ...
+
+    @property
+    def base_model(
+        self,
+    ) -> Any:
+        """
+        The untouched provider model.
+        """
+
+        ...
+
+    @property
     @abstractmethod
     def supports_structured_output(
         self,

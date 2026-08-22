@@ -38,7 +38,6 @@ class BusinessDocumentProcessorBWorker(
             worker_name="document-processing",
         )
 
-        self._processor: DocumentProcessor
         self._db = get_client()
         self._event_writer: EventWriter = EventWriter(db=self._db)
 
@@ -198,7 +197,7 @@ class BusinessDocumentProcessorBWorker(
                       f"business/{business_id}/record/{record_id}"]
 
             store = LanceRAGStore(namespace=business_id, scopes=scopes)
-            self._processor = DocumentProcessor(
+            processor = DocumentProcessor(
                 store=store, event_writer=self._event_writer)
 
             record_content = RecordContentInput(
@@ -206,7 +205,7 @@ class BusinessDocumentProcessorBWorker(
                 content_type=content_type,
             )
 
-            result = await self._processor.process(
+            result = await processor.process(
                 business_id=business_id,
                 record_content=record_content,
             )

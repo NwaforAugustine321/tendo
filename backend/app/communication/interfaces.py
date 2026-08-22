@@ -29,7 +29,7 @@ class EventBus(Protocol):
         ...
 
 
-class EventTransport(Protocol):
+class Transport(Protocol):
     """Low-level transport for serialized application events."""
 
     async def publish(

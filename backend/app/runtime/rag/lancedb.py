@@ -189,9 +189,6 @@ class LanceRAGStore(
         # Sort by distance (lower = more similar)
         all_rows.sort(key=lambda r: r.get("_distance", 1.0))
 
-        # Apply limit after merging
-        all_rows = all_rows[:limit]
-
         # Filter out results that are too far from the query
         relevant_rows = [
             row for row in all_rows
@@ -204,6 +201,9 @@ class LanceRAGStore(
             f"rows_found={len(selected_rows)}, "
             f"tables={self._read_table_names}"
         )
+
+        # Apply limit after merging
+        selected_rows = selected_rows[:limit]
 
         return RAGContext(
             documents=[

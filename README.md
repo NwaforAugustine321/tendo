@@ -28,6 +28,7 @@ kill -9 $(lsof -t -i:8000)
 cloudflared tunnel --protocol quic --url http://localhost:5173
 python3  voice_worker.py dev
 python -m app.livekit.worker dev
+https://merchandise-ranges-methods-lots.trycloudflare.com/api/integrations/webhook/whatsapp
 ```
 
 To update the environment after changes to `environment.yml`:

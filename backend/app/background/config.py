@@ -46,6 +46,14 @@ class BackgroundJobConfig:
     # inside one application instance.
     max_dispatch_instances: int = 1
 
+    # Maximum number of jobs executing concurrently inside one
+    # application instance.
+    #
+    # Dispatch claims only as many jobs as there is free capacity,
+    # so a claimed job always begins executing (and heartbeating)
+    # immediately. None falls back to batch_size.
+    max_concurrency: int | None = None
+
     # ------------------------------------------------------------------
     # Recovery
     # ------------------------------------------------------------------
@@ -97,7 +105,13 @@ class BackgroundJobConfig:
             BACKGROUND_TIMEZONE
             BACKGROUND_MAX_DISPATCH_INSTANCES
             BACKGROUND_MAX_RECOVERY_INSTANCES
+            BACKGROUND_MAX_CONCURRENCY
         """
+
+        raw_max_concurrency = os.getenv(
+            "BACKGROUND_MAX_CONCURRENCY",
+            "",
+        ).strip()
 
         return cls(
             worker_name=os.getenv(
@@ -158,7 +172,31 @@ class BackgroundJobConfig:
                     "1",
                 ),
             ),
+
+            max_concurrency=(
+                int(raw_max_concurrency)
+                if raw_max_concurrency
+                else None
+            ),
         )
+
+    # ------------------------------------------------------------------
+    # Derived values
+    # ------------------------------------------------------------------
+
+    @property
+    def effective_max_concurrency(self) -> int:
+        """
+        Concurrency budget actually applied to job execution.
+
+        Defaults to batch_size so behaviour is unchanged until
+        BACKGROUND_MAX_CONCURRENCY is set explicitly.
+        """
+
+        if self.max_concurrency is None:
+            return self.batch_size
+
+        return self.max_concurrency
 
     # ------------------------------------------------------------------
     # Validation
@@ -208,6 +246,15 @@ class BackgroundJobConfig:
         if self.max_dispatch_instances <= 0:
             raise ValueError(
                 "BACKGROUND_MAX_DISPATCH_INSTANCES "
+                "must be greater than zero.",
+            )
+
+        if (
+            self.max_concurrency is not None
+            and self.max_concurrency <= 0
+        ):
+            raise ValueError(
+                "BACKGROUND_MAX_CONCURRENCY "
                 "must be greater than zero.",
             )
 

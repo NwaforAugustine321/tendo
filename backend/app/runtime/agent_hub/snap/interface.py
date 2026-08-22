@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from .model import SnapModel, SnapRecord
+from .models import SnapModel, SnapRecord
 
 
 class SnapI(ABC):
