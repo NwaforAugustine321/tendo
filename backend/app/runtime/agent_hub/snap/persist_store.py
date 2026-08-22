@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
-from .models import SnapModel, SnapRecord
+from .models import SnapModel, SnapRecord, SnapStatus, SnapType
 from .repository import SnapPersistenceI
 
 from app.db.client import get_client
@@ -33,7 +34,7 @@ class SnapPersistence(
             .table(self._TABLE)
             .upsert(
                 payload,
-                on_conflict="business_id,snap_id",
+                on_conflict="snap_id",
             )
             .execute()
         )
@@ -67,6 +68,95 @@ class SnapPersistence(
                 snap_id,
             )
             .limit(1)
+            .execute()
+        )
+
+        if not response.data:
+            return None
+
+        return self._deserialize(
+            response.data[0],
+        )
+
+    async def query(
+        self,
+        *,
+        business_id: str,
+        limit: int,
+        statuses: Sequence[SnapStatus] | None = None,
+        types: Sequence[SnapType] | None = None,
+    ) -> list[SnapRecord]:
+
+        if limit <= 0:
+            raise ValueError(
+                "limit must be greater than zero.",
+            )
+
+        query = (
+            self._db
+            .table(self._TABLE)
+            .select("*")
+            .eq(
+                "business_id",
+                business_id,
+            )
+        )
+
+        if statuses:
+            query = query.in_(
+                "status",
+                list(statuses),
+            )
+
+        if types:
+            query = query.in_(
+                "type",
+                list(types),
+            )
+
+        response = (
+            query
+            .order(
+                "created_at",
+                desc=True,
+            )
+            .limit(limit)
+            .execute()
+        )
+
+        return [
+            self._deserialize(
+                row,
+            )
+            for row in (
+                response.data or []
+            )
+        ]
+
+    async def set_status(
+        self,
+        *,
+        business_id: str,
+        snap_id: str,
+        status: SnapStatus,
+    ) -> SnapRecord | None:
+
+        response = (
+            self._db
+            .table(self._TABLE)
+            .update(
+                {
+                    "status": status,
+                },
+            )
+            .eq(
+                "business_id",
+                business_id,
+            )
+            .eq(
+                "snap_id",
+                snap_id,
+            )
             .execute()
         )
 
@@ -123,6 +213,37 @@ class SnapPersistence(
             if row.get("id") is not None
         ]
 
+    async def owns_business(
+        self,
+        *,
+        business_id: str,
+        user_id: str,
+    ) -> bool:
+
+        response = (
+            self._db
+            .table(
+                self._BUSINESS_TABLE,
+            )
+            .select(
+                "id",
+            )
+            .eq(
+                "id",
+                business_id,
+            )
+            .eq(
+                "user_id",
+                user_id,
+            )
+            .limit(1)
+            .execute()
+        )
+
+        return bool(
+            response.data,
+        )
+
     async def delete(
         self,
         *,
@@ -150,7 +271,7 @@ class SnapPersistence(
         snap: SnapRecord,
     ) -> dict[str, Any]:
 
-        return {
+        payload = {
             "snap_id": snap.snap_id,
             "business_id": snap.business_id,
             "type": snap.snap.type,
@@ -163,6 +284,11 @@ class SnapPersistence(
             "domain": snap.snap.domain,
             "status": snap.status,
         }
+
+        if snap.created_at:
+            payload["created_at"] = snap.created_at
+
+        return payload
 
     @staticmethod
     def _deserialize(
@@ -182,6 +308,10 @@ class SnapPersistence(
             domain=value["domain"],
         )
 
+        created_at = value.get(
+            "created_at",
+        )
+
         return SnapRecord(
             snap_id=value["snap_id"],
             business_id=value["business_id"],
@@ -189,5 +319,10 @@ class SnapPersistence(
             status=value.get(
                 "status",
                 "active",
+            ),
+            created_at=(
+                str(created_at)
+                if created_at is not None
+                else None
             ),
         )

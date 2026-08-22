@@ -12,6 +12,8 @@ import {
   Inbox as InboxIcon,
   AlertTriangle,
   Sparkles,
+  Bookmark,
+  Check,
   Type,
   Image,
   Mic,
@@ -22,9 +24,10 @@ import {
 import clsx from "clsx";
 import { ChatPanel } from "../../../components/containers/ChatPanel";
 import { AiDisplay } from "../../../components/atoms/AiDisplay";
-import { Dashboard } from "../Dashboard";
+import { SnapOverview } from "../../../components/containers/SnapOverview";
 import { getInsights } from "../../../lib/services/insights";
-import { getSnapshot } from "../../../lib/services/snapshot";
+import * as snapsApi from "../../../lib/services/snaps";
+import type { Snap } from "../../../lib/services/snaps";
 import type { BusinessInsight } from "../../../lib/workspace/dashboard-types";
 import {
   EXPLAIN_PROMPT,
@@ -46,7 +49,60 @@ import {
   areaToColor,
   formatDate,
   formatRelativeTime,
+  snapToSender,
+  snapTypeToColor,
+  priorityTagClass,
+  formatConfidence,
 } from "./helpers";
+
+function Tag({
+  children,
+  label,
+  className,
+}: {
+  children: React.ReactNode;
+  label?: string;
+  className?: string;
+}) {
+  return (
+    <span
+      className={clsx(
+        "shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium capitalize leading-none",
+        className || "border-zinc-700/50 bg-zinc-800/40 text-zinc-400",
+      )}
+    >
+      {label && <span className="normal-case opacity-60">{label}: </span>}
+      {children}
+    </span>
+  );
+}
+
+function snapToMessage(snap: Snap, tab: InboxTab): InboxMessage {
+  const urgent = snap.priority === "high" || snap.priority === "critical";
+  return {
+    id: `snap-${snap.snap_id}`,
+    sender: snapToSender(snap.type, snap.domain),
+    senderEmail: "",
+    recipient: "",
+    subject: snap.message,
+    preview: snap.action,
+    body: [snap.title, snap.message, snap.why_it_matters, snap.action]
+      .filter(Boolean)
+      .join("\n\n"),
+    date: snap.created_at ? formatRelativeTime(snap.created_at) : "Just now",
+    fullDate: snap.created_at
+      ? new Date(snap.created_at).toLocaleString()
+      : new Date().toLocaleString(),
+    read: !urgent,
+    starred: snap.priority === "critical",
+    tab,
+    avatarColor: snapTypeToColor(snap.type),
+    snapId: snap.snap_id,
+    snapPriority: snap.priority,
+    snapConfidence: snap.confidence,
+    snapDomain: snap.domain,
+  };
+}
 
 // --- Collapsible Section ---
 
@@ -1062,10 +1118,9 @@ export function Inbox() {
   const [starredIds, setStarredIds] = useState<Set<string>>(new Set());
   const [openMessage, setOpenMessage] = useState<InboxMessage | null>(null);
   const [liveInsights, setLiveInsights] = useState<InboxMessage[]>([]);
-  const [attentionItems, setAttentionItems] = useState<InboxMessage[]>([]);
-  const [recommendationItems, setRecommendationItems] = useState<
-    InboxMessage[]
-  >([]);
+  const [attentionSnaps, setAttentionSnaps] = useState<Snap[]>([]);
+  const [recommendationSnaps, setRecommendationSnaps] = useState<Snap[]>([]);
+  const [savedSnaps, setSavedSnaps] = useState<Snap[]>([]);
   const [loading, setLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const [deleting, setDeleting] = useState(false);
@@ -1211,9 +1266,13 @@ export function Inbox() {
 
     Promise.all([
       getInsights(businessId, 20).catch(() => [] as BusinessInsight[]),
-      getSnapshot(businessId).catch(() => null),
+      snapsApi.listSnaps(businessId, "attention").catch(() => [] as Snap[]),
+      snapsApi
+        .listSnaps(businessId, "recommendation")
+        .catch(() => [] as Snap[]),
+      snapsApi.listSnaps(businessId, "priority").catch(() => [] as Snap[]),
     ])
-      .then(async ([insights, snapshot]) => {
+      .then(async ([insights, attention, recommendations, priority]) => {
         const insightMessages: InboxMessage[] = insights.map((ins, i) => ({
           id: `live-${ins.id || i}`,
           sender: areaToSender(ins.area),
@@ -1237,42 +1296,9 @@ export function Inbox() {
           return [...recordItems, ...insightMessages];
         });
 
-        // Map snapshot recommendations to attention + recommendations tabs
-        if (snapshot?.recommendations) {
-          const high: InboxMessage[] = [];
-          const medium: InboxMessage[] = [];
-
-          snapshot.recommendations.forEach((rec, i) => {
-            const msg: InboxMessage = {
-              id: `rec-${i}`,
-              sender: "Tendo AI",
-              senderEmail: "",
-              recipient: "",
-              subject: rec.action,
-              preview: rec.reason,
-              body: `${rec.action}\n\n${rec.reason}`,
-              date: "Today",
-              fullDate: new Date().toLocaleString(),
-              read: rec.priority !== "high",
-              starred: rec.priority === "high",
-              tab:
-                rec.priority === "high"
-                  ? ("attention" as InboxTab)
-                  : ("recommendations" as InboxTab),
-              avatarColor:
-                rec.priority === "high" ? "bg-red-600" : "bg-amber-600",
-            };
-
-            if (rec.priority === "high") {
-              high.push(msg);
-            } else {
-              medium.push(msg);
-            }
-          });
-
-          setAttentionItems(high);
-          setRecommendationItems(medium);
-        }
+        setAttentionSnaps(attention);
+        setRecommendationSnaps(recommendations);
+        setSavedSnaps(priority);
       })
       .finally(() => setLoading(false));
   }, [currentProfile?.id]);
@@ -1369,15 +1395,52 @@ export function Inbox() {
       case "primary":
         return liveInsights;
       case "attention":
-        return attentionItems;
+        return attentionSnaps.map((s) => snapToMessage(s, "attention"));
       case "recommendations":
-        return recommendationItems;
+        return recommendationSnaps.map((s) =>
+          snapToMessage(s, "recommendations"),
+        );
+      case "priority":
+        return savedSnaps.map((s) => snapToMessage(s, "priority"));
       default:
         return [];
     }
   };
 
   const filteredMessages = getMessages();
+
+  const tabCounts: Partial<Record<InboxTab, number>> = {
+    attention: attentionSnaps.length,
+    recommendations: recommendationSnaps.length,
+    priority: savedSnaps.length,
+  };
+
+  // Save moves a Snap to the priority tab; complete removes it from all tabs.
+  const actOnSnap = async (msg: InboxMessage, action: "save" | "complete") => {
+    if (!msg.snapId || !currentProfile?.id) return;
+
+    const snapId = msg.snapId;
+    const remove = (snaps: Snap[]) => snaps.filter((s) => s.snap_id !== snapId);
+
+    try {
+      if (action === "save") {
+        const snap = await snapsApi.saveSnap(currentProfile.id, snapId);
+        setAttentionSnaps(remove);
+        setRecommendationSnaps(remove);
+        setSavedSnaps((prev) => [snap, ...remove(prev)]);
+        toast.success("Saved to Priority");
+        return;
+      }
+
+      await snapsApi.completeSnap(currentProfile.id, snapId);
+      setAttentionSnaps(remove);
+      setRecommendationSnaps(remove);
+      setSavedSnaps(remove);
+      toast.success("Marked complete");
+    } catch {
+      // request() surfaces the error toast.
+    }
+  };
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -1590,14 +1653,14 @@ export function Inbox() {
                   {unreadCount}
                 </span>
               )}
-              {tab.id !== "primary" && tab.badge && (
+              {!!tabCounts[tab.id] && (
                 <span
                   className={clsx(
                     "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
                     tab.badgeColor || "bg-emerald-500/20 text-emerald-400",
                   )}
                 >
-                  {tab.badge} new
+                  {tabCounts[tab.id]}
                 </span>
               )}
               {activeTab === tab.id && (
@@ -1611,7 +1674,12 @@ export function Inbox() {
       {/* Content area — show Dashboard for insights tab, message list for others */}
       {activeTab === "insights" ? (
         <div className="flex-1 overflow-y-auto">
-          <Dashboard />
+          <SnapOverview
+            active={[...attentionSnaps, ...recommendationSnaps]}
+            saved={savedSnaps}
+            businessName={currentProfile?.name}
+            loading={loading}
+          />
         </div>
       ) : loading ? (
         <div className="flex-1 overflow-y-auto">
@@ -1644,19 +1712,25 @@ export function Inbox() {
               {activeTab === "recommendations" && (
                 <Sparkles size={22} className="text-amber-400" />
               )}
+              {activeTab === "priority" && (
+                <Bookmark size={22} className="text-emerald-400" />
+              )}
             </div>
             <p className="text-[14px] font-medium text-zinc-300">
               {activeTab === "primary" && "No items yet"}
               {activeTab === "attention" && "Nothing needs attention"}
               {activeTab === "recommendations" && "No recommendations yet"}
+              {activeTab === "priority" && "Nothing saved yet"}
             </p>
             <p className="mt-1 text-[12px] text-zinc-500">
               {activeTab === "primary" &&
                 "Your inbox and files will appear here as you interact with Tendo."}
               {activeTab === "attention" &&
-                "High priority items that require your action will show up here."}
+                "Items that need your review will show up here."}
               {activeTab === "recommendations" &&
                 "Suggestions to improve your business will appear here."}
+              {activeTab === "priority" &&
+                "Save an item to keep it here until you complete it."}
             </p>
           </div>
         </div>
@@ -1736,55 +1810,127 @@ export function Inbox() {
                 />
               </button>
 
-              {/* Sender */}
-              <span
-                className={clsx(
-                  "w-[160px] shrink-0 truncate text-[13px]",
-                  !msg.read ? "font-medium text-zinc-100" : "text-zinc-400",
-                )}
-              >
-                {msg.sender}
-              </span>
+              {msg.snapId ? (
+                <div className="min-w-0 flex-1 flex items-center gap-2 mr-3">
+                  {/* Title */}
+                  <span
+                    className={clsx(
+                      "w-[200px] shrink-0 truncate text-[13px]",
+                      !msg.read ? "font-medium text-zinc-100" : "text-zinc-300",
+                    )}
+                  >
+                    {msg.subject}
+                  </span>
 
-              {/* Subject + preview */}
-              <div className="min-w-0 flex-1 flex items-baseline gap-1 mr-3">
-                <span
-                  className={clsx(
-                    "shrink-0 truncate text-[13px]",
-                    !msg.read ? "text-zinc-100" : "text-zinc-400",
+                  {/* Action */}
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-zinc-500">
+                    {msg.preview}
+                  </span>
+
+                  {/* Tags */}
+                  {msg.snapPriority && (
+                    <Tag
+                      label="Priority"
+                      className={priorityTagClass(msg.snapPriority)}
+                    >
+                      {msg.snapPriority}
+                    </Tag>
                   )}
-                >
-                  {msg.subject}
-                </span>
-                {msg.subject && (
-                  <span className="text-zinc-600 text-[13px] shrink-0">-</span>
-                )}
-                <span className="min-w-0 truncate text-[13px] text-zinc-500">
-                  {msg.preview}
-                </span>
-              </div>
+                  {msg.snapDomain && msg.snapDomain !== "others" && (
+                    <Tag label="Domain">{msg.snapDomain}</Tag>
+                  )}
+                  {msg.snapConfidence !== undefined && (
+                    <Tag label="Confidence">
+                      {formatConfidence(msg.snapConfidence)}
+                    </Tag>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {/* Sender */}
+                  <span
+                    className={clsx(
+                      "w-[160px] shrink-0 truncate text-[13px]",
+                      !msg.read ? "font-medium text-zinc-100" : "text-zinc-400",
+                    )}
+                  >
+                    {msg.sender}
+                  </span>
+
+                  {/* Subject + preview */}
+                  <div className="min-w-0 flex-1 flex items-baseline gap-1 mr-3">
+                    <span
+                      className={clsx(
+                        "shrink-0 truncate text-[13px]",
+                        !msg.read ? "text-zinc-100" : "text-zinc-400",
+                      )}
+                    >
+                      {msg.subject}
+                    </span>
+                    {msg.subject && (
+                      <span className="text-zinc-600 text-[13px] shrink-0">
+                        -
+                      </span>
+                    )}
+                    <span className="min-w-0 truncate text-[13px] text-zinc-500">
+                      {msg.preview}
+                    </span>
+                  </div>
+                </>
+              )}
 
               {/* Hover actions */}
               <div className="hidden shrink-0 items-center gap-0.5 group-hover:flex mr-2">
-                <button
-                  type="button"
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
-                  aria-label="Delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteSingle(msg.id);
-                  }}
-                >
-                  <Trash2 size={15} />
-                </button>
-                <button
-                  type="button"
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
-                  aria-label="Snooze"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Clock size={15} />
-                </button>
+                {msg.snapId ? (
+                  <>
+                    {activeTab !== "priority" && (
+                      <button
+                        type="button"
+                        className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-emerald-400"
+                        aria-label={`Save "${msg.subject}" to Priority`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          actOnSnap(msg, "save");
+                        }}
+                      >
+                        <Bookmark size={15} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-emerald-400"
+                      aria-label={`Mark "${msg.subject}" complete`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        actOnSnap(msg, "complete");
+                      }}
+                    >
+                      <Check size={15} />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+                      aria-label="Delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteSingle(msg.id);
+                      }}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+                      aria-label="Snooze"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Clock size={15} />
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* Date */}

@@ -1,4 +1,11 @@
-export type InboxTab = "primary" | "insights" | "attention" | "recommendations";
+import type { SnapPriority } from "../../../lib/services/snaps";
+
+export type InboxTab =
+  | "primary"
+  | "insights"
+  | "attention"
+  | "recommendations"
+  | "priority";
 
 export type InboxMessage = {
   id: string;
@@ -14,12 +21,15 @@ export type InboxMessage = {
   starred: boolean;
   tab: InboxTab;
   avatarColor: string;
+  snapId?: string;
+  snapPriority?: SnapPriority;
+  snapConfidence?: number;
+  snapDomain?: string;
 };
 
 export const TABS: {
   id: InboxTab;
   label: string;
-  badge?: number;
   badgeColor?: string;
 }[] = [
   { id: "primary", label: "Inbox & Files" },
@@ -27,13 +37,16 @@ export const TABS: {
   {
     id: "attention",
     label: "Needs Attention",
-    badge: 1,
     badgeColor: "bg-red-500/20 text-red-400",
   },
   {
     id: "recommendations",
     label: "Recommendations",
-    badge: 1,
     badgeColor: "bg-amber-500/20 text-amber-400",
+  },
+  {
+    id: "priority",
+    label: "Priority",
+    badgeColor: "bg-emerald-500/20 text-emerald-400",
   },
 ];

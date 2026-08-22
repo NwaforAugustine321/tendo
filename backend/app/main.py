@@ -28,6 +28,7 @@ from app.routes.conversations import router as conversations_router
 from app.routes.integrations import router as integrations_router
 from app.routes.records import router as records_router
 from app.routes.snapshot import router as snapshot_router
+from app.routes.snaps import router as snaps_router
 from app.routes.upload import router as upload_router
 from app.routes.voice import router as voice_router
 
@@ -337,6 +338,11 @@ app.include_router(
 
 app.include_router(
     snapshot_router,
+    prefix="/api",
+)
+
+app.include_router(
+    snaps_router,
     prefix="/api",
 )
 

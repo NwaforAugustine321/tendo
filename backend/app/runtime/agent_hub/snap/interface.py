@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 
-from .models import SnapModel, SnapRecord
+from .models import SnapModel, SnapRecord, SnapStatus, SnapType
 
 
 class SnapI(ABC):
@@ -41,6 +42,27 @@ class SnapI(ABC):
         business_id: str,
         limit: int,
     ) -> list[SnapRecord]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def query(
+        self,
+        *,
+        business_id: str,
+        limit: int,
+        statuses: Sequence[SnapStatus] | None = None,
+        types: Sequence[SnapType] | None = None,
+    ) -> list[SnapRecord]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def set_status(
+        self,
+        *,
+        business_id: str,
+        snap_id: str,
+        status: SnapStatus,
+    ) -> SnapRecord:
         raise NotImplementedError
 
     @abstractmethod

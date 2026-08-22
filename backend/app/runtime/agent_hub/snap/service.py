@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import asdict
-from datetime import timedelta
+from collections.abc import Sequence
+from dataclasses import asdict, replace
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
 from .interface import SnapI
-from .models import SnapModel, SnapRecord
+from .models import (
+    SnapModel,
+    SnapRecord,
+    SnapStatus,
+    SnapType,
+    sort_key,
+)
 from app.communication.transports.redis import RedisTransport
 
 
@@ -25,10 +32,6 @@ class SnapService(
 
         self._redis = redis
 
-    # ==========================================================
-    # Create
-    # ==========================================================
-
     async def create(
         self,
         *,
@@ -43,24 +46,16 @@ class SnapService(
             business_id=business_id,
             snap=snap,
             status="active",
+            created_at=datetime.now(
+                timezone.utc,
+            ).isoformat(),
         )
 
-        await self._redis.set(
-            key=self._build_key(
-                business_id=business_id,
-                snap_id=record.snap_id,
-            ),
-            value=self._serialize(
-                record,
-            ),
-            ttl=self._DEFAULT_TTL,
+        await self._write(
+            record,
         )
 
         return record
-
-    # ==========================================================
-    # Get
-    # ==========================================================
 
     async def get(
         self,
@@ -83,16 +78,45 @@ class SnapService(
             value,
         )
 
-    # ==========================================================
-    # List
-    # ==========================================================
-
     async def list(
         self,
         *,
         business_id: str,
         limit: int,
     ) -> list[SnapRecord]:
+
+        return await self.query(
+            business_id=business_id,
+            limit=limit,
+        )
+
+    async def get_active(
+        self,
+        *,
+        business_id: str,
+        limit: int,
+    ) -> list[SnapRecord]:
+
+        return await self.query(
+            business_id=business_id,
+            limit=limit,
+            statuses=("active",),
+        )
+
+    async def query(
+        self,
+        *,
+        business_id: str,
+        limit: int,
+        statuses: Sequence[SnapStatus] | None = None,
+        types: Sequence[SnapType] | None = None,
+    ) -> list[SnapRecord]:
+        """
+        Filters are applied before `limit` so the cap counts matching Snaps
+        rather than scanned keys. Redis SCAN returns keys in arbitrary order,
+        so the full key set for the business is read before sorting. Volume is
+        bounded by the Snap TTL.
+        """
 
         if limit <= 0:
             raise ValueError(
@@ -105,12 +129,9 @@ class SnapService(
             ),
         )
 
-        snaps: list[SnapRecord] = []
+        matches: list[SnapRecord] = []
 
         for key in keys:
-
-            if len(snaps) >= limit:
-                break
 
             value = await self._redis.get(
                 key=key,
@@ -119,39 +140,67 @@ class SnapService(
             if value is None:
                 continue
 
-            snaps.append(
-                self._deserialize(
-                    value,
-                ),
+            record = self._deserialize(
+                value,
             )
 
-        return snaps
+            if statuses and record.status not in statuses:
+                continue
 
-    # ==========================================================
-    # Get Active
-    # ==========================================================
+            if types and record.snap.type not in types:
+                continue
 
-    async def get_active(
+            matches.append(
+                record,
+            )
+
+        matches.sort(
+            key=sort_key,
+        )
+
+        return matches[:limit]
+
+    async def set_status(
         self,
         *,
         business_id: str,
-        limit: int,
-    ) -> list[SnapRecord]:
+        snap_id: str,
+        status: SnapStatus,
+    ) -> SnapRecord:
 
-        snaps = await self.list(
+        snap = await self.get(
             business_id=business_id,
-            limit=limit,
+            snap_id=snap_id,
         )
 
-        return [
-            snap
-            for snap in snaps
-            if snap.status == "active"
-        ]
+        if snap is None:
+            raise ValueError(
+                f"Snap '{snap_id}' was not found.",
+            )
 
-    # ==========================================================
-    # Delete
-    # ==========================================================
+        updated = replace(
+            snap,
+            status=status,
+        )
+
+        await self._write(
+            updated,
+        )
+
+        return updated
+
+    async def complete(
+        self,
+        *,
+        business_id: str,
+        snap_id: str,
+    ) -> SnapRecord:
+
+        return await self.set_status(
+            business_id=business_id,
+            snap_id=snap_id,
+            status="completed",
+        )
 
     async def delete(
         self,
@@ -167,47 +216,6 @@ class SnapService(
             ),
         )
 
-    # ==========================================================
-    # Complete
-    # ==========================================================
-
-    async def complete(
-        self,
-        *,
-        business_id: str,
-        snap_id: str,
-    ) -> SnapRecord:
-
-        snap = await self.get(
-            business_id=business_id,
-            snap_id=snap_id,
-        )
-
-        if snap is None:
-            raise ValueError(
-                f"Snap '{snap_id}' was not found.",
-            )
-
-        completed = SnapRecord(
-            snap_id=snap.snap_id,
-            business_id=snap.business_id,
-            snap=snap.snap,
-            status="completed",
-        )
-
-        await self._redis.set(
-            key=self._build_key(
-                business_id=business_id,
-                snap_id=snap_id,
-            ),
-            value=self._serialize(
-                completed,
-            ),
-            ttl=self._DEFAULT_TTL,
-        )
-
-        return completed
-
     async def refresh(
         self,
         *,
@@ -222,6 +230,22 @@ class SnapService(
                 snap_id=snap_id,
             ),
             ttl=ttl or self._DEFAULT_TTL,
+        )
+
+    async def _write(
+        self,
+        record: SnapRecord,
+    ) -> None:
+
+        await self._redis.set(
+            key=self._build_key(
+                business_id=record.business_id,
+                snap_id=record.snap_id,
+            ),
+            value=self._serialize(
+                record,
+            ),
+            ttl=self._DEFAULT_TTL,
         )
 
     @staticmethod
@@ -250,7 +274,7 @@ class SnapService(
             message=snap_data["message"],
             why_it_matters=snap_data["why_it_matters"],
             action=snap_data["action"],
-            domain=snap_data["domain"]
+            domain=snap_data["domain"],
         )
 
         return SnapRecord(
@@ -260,6 +284,9 @@ class SnapService(
             status=value.get(
                 "status",
                 "active",
+            ),
+            created_at=value.get(
+                "created_at",
             ),
         )
 

@@ -1,10 +1,19 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
+from dataclasses import replace
 from datetime import timedelta
 
 from .interface import SnapI
-from .models import SnapModel, SnapRecord
+from .models import (
+    SnapModel,
+    SnapRecord,
+    SnapStatus,
+    SnapTab,
+    SnapType,
+    resolve_tab,
+)
 
 
 class SnapPersistenceI(ABC):
@@ -30,6 +39,27 @@ class SnapPersistenceI(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def query(
+        self,
+        *,
+        business_id: str,
+        limit: int,
+        statuses: Sequence[SnapStatus] | None = None,
+        types: Sequence[SnapType] | None = None,
+    ) -> list[SnapRecord]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def set_status(
+        self,
+        *,
+        business_id: str,
+        snap_id: str,
+        status: SnapStatus,
+    ) -> SnapRecord | None:
+        raise NotImplementedError
+
+    @abstractmethod
     async def delete(
         self,
         *,
@@ -47,10 +77,25 @@ class SnapPersistenceI(ABC):
     ) -> list[str]:
         raise NotImplementedError
 
+    @abstractmethod
+    async def owns_business(
+        self,
+        *,
+        business_id: str,
+        user_id: str,
+    ) -> bool:
+        raise NotImplementedError
+
 
 class SnapRepository(
     SnapI,
 ):
+    """
+    Redis holds the live feed of active Snaps and expires them on a TTL.
+    The `snaps` table owns Snaps the user has saved, which must outlive that
+    TTL. Status changes write the table first and then mirror into Redis so
+    the live feed agrees with durable state while the key is still present.
+    """
 
     def __init__(
         self,
@@ -81,8 +126,6 @@ class SnapRepository(
         snap_id: str,
     ) -> SnapRecord | None:
 
-        # Redis is the first source because it contains
-        # currently live Snaps.
         snap = await self._service.get(
             business_id=business_id,
             snap_id=snap_id,
@@ -91,10 +134,6 @@ class SnapRepository(
         if snap is not None:
             return snap
 
-        # Redis may have expired the Snap.
-        #
-        # A previously saved Snap can still exist in
-        # durable persistence.
         return await self._persistence.get(
             business_id=business_id,
             snap_id=snap_id,
@@ -124,6 +163,150 @@ class SnapRepository(
             limit=limit,
         )
 
+    async def query(
+        self,
+        *,
+        business_id: str,
+        limit: int,
+        statuses: Sequence[SnapStatus] | None = None,
+        types: Sequence[SnapType] | None = None,
+    ) -> list[SnapRecord]:
+
+        return await self._service.query(
+            business_id=business_id,
+            limit=limit,
+            statuses=statuses,
+            types=types,
+        )
+
+    async def list_tab(
+        self,
+        *,
+        business_id: str,
+        tab: SnapTab,
+        limit: int,
+    ) -> list[SnapRecord]:
+
+        tab_filter = resolve_tab(
+            tab,
+        )
+
+        source: SnapI | SnapPersistenceI = (
+            self._persistence
+            if tab == "priority"
+            else self._service
+        )
+
+        return await source.query(
+            business_id=business_id,
+            limit=limit,
+            statuses=tab_filter.statuses,
+            types=tab_filter.types,
+        )
+
+    async def set_status(
+        self,
+        *,
+        business_id: str,
+        snap_id: str,
+        status: SnapStatus,
+    ) -> SnapRecord:
+
+        snap = await self.get(
+            business_id=business_id,
+            snap_id=snap_id,
+        )
+
+        if snap is None:
+            raise ValueError(
+                f"Snap '{snap_id}' was not found.",
+            )
+
+        updated = await self._persistence.set_status(
+            business_id=business_id,
+            snap_id=snap_id,
+            status=status,
+        )
+
+        if updated is None:
+            updated = await self._persistence.save(
+                snap=replace(
+                    snap,
+                    status=status,
+                ),
+            )
+
+        live = await self._service.get(
+            business_id=business_id,
+            snap_id=snap_id,
+        )
+
+        if live is not None:
+            await self._service.set_status(
+                business_id=business_id,
+                snap_id=snap_id,
+                status=status,
+            )
+
+        return updated
+
+    async def save(
+        self,
+        *,
+        business_id: str,
+        snap_id: str,
+    ) -> SnapRecord:
+
+        return await self.set_status(
+            business_id=business_id,
+            snap_id=snap_id,
+            status="pending",
+        )
+
+    async def complete(
+        self,
+        *,
+        business_id: str,
+        snap_id: str,
+    ) -> SnapRecord:
+
+        return await self.set_status(
+            business_id=business_id,
+            snap_id=snap_id,
+            status="completed",
+        )
+
+    async def delete(
+        self,
+        *,
+        business_id: str,
+        snap_id: str,
+    ) -> None:
+
+        await self._service.delete(
+            business_id=business_id,
+            snap_id=snap_id,
+        )
+
+        await self._persistence.delete(
+            business_id=business_id,
+            snap_id=snap_id,
+        )
+
+    async def refresh(
+        self,
+        *,
+        business_id: str,
+        snap_id: str,
+        ttl: timedelta | None = None,
+    ) -> bool:
+
+        return await self._service.refresh(
+            business_id=business_id,
+            snap_id=snap_id,
+            ttl=ttl,
+        )
+
     async def fetch_business_ids(
         self,
         *,
@@ -146,125 +329,14 @@ class SnapRepository(
             limit=limit,
         )
 
-    async def complete(
+    async def owns_business(
         self,
         *,
         business_id: str,
-        snap_id: str,
-    ) -> SnapRecord:
-
-        snap = await self.get(
-            business_id=business_id,
-            snap_id=snap_id,
-        )
-
-        if snap is None:
-            raise ValueError(
-                f"Snap '{snap_id}' was not found.",
-            )
-
-        # If the Snap is currently live in Redis,
-        # let the service update its ephemeral state.
-        live_snap = await self._service.get(
-            business_id=business_id,
-            snap_id=snap_id,
-        )
-
-        if live_snap is not None:
-            return await self._service.complete(
-                business_id=business_id,
-                snap_id=snap_id,
-            )
-
-        # If Redis has expired but the Snap exists in
-        # durable persistence, update the durable record.
-        completed = SnapRecord(
-            snap_id=snap.snap_id,
-            business_id=snap.business_id,
-            snap=snap.snap,
-            status="completed",
-        )
-
-        return await self._persistence.save(
-            snap=completed,
-        )
-
-    async def save(
-        self,
-        *,
-        business_id: str,
-        snap_id: str,
-    ) -> SnapRecord:
-
-        snap = await self._service.get(
-            business_id=business_id,
-            snap_id=snap_id,
-        )
-
-        if snap is None:
-            # It may already have expired from Redis.
-            # Check durable persistence as a fallback.
-            snap = await self._persistence.get(
-                business_id=business_id,
-                snap_id=snap_id,
-            )
-
-        if snap is None:
-            raise ValueError(
-                f"Snap '{snap_id}' was not found.",
-            )
-
-        # Promote the Snap into durable persistence.
-        saved = await self._persistence.save(
-            snap=snap,
-        )
-
-        # Remove the ephemeral Redis copy after the durable
-        # write succeeds.
-        await self._service.delete(
-            business_id=business_id,
-            snap_id=snap_id,
-        )
-
-        return saved
-
-    async def delete(
-        self,
-        *,
-        business_id: str,
-        snap_id: str,
-    ) -> None:
-
-        # Remove the live Redis copy.
-        await self._service.delete(
-            business_id=business_id,
-            snap_id=snap_id,
-        )
-
-        # Also remove any durable copy.
-        await self._persistence.delete(
-            business_id=business_id,
-            snap_id=snap_id,
-        )
-
-    async def refresh(
-        self,
-        *,
-        business_id: str,
-        snap_id: str,
-        ttl: timedelta | None = None,
+        user_id: str,
     ) -> bool:
 
-        # Refreshing extends the ephemeral lifetime only.
-        #
-        # Durable persistence does not expire, so there is
-        # nothing to refresh there.
-        #
-        # Returns False when the Snap is no longer live in
-        # Redis, which is the case once it has been saved
-        # or has already expired.
-        return await self._service.refresh(
+        return await self._persistence.owns_business(
             business_id=business_id,
-            snap_id=snap_id,
-            ttl=ttl,
+            user_id=user_id,
         )
