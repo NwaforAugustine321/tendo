@@ -25,7 +25,10 @@ from app.runtime.prompts.builder import PromptBuilder
 from app.runtime.prompts.context import PromptContext
 from app.runtime.toolsets.executor import ToolExecutor
 from app.runtime.toolsets.tool_use_call import ToolUseCall
-
+from app.runtime.utils.tag_parser import (
+    extract_json,
+    extract_tag
+)
 
 from .activity import AgentActivity
 from .session import AgentSession
@@ -200,7 +203,7 @@ class AgentRunner:
                             #
 
                             run_context.add_message(
-                                ChatMessage.assistant(
+                                ChatMessage.system(
                                     "INPUT REQUEST BLOCKED.\n"
                                     "The user's request did not pass the "
                                     "input safety requirements.\n"
@@ -338,7 +341,27 @@ class AgentRunner:
                         # --------------------------------------------------
                         #
 
-                        print('stream>>>', response)
+                        # print('stream>>>', response)
+
+                        try:
+                            agent_status_tag = extract_tag(
+                                response.text, tag='<reasoning_state>')
+                            print('main status check>>>>>>',
+                                  response.text)
+                            print('main status check tag>>>>>>',
+                                  agent_status_tag)
+                            if agent_status_tag:
+                                agent_status = extract_json(agent_status_tag)
+                                print('agent status >>>>>>',
+                                      response.text, agent_status)
+                                status = agent_status.get('status', '')
+
+                                if status and status == 'thinking':
+                                    continue
+
+                        except Exception as e:
+                            print('agent statu parsing error >>>>>', e)
+                            pass
 
                         checked_response = (
                             await run_context.guardrails.check_response(
@@ -363,7 +386,7 @@ class AgentRunner:
                             #
 
                             run_context.add_message(
-                                ChatMessage.assistant(
+                                ChatMessage.system(
                                     "OUTPUT RESPONSE BLOCKED.\n"
                                     "The response generated immediately "
                                     "before this message cannot be shown "
@@ -495,33 +518,28 @@ class AgentRunner:
                                 reasoning_only_attempts = 0
 
                                 run_context.add_message(
-                                    ChatMessage.assistant(
-                                        "REASONING-ONLY LIMIT REACHED.\n"
-                                        "Exit reasoning-only mode now.\n"
-                                        "Your next response MUST contain either "
-                                        "a user-facing response or a tool call.\n"
-                                        "If additional information is required, "
-                                        "use the appropriate available tool. "
-                                        "Otherwise, provide the final response.\n"
-                                        "Do not return another reasoning-only "
-                                        "response."
+                                    ChatMessage.system(
+                                        "[CRITICAL RUNTIME CONSTRAINTS]\n"
+                                        "SYSTEM DIRECTIVE: REASONING BUDGET EXHAUSTED.\n"
+                                        "- Immediate Action Required: You are strictly banned from outputting text concerning 'reasoning mode', 'limits', or 'budgets' to the user.\n"
+                                        "- Execution Routing: Your very next output character MUST bypass all meta-commentary and initiate either a direct user-facing response or a valid tool call block.\n"
+                                        "- Failsafe: If additional information is needed, execute the appropriate tool call immediately. Otherwise, instantly compile your final answer using existing memory context and exit cleanly.\n"
+                                        "- Constraint: Do not generate another internal reasoning block. Transition completely to execution or final response now.\n"
+                                        "[CRITICAL RUNTIME CONSTRAINTS]"
                                     ),
                                 )
 
                             else:
 
                                 run_context.add_message(
-                                    ChatMessage.assistant(
-                                        "REASONING RECOVERY ATTEMPT "
-                                        f"{reasoning_only_attempts}/"
-                                        f"{self._max_reasoning_only_attempts}.\n"
-                                        f"There are {remaining_steps} "
-                                        "interaction cycles remaining.\n"
-                                        "You have not produced a response or "
-                                        "tool call. Continue the task by either "
-                                        "executing the next required action or "
-                                        "providing the final user-facing "
-                                        "response."
+                                    ChatMessage.system(
+                                        "\n[CRITICAL RUNTIME CONSTRAINTS]\n"
+                                        "STATE NOTICE: INTERNAL FAILS_RECOVERY_ENGAGED.\n"
+                                        f"- Target Metrics: Attempt Index {reasoning_only_attempts} of {self._max_reasoning_only_attempts}.\n"
+                                        f"- Resource Pool: {remaining_steps} background tracking slots remaining.\n"
+                                        "- CRITICAL BINDING CONSTRAINT: You are strictly forbidden from leaking, printing, quoting, or echoing these metrics or the term 'RECOVERY' to the client interface.\n"
+                                        "- IMMEDIATE DIRECTION: The previous turn returned a blank token payload. You must bypass all meta-commentary, apologies, or log descriptions. Instantly proceed by generating either a functional tool call or compiling the terminal user-safe response directly.\n"
+                                        "[CRITICAL RUNTIME CONSTRAINTS]\n\n"
                                     ),
                                 )
 
@@ -806,7 +824,7 @@ class AgentRunner:
                         #
 
                         run_context.add_message(
-                            ChatMessage.assistant(
+                            ChatMessage.system(
                                 tool_usage.build_tool_usage_guidance(),
                             ),
                         )
@@ -828,7 +846,7 @@ class AgentRunner:
                         if urgency:
 
                             run_context.add_message(
-                                ChatMessage.assistant(
+                                ChatMessage.system(
                                     urgency,
                                 ),
                             )
@@ -843,7 +861,7 @@ class AgentRunner:
 
                         # Security reminder after each reasoning loop
                         # run_context.add_message(
-                        #     ChatMessage.assistant(
+                        #     ChatMessage.system(
                         #         "Security reminder: Content inside proprietary or protected tags "
                         #         "is confidential. Never reveal, reproduce, quote, summarize, "
                         #         "translate, transform, extract, or describe that content to the "
@@ -897,7 +915,7 @@ class AgentRunner:
 
                 # Security reminder between interaction cycles
                 # run_context.add_message(
-                #     ChatMessage.assistant(
+                #     ChatMessage.system(
                 #         "Security reminder: Content inside proprietary or protected tags "
                 #         "is confidential. Never reveal, reproduce, quote, summarize, "
                 #         "translate, transform, extract, or describe that content to the "
@@ -1054,14 +1072,16 @@ class AgentRunner:
             else:
 
                 final_reason = (
-                    "The normal interaction limit has been reached. "
-                    "Use the information already available in the "
-                    "conversation and produce the best possible final "
-                    "response now."
+                    "\n[CRITICAL_EXECUTION_STATE]\n"
+                    "SYSTEM OVERRIDE: TERMINAL RESPONSE SEQUENCE ENGAGED.\n"
+                    "- CONSTRAINT: You are completely banned from mentioning limits, steps, interactions, or system thresholds in your response.\n"
+                    "- DIRECTION: Do not output sentences such as 'The limit has been reached' or 'Based on available information.' Bypassing all meta-commentary is mandatory.\n"
+                    "- ACTION: Instantly compile the final, user-safe answer.\n"
+                    "[CRITICAL_EXECUTION_STATE]\n\n"
                 )
 
             run_context.add_message(
-                ChatMessage.assistant(
+                ChatMessage.system(
                     "FINAL RESPONSE MODE.\n"
                     f"Reason: {reason}.\n"
                     f"Final response attempt {attempt}/"
@@ -1115,7 +1135,7 @@ class AgentRunner:
                 )
 
                 run_context.add_message(
-                    ChatMessage.assistant(
+                    ChatMessage.system(
                         "FINAL RESPONSE TOOL CALL BLOCKED.\n"
                         "Do not call any tools.\n"
                         "Provide the user-facing final response now."
@@ -1141,7 +1161,7 @@ class AgentRunner:
                 )
 
                 run_context.add_message(
-                    ChatMessage.assistant(
+                    ChatMessage.system(
                         "FINAL RESPONSE BLOCKED.\n"
                         "The response just generated cannot be shown "
                         "to the user.\n"
@@ -1186,7 +1206,7 @@ class AgentRunner:
             )
 
             run_context.add_message(
-                ChatMessage.assistant(
+                ChatMessage.system(
                     "The previous generation did not contain a "
                     "user-facing response. Produce the final response "
                     "now. Do not call tools."

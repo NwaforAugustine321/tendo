@@ -83,7 +83,7 @@ class Agent:
         memory: MemoryProvider | None = None,
         conversation: ConversationProvider | None = None,
         rag: RAGProvider | None = None,
-        max_iteration: int = 6,
+        max_iteration: int = 3,
         max_reasoning_steps: int = 2,
         enable_runtime_rag: bool | None = False,
         enable_runtime_mem: bool | None = False,
