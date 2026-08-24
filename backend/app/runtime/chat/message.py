@@ -75,8 +75,8 @@ class ChatMessage:
     ) -> ChatMessage:
 
         return cls(
-            role="system",
-            content=f"[Summary of previous conversation]\n{content}",
+            role="user",
+            content=content,
         )
 
     @classmethod

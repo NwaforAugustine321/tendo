@@ -72,6 +72,7 @@ Rules:
 Return only the JSON object. Do not generate any additional text.
 """
 
+
 guard_llm = get_guard_client()
 
 

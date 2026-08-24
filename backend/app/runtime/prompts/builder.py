@@ -111,13 +111,14 @@ class PromptBuilder:
         if state.prepared:
             return
 
-        parts: list[str] = []
+        runt_time_parts: list[str] = []
+        system_parts: list[str] = []
 
         # Setup agent system runtime
         prompt = await self._build_runtime_prompt()
 
         if prompt:
-            parts.append(
+            system_parts.append(
                 prompt,
             )
 
@@ -131,7 +132,7 @@ class PromptBuilder:
         )
 
         if prompt:
-            parts.append(
+            system_parts.append(
                 prompt,
             )
 
@@ -139,7 +140,7 @@ class PromptBuilder:
         prompt = await self._build_tool_prompt()
 
         if prompt:
-            parts.append(
+            system_parts.append(
                 prompt,
             )
 
@@ -153,7 +154,7 @@ class PromptBuilder:
         )
 
         if prompt:
-            parts.append(
+            runt_time_parts.append(
                 prompt,
             )
 
@@ -167,7 +168,7 @@ class PromptBuilder:
             )
 
             if prompt:
-                parts.append(
+                runt_time_parts.append(
                     prompt,
                 )
 
@@ -178,7 +179,7 @@ class PromptBuilder:
             )
 
             if prompt:
-                parts.append(
+                runt_time_parts.append(
                     prompt,
                 )
 
@@ -187,14 +188,12 @@ class PromptBuilder:
         #
         # Default agent stystem instructions.
         #
-        system_parts_instr = ''
-        if parts:
-            system_parts_instr = "\n\n".join(parts)
 
         agent_instructions = (
             self._context.agent.prompt_template.build(
                 self._context,
-                system_parts_instr=system_parts_instr
+                system_parts_instr=("\n".join(system_parts)
+                                    if system_parts else '')
             )
         )
 
@@ -202,6 +201,11 @@ class PromptBuilder:
 
             messages.extend(
                 agent_instructions,
+            )
+
+        if runt_time_parts:
+            messages.extend(
+                [ChatMessage.user(content="\n".join(runt_time_parts))]
             )
 
         #
@@ -218,6 +222,10 @@ class PromptBuilder:
             for message in self._context.run_context.messages
             if message.content
         ]
+
+        # for msg in execution_messages:
+        #     print(f'{msg.role} ->>>>>: {msg.content}')
+        #     print('\n\n')
 
         state.stable_messages = messages
 

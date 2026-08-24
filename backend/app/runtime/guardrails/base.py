@@ -21,6 +21,13 @@ class Guardrail(ABC):
 
         return GuardrailResult()
 
+    async def on_context(
+        self,
+        ctx: RunContext,
+    ) -> GuardrailResult:
+
+        return GuardrailResult()
+
     async def on_response(
         self,
         ctx: RunContext,
