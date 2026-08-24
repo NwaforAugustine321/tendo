@@ -265,10 +265,6 @@ class InferenceStream(AsyncIterator[LLMEvent]):
             # ----------------------------------------------------------
             #
 
-            for msg in messages:
-                print(f'{msg.role} ->>>>>: {msg.content}')
-                print('\n\n')
-
             provider_response = await self._invoke(
                 messages,
             )

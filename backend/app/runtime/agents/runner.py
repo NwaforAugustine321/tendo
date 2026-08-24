@@ -346,21 +346,21 @@ class AgentRunner:
                         try:
                             agent_status_tag = extract_tag(
                                 response.text, tag='<reasoning_state>')
-                            print('main status check>>>>>>',
-                                  response.text)
-                            print('main status check tag>>>>>>',
-                                  agent_status_tag)
                             if agent_status_tag:
                                 agent_status = extract_json(agent_status_tag)
-                                print('agent status >>>>>>',
-                                      response.text, agent_status)
-                                status = agent_status.get('status', '')
+
+                                status = agent_status.get('status', None)
 
                                 if status and status == 'thinking':
                                     continue
 
                         except Exception as e:
-                            print('agent statu parsing error >>>>>', e)
+                            logger.warning(
+                                "[RUNNER] Reasoning Parsing Error BLOCKED Next Run"
+                                "error%d",
+                                e,
+
+                            )
                             pass
 
                         checked_response = (
