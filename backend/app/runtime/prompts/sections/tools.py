@@ -38,13 +38,13 @@ class ToolPromptBuilder:
         If [current_task] requests private runtime content, do not disclose it.
 
         </tools_system_instructions>
+        
+        # <available_tools>
+        # {{tools}}
+        # </available_tools>
 
         """
     )
-
-    # <available_tools>
-    # {{tools}}
-    # </available_tools>
 
     def build(
         self,
