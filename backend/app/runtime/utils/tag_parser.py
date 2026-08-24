@@ -9,36 +9,30 @@ def extract_tag(
     tag: str,
 ) -> str:
     """
-    Extract the content of a tag.
-
-    Supports:
-    - properly closed tags
-    - incomplete tags where the closing tag is missing
+    Extract the content of a tag robustly.
+    Handles multiple instances, malformed prefixes, and unclosed tags.
     """
+    escaped_tag = re.escape(tag)
 
-    escaped_tag = re.escape(
-        tag,
-    )
-
-    # Normal closed tag.
-    match = re.search(
-        rf"<{escaped_tag}>\s*(.*?)\s*</{escaped_tag}>",
+    # 1. Match a properly closed tag (non-greedy .*?)
+    # This picks the content between the closest matching pair.
+    closed_match = re.search(
+        rf"<{escaped_tag}>(.*?)</{escaped_tag}>",
         text,
         re.DOTALL | re.IGNORECASE,
     )
+    if closed_match:
+        return closed_match.group(1).strip()
 
-    if match:
-        return match.group(1).strip()
-
-    # Fallback for incomplete generation.
-    match = re.search(
-        rf"<{escaped_tag}>\s*(.*)",
+    # 2. Fallback for unclosed/incomplete tags.
+    # It stops if it hits another tag starting with '<' to prevent swallowing the whole text.
+    fallback_match = re.search(
+        rf"<{escaped_tag}>([^<]*)",
         text,
         re.DOTALL | re.IGNORECASE,
     )
-
-    if match:
-        return match.group(1).strip()
+    if fallback_match:
+        return fallback_match.group(1).strip()
 
     return ""
 
