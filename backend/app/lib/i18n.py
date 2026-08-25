@@ -1,5 +1,3 @@
-"""Internationalization support — loads translations from JSON files."""
-
 import json
 import logging
 import os
@@ -8,7 +6,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_TRANSLATIONS_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "translations")
+_TRANSLATIONS_DIR = os.path.join(os.path.dirname(
+    os.path.realpath(__file__)), "..", "translations")
 
 
 class I18N:
@@ -35,7 +34,7 @@ class I18N:
             self._data = {}
 
     def get(self, key: str, **kwargs) -> str:
-    
+
         parts = key.split(".")
         value = self._data
 

@@ -43,7 +43,10 @@ from ..tools.default import (
     create_memory_tool,
     create_rag_tool,
 )
-
+from app.runtime.guardrails.guards.prompt_leakage_detector import PromptLeakageSafetyGuardrail
+from app.runtime.guardrails.guards.strategies.manual_prompt_leakage_detector import ManualPromptLeakageStrategy
+from app.runtime.guardrails.guards.strategies.semantic_prompt_leakage_detector import SemanticLeakageSearchStrategy
+from app.lib.i18n import _get_i18n
 
 if TYPE_CHECKING:
     from .runner import AgentRunner
@@ -110,6 +113,8 @@ class Agent:
         self._max_iteration = max_iteration
         self._max_reasoning_step = max_reasoning_step
 
+        self._i18n = _get_i18n()
+
         self._tools = list(
             tools or [],
         )
@@ -155,10 +160,34 @@ class Agent:
             output_type=self._output_type,
         )
 
+        self._semantic_leakage_strategy = SemanticLeakageSearchStrategy()
+        self._manual_leakage_strategy = ManualPromptLeakageStrategy()
+
+        self._semantic_leakage_strategy.queue_index(
+            [
+                {
+                    "id": 'internl.default',
+                    "content": self._i18n.get('slices.governance_policy'),
+                    "source": 'internal:[default]'
+                },
+                {
+                    "id": name,
+                    "content": instructions,
+                    "source": f'agent:[{name}]'
+                },
+            ]
+        )
+
+        self._prompt_guard = PromptLeakageSafetyGuardrail(
+            mode=self._prompt_detector_strategy,
+            manual=self._manual_leakage_strategy,
+            semantic=self._semantic_leakage_strategy
+        )
+
         self._guardrails = (
             guardrails
             if guardrails is not None
-            else GuardrailManager()
+            else GuardrailManager(guardrails=[self._prompt_guard])
         )
 
         self._prompt_template = (
@@ -360,6 +389,5 @@ class Agent:
             emitter=emitter,
             max_iteration=self._max_iteration,
             max_reasoning_step=self._max_reasoning_step,
-            prompt_detector_strategy=self._prompt_detector_strategy,
-
+            i18n=self._i18n
         )

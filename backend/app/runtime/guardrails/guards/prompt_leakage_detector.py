@@ -12,6 +12,9 @@ from .strategies.strategy import PromptLeakageDetectionStrategy
 from .strategies.manual_prompt_leakage_detector import ManualPromptLeakageStrategy
 from .strategies.semantic_prompt_leakage_detector import SemanticLeakageSearchStrategy
 from .strategies.strategy import PromptLeakageDetectionMode
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class PromptLeakageSafetyGuardrail(Guardrail):
@@ -139,6 +142,8 @@ class PromptLeakageSafetyGuardrail(Guardrail):
         response: LLMResponse,
     ) -> GuardrailResult:
 
+        logger.info('[OUTPUR VALIDATION] ===', response.text)
+
         if not response.text:
             return GuardrailResult(
                 decision=GuardrailDecision.CONTINUE,
@@ -149,6 +154,68 @@ class PromptLeakageSafetyGuardrail(Guardrail):
             match,
         ) = await self.detect(
             response.text,
+        )
+
+        if leakage_message:
+
+            leakage_message = leakage_message.replace(
+                "{prev_response}",
+                f"```text\n{response.text}\n```",
+            )
+
+            if match:
+
+                strategy = match.get(
+                    "strategy",
+                )
+
+                if strategy == "semantic":
+
+                    print(
+                        "PROMPT LEAKAGE "
+                        "SEMANTIC MATCH >>>",
+
+                    )
+
+                else:
+
+                    print(
+                        "PROMPT LEAKAGE "
+                        "MANUAL MATCH >>>",
+                        match,
+                    )
+
+            print(
+                "check output guardrails >>>",
+                leakage_message,
+            )
+
+            return GuardrailResult(
+                decision=GuardrailDecision.STOP,
+                message=leakage_message,
+            )
+
+        return GuardrailResult(
+            decision=GuardrailDecision.CONTINUE,
+        )
+
+    async def on_request(
+        self,
+        ctx: RunContext,
+    ) -> GuardrailResult:
+
+        logger.info('[INPUT VALIDATION] ===', ctx.user_request)
+
+        message = ctx.user_request
+
+        if message is None:
+            return GuardrailResult()
+
+        (
+            leakage_message,
+            match,
+        ) = await self.detect(
+            message,
         )
 
         if leakage_message:

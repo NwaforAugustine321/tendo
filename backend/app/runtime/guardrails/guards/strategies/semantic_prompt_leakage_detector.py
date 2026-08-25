@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from pathlib import Path
 
@@ -39,9 +40,9 @@ class SemanticLeakageSearchStrategy(
         self,
         *,
         db: lancedb.DBConnection | None = None,
-        namespace: str = "prompts",
+        namespace: str = "internal/prompts",
         table_name: str = "prompts",
-        uri: str | Path = "./data/prompts",
+        uri: str | Path = "./data/internal/prompts",
         embeddings: EmbeddingProvider | None = None,
         threshold: float = 0.20,
     ) -> None:
@@ -72,6 +73,51 @@ class SemanticLeakageSearchStrategy(
 
         self._threshold = threshold
 
+        self._pending: list[dict] = []
+        self._pending_lock = asyncio.Lock()
+
+    def queue_index(
+        self,
+        prompts: list[dict],
+    ) -> None:
+        """
+        Register prompts for indexing from synchronous code.
+
+        Indexing needs to embed the content, which is async, so callers
+        that cannot await (such as constructors) queue the prompts here
+        and the index is built on first search.
+        """
+
+        if prompts:
+            self._pending.extend(
+                prompts,
+            )
+
+    async def flush_index(self) -> None:
+        """
+        Index anything queued. Safe to call repeatedly and concurrently;
+        build_index skips prompts that are already stored.
+        """
+
+        if not self._pending:
+            return
+
+        async with self._pending_lock:
+
+            if not self._pending:
+                return
+
+            pending, self._pending = self._pending, []
+
+            try:
+                await self.build_index(
+                    pending,
+                )
+            except Exception:
+                # Keep the prompts so a later search can retry.
+                self._pending = pending + self._pending
+                raise
+
     def _get_or_create_table(
         self,
         table_name: str,
@@ -89,7 +135,11 @@ class SemanticLeakageSearchStrategy(
 
     async def build_index(
         self,
-        prompts: list[dict],
+        prompts: list[{
+            id: str,
+            content: str,
+            source: str
+        }],
     ) -> None:
 
         if not prompts:
@@ -185,6 +235,8 @@ class SemanticLeakageSearchStrategy(
             or max_results <= 0
         ):
             return []
+
+        await self.flush_index()
 
         vector = await (
             self._embeddings.embed(
