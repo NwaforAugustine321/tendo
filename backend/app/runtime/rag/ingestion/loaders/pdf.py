@@ -286,6 +286,22 @@ class PDFLoader(
                     )
                 )
 
+                logger.info(
+                    "PDF page %s elements: %s | images=%s",
+                    page_number,
+                    [
+                        block.get("type")
+                        for block in blocks
+                    ],
+                    len(page_images),
+                )
+
+                logger.info(
+                    "PDF page %s markdown:\n%s",
+                    page_number,
+                    markdown or "<empty>",
+                )
+
                 documents.append(
                     RAGDocument(
                         id="",

@@ -946,8 +946,8 @@ class Planner:
                 ),
             ],
 
-            enable_runtime_mem=True,
-            enable_runtime_rag=True,
+            enable_runtime_mem=False,
+            enable_runtime_rag=False,
             enable_self_reflection=True,
 
             middleware=[
