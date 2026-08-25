@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, History, X, Sparkles, Lightbulb } from "lucide-react";
+import { Plus, History, X, Sparkles, Lightbulb, Loader2 } from "lucide-react";
 import clsx from "clsx";
 import { Conversation } from "../../pages/Conversation";
 import { useBusinessStore } from "../../store/business";
@@ -23,6 +23,7 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
   const [collapsed, setCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
   const { currentProfile } = useBusinessStore();
   const businessId = currentProfile?.id || "";
 
@@ -147,7 +148,8 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
   };
 
   const handleNewSession = async () => {
-    if (!businessId) return;
+    if (!businessId || creatingSession) return;
+    setCreatingSession(true);
     try {
       const session = await createSession(businessId, "New Session", recordId);
       setSessions((prev) => [session, ...prev]);
@@ -155,6 +157,8 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
       setInitialMessages([]);
     } catch {
       // Error handled by http service
+    } finally {
+      setCreatingSession(false);
     }
   };
 
@@ -167,13 +171,15 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
     if (activeSessionId) return;
 
     // No session — create one. Keep pendingChatMessage so Conversation sends it on mount.
+    setCreatingSession(true);
     createSession(businessId, "New Session", recordId)
       .then((session) => {
         setSessions((prev) => [session, ...prev]);
         setActiveSessionId(session.id);
         setInitialMessages([]);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setCreatingSession(false));
   }, [pendingMsg, activeSessionId, businessId, loading]);
 
   const handleCloseSession = (id: string) => {
@@ -231,10 +237,16 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
 
         <button
           onClick={handleNewSession}
-          className="flex items-center gap-1 px-2 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-300"
+          disabled={creatingSession}
+          className="flex items-center gap-1 px-2 py-1.5 text-[11px] text-zinc-400 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-60"
           title="New session"
         >
-          New <Plus size={12} />
+          New
+          {creatingSession ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <Plus size={12} />
+          )}
         </button>
 
         <div className="flex-1" />
@@ -335,9 +347,13 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
           <div className="flex h-full flex-col items-center justify-center gap-3 p-4">
             <button
               onClick={handleNewSession}
-              className="text-xs text-zinc-400 hover:text-zinc-300"
+              disabled={creatingSession}
+              className="flex items-center gap-1.5 text-xs text-zinc-400 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Start a conversation
+              {creatingSession && (
+                <Loader2 size={12} className="animate-spin" />
+              )}
+              {creatingSession ? "Starting…" : "Start a conversation"}
             </button>
           </div>
         )}
