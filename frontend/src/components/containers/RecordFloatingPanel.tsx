@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { toast } from "sonner";
+import { checkUpload } from "../../lib/uploadLimits";
 import { FloatingPanel } from "./FloatingPanel";
 import { useWorkspaceStore } from "../../store/workspace";
 import { useBusinessStore } from "../../store/business";
@@ -309,6 +310,12 @@ function RecordContentTab({
 
   const handleFileSelected = useCallback(
     async (type: string, file: File) => {
+      const limitError = await checkUpload(type, file);
+      if (limitError) {
+        toast.error(limitError);
+        return;
+      }
+
       const fileName = file.name || `${type} file`;
       const tempId = crypto.randomUUID();
 

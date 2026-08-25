@@ -42,6 +42,7 @@ import {
   dismissProcessingToast,
 } from "../../../components/atoms/ProcessingNotification";
 import { toast } from "sonner";
+import { checkUpload } from "../../../lib/uploadLimits";
 import type { InboxTab, InboxMessage } from "./types";
 import { TABS } from "./types";
 import {
@@ -524,6 +525,12 @@ function MessageDetail({
   };
 
   const handleFileSelected = async (type: string, file: File) => {
+    const limitError = await checkUpload(type, file);
+    if (limitError) {
+      toast.error(limitError);
+      return;
+    }
+
     const fileName = file.name || `${type} file`;
 
     // Show card + toast IMMEDIATELY before upload
