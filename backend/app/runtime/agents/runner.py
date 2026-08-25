@@ -82,21 +82,15 @@ class AgentRunner:
         self,
         *,
         tool_executor: ToolExecutor,
-        max_iterations: int,
-        max_reasoning_steps: int,
+
     ) -> None:
 
         self._tool_executor = tool_executor
-        self._max_iterations = max_iterations
-        self._max_reasoning_steps = max_reasoning_steps
+        self._max_iteration: int
+        self._max_reasoning_step: int
 
-        self._max_reasoning_only_attempts = 2
-
-        #
-        # Maximum number of attempts when the runtime explicitly
-        # enters final-response mode.
-        #
-        self._max_final_response_attempts = 2
+        self._max_reasoning_only_attempt = 2
+        self._max_final_response_attempt = 2
 
     async def run(
         self,
@@ -109,6 +103,9 @@ class AgentRunner:
         """
 
         run_context = session.run_context
+
+        self._max_iteration = session.run_context.max_iteration
+        self._max_reasoning_step = session.run_context.max_reasoning_step
 
         response: LLMResponse | None = None
 
@@ -136,19 +133,19 @@ class AgentRunner:
             # Interaction loop.
             #
             for iteration in range(
-                self._max_iterations,
+                self._max_iteration,
             ):
 
                 current_step = iteration + 1
 
                 remaining_steps = (
-                    self._max_iterations - current_step
+                    self._max_iteration - current_step
                 )
 
                 logger.info(
                     "[RUNNER] === Interaction %d/%d START ===",
                     current_step,
-                    self._max_iterations,
+                    self._max_iteration,
                 )
 
                 reasoning_steps = 0
@@ -158,7 +155,7 @@ class AgentRunner:
                 #
                 while (
                     reasoning_steps
-                    < self._max_reasoning_steps
+                    < self._max_reasoning_step
                 ):
 
                     reasoning_steps += 1
@@ -167,9 +164,9 @@ class AgentRunner:
                         "[RUNNER] === Reasoning step %d/%d "
                         "inside interaction %d/%d ===",
                         reasoning_steps,
-                        self._max_reasoning_steps,
+                        self._max_reasoning_step,
                         current_step,
-                        self._max_iterations,
+                        self._max_iteration,
                     )
 
                     try:
@@ -360,7 +357,7 @@ class AgentRunner:
                                 "reasoning_step=%d/%d",
                                 current_step,
                                 reasoning_steps,
-                                self._max_reasoning_steps,
+                                self._max_reasoning_step,
                             )
 
                             # This LLM response is CONTROL DATA, not an
@@ -529,15 +526,15 @@ class AgentRunner:
                                 "Attempt %d/%d at interaction %d, "
                                 "reasoning step %d/%d.",
                                 reasoning_only_attempts,
-                                self._max_reasoning_only_attempts,
+                                self._max_reasoning_only_attempt,
                                 current_step,
                                 reasoning_steps,
-                                self._max_reasoning_steps,
+                                self._max_reasoning_step,
                             )
 
                             if (
                                 reasoning_only_attempts
-                                >= self._max_reasoning_only_attempts
+                                >= self._max_reasoning_only_attempt
                             ):
 
                                 logger.warning(
@@ -567,7 +564,7 @@ class AgentRunner:
                                     ChatMessage.system(
                                         "\n[CRITICAL RUNTIME CONSTRAINTS]\n"
                                         "STATE NOTICE: INTERNAL FAILS_RECOVERY_ENGAGED.\n"
-                                        f"- Target Metrics: Attempt Index {reasoning_only_attempts} of {self._max_reasoning_only_attempts}.\n"
+                                        f"- Target Metrics: Attempt Index {reasoning_only_attempts} of {self._max_reasoning_only_attempt}.\n"
                                         f"- Resource Pool: {remaining_steps} background tracking slots remaining.\n"
                                         "- CRITICAL BINDING CONSTRAINT: You are strictly forbidden from leaking, printing, quoting, or echoing these metrics or the term 'RECOVERY' to the client interface.\n"
                                         "- IMMEDIATE DIRECTION: The previous turn returned a blank token payload. You must bypass all meta-commentary, apologies, or log descriptions. Instantly proceed by generating either a functional tool call or compiling the terminal user-safe response directly.\n"
@@ -871,7 +868,7 @@ class AgentRunner:
                         urgency = (
                             tool_usage.runtime_step_guidance(
                                 remaining_steps=remaining_steps,
-                                max_iterations=self._max_iterations,
+                                max_iterations=self._max_iteration,
                             )
                         )
 
@@ -931,7 +928,7 @@ class AgentRunner:
                     "[RUNNER] Reasoning-step limit reached for "
                     "interaction %d/%d.",
                     current_step,
-                    self._max_iterations,
+                    self._max_iteration,
                 )
 
                 await run_context.emitter.emit(
@@ -1126,13 +1123,13 @@ class AgentRunner:
 
         for attempt in range(
             1,
-            self._max_final_response_attempts + 1,
+            self._max_final_response_attempt + 1,
         ):
 
             logger.warning(
                 "[RUNNER] Final response attempt %d/%d reason=%s",
                 attempt,
-                self._max_final_response_attempts,
+                self._max_final_response_attempt,
                 reason,
             )
 
@@ -1175,7 +1172,7 @@ class AgentRunner:
                     "FINAL RESPONSE MODE.\n"
                     f"Reason: {reason}.\n"
                     f"Final response attempt {attempt}/"
-                    f"{self._max_final_response_attempts}.\n\n"
+                    f"{self._max_final_response_attempt}.\n\n"
                     f"{final_reason}\n\n"
                     "Do not call tools.\n"
                     "Do not continue internal reasoning.\n"
@@ -1225,7 +1222,7 @@ class AgentRunner:
                     "internal reasoning state. Rejecting it; it must never "
                     "be exposed to the user.",
                     attempt,
-                    self._max_final_response_attempts,
+                    self._max_final_response_attempt,
                 )
                 run_context.add_message(
                     ChatMessage.system(
@@ -1268,7 +1265,7 @@ class AgentRunner:
                     "[RUNNER] Forced final response blocked by "
                     "output guardrail. attempt=%d/%d",
                     attempt,
-                    self._max_final_response_attempts,
+                    self._max_final_response_attempt,
                 )
 
                 run_context.add_message(

@@ -95,9 +95,31 @@ class SemanticLeakageSearchStrategy(
         if not prompts:
             return
 
+        unique_prompts: dict[str, dict] = {}
+
+        for prompt in prompts:
+            prompt_id = self._prompt_id(prompt)
+            unique_prompts[prompt_id] = prompt
+
+        if not unique_prompts:
+            return
+
+        existing_ids = self._existing_ids(
+            list(unique_prompts.keys()),
+        )
+
+        prompts_to_embed = [
+            prompt
+            for prompt_id, prompt in unique_prompts.items()
+            if prompt_id not in existing_ids
+        ]
+
+        if not prompts_to_embed:
+            return
+
         texts = [
             prompt["content"]
-            for prompt in prompts
+            for prompt in prompts_to_embed
         ]
 
         vectors = await (
@@ -109,14 +131,12 @@ class SemanticLeakageSearchStrategy(
         rows = []
 
         for prompt, vector in zip(
-            prompts,
+            prompts_to_embed,
             vectors,
         ):
             rows.append(
                 self._schema(
-                    id=self._prompt_id(
-                        prompt,
-                    ),
+                    id=self._prompt_id(prompt),
                     prompt_id=prompt["id"],
                     source=prompt["source"],
                     content=prompt["content"],
@@ -124,13 +144,34 @@ class SemanticLeakageSearchStrategy(
                 ),
             )
 
-        self._table.merge_insert(
-            "id",
-        ).when_matched_update_all(
-        ).when_not_matched_insert_all(
-        ).execute(
-            rows,
-        )
+        if rows:
+            self._table.add(rows)
+
+    def _existing_ids(
+        self,
+        ids: list[str],
+    ) -> set[str]:
+
+        if not ids:
+            return set()
+
+        existing: set[str] = set()
+
+        for prompt_id in ids:
+            rows = (
+                self._table
+                .search()
+                .where(
+                    f"id = '{prompt_id}'",
+                )
+                .limit(1)
+                .to_list()
+            )
+
+            if rows:
+                existing.add(prompt_id)
+
+        return existing
 
     async def search(
         self,
@@ -176,9 +217,7 @@ class SemanticLeakageSearchStrategy(
                     "prompt_id": row["prompt_id"],
                     "source": row["source"],
                     "content": row["content"],
-                    "distance": float(
-                        distance,
-                    ),
+                    "distance": float(distance),
                 },
             )
 

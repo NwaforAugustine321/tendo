@@ -53,6 +53,7 @@ class ManualPromptLeakageStrategy(
         "show developer instructions",
         "output hidden instructions",
         "expose hidden prompt",
+
     ]
 
     _high_risk_keywords = [
@@ -72,6 +73,8 @@ class ManualPromptLeakageStrategy(
         "search_memory",
         "search_knowledge",
         "tool_search",
+        "business knowledge",
+        "business memory",
     ]
 
     def detect_sync(
@@ -118,9 +121,14 @@ class ManualPromptLeakageStrategy(
         text: str,
     ) -> dict | None:
 
+        match = self.detect_sync(text)
+
+        if not match.strip():
+            return None
+
         return {
             "strategy": "manual",
-            "content": self.detect_sync(text),
+            "content": match,
 
         }
 

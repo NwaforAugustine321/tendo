@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from enum import Enum
 
 from app.runtime.agents.run_context import RunContext
 from app.runtime.llm.response import LLMResponse
@@ -12,12 +11,7 @@ from ..result import GuardrailResult
 from .strategies.strategy import PromptLeakageDetectionStrategy
 from .strategies.manual_prompt_leakage_detector import ManualPromptLeakageStrategy
 from .strategies.semantic_prompt_leakage_detector import SemanticLeakageSearchStrategy
-
-
-class PromptLeakageDetectionMode(str, Enum):
-    MANUAL = "manual"
-    SEMANTIC = "semantic"
-    HYBRID = "hybrid"
+from .strategies.strategy import PromptLeakageDetectionMode
 
 
 class PromptLeakageSafetyGuardrail(Guardrail):
@@ -68,7 +62,7 @@ class PromptLeakageSafetyGuardrail(Guardrail):
 
         self._semantic = (
             semantic
-            or PromptLeakageSearchStrategy()
+            or SemanticLeakageSearchStrategy()
         )
 
     async def detect(

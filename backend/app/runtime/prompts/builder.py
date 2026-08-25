@@ -338,7 +338,7 @@ class PromptBuilder:
         default_runtime = [
             {
                 "key": "max_iterations",
-                "value": str(self._context.agent._max_iterations),
+                "value": str(self._context.run_context.max_iteration),
             }
         ]
 

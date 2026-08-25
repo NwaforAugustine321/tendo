@@ -34,6 +34,7 @@ from app.runtime.events.events import (
     Status,
     StatusEvent,
 )
+from app.runtime.guardrails.guards.strategies.strategy import PromptLeakageDetectionMode
 
 
 class AgentSession:
@@ -57,10 +58,14 @@ class AgentSession:
         self,
         *,
         agent: Agent,
+        prompt_detector_strategy: PromptLeakageDetectionMode,
+        max_iteration: int,
+        max_reasoning_step: int,
         session_id: str | None = None,
         conversation_context: ConversationContext | None = None,
         emitter: Emitter | None = None,
         context_monitor: ContextMonitor | None = None
+
     ) -> None:
 
         self._id = (
@@ -119,7 +124,10 @@ class AgentSession:
         #
         self._run_context = RunContext(
             session=self,
-            emitter=self.emitter
+            emitter=self.emitter,
+            max_iteration=max_iteration,
+            max_reasoning_step=max_reasoning_step,
+            prompt_detector_strategy=prompt_detector_strategy
         )
 
         self._user_task_builder = UserTaskPromptBuilder()
@@ -303,6 +311,9 @@ class AgentSession:
         self._run_context = RunContext(
             session=self,
             emitter=self.emitter,
+            max_iteration=max_iteration,
+            max_reasoning_step=max_reasoning_step,
+            prompt_detector_strategy=prompt_detector_strategy
         )
 
         self._current_activity = None

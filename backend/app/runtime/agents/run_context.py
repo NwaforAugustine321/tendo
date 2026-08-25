@@ -8,7 +8,7 @@ from app.runtime.conversation.context import (
     ConversationContext,
 )
 from app.runtime.events.emitter import Emitter
-
+from app.runtime.guardrails.guards.strategies.strategy import PromptLeakageDetectionMode
 if TYPE_CHECKING:
     from .agent import Agent
     from .session import AgentSession
@@ -30,6 +30,12 @@ class RunContext:
     """
 
     session: AgentSession
+
+    max_iteration: int
+
+    max_reasoning_step: int
+
+    prompt_detector_strategy: PromptLeakageDetectionMode
 
     user_request: str = ""
 

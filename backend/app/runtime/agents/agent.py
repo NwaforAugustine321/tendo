@@ -37,10 +37,13 @@ from app.runtime.toolsets.tool_context import (
     ToolContext,
 )
 
+from app.runtime.guardrails.guards.strategies.strategy import PromptLeakageDetectionMode
+
 from ..tools.default import (
     create_memory_tool,
     create_rag_tool,
 )
+
 
 if TYPE_CHECKING:
     from .runner import AgentRunner
@@ -84,10 +87,11 @@ class Agent:
         conversation: ConversationProvider | None = None,
         rag: RAGProvider | None = None,
         max_iteration: int = 3,
-        max_reasoning_steps: int = 2,
+        max_reasoning_step: int = 2,
         enable_runtime_rag: bool | None = False,
         enable_runtime_mem: bool | None = False,
-        enable_self_reflection: bool = True
+        enable_self_reflection: bool = True,
+        prompt_detector_strategy: PromptLeakageDetectionMode = PromptLeakageDetectionMode.HYBRID
     ) -> None:
 
         self._name = name
@@ -96,14 +100,15 @@ class Agent:
         self._enable_self_reflection = enable_self_reflection
         self._enable_runtime_mem = enable_runtime_mem
         self._enable_runtime_rag = enable_runtime_rag
+        self._prompt_detector_strategy = prompt_detector_strategy
 
         self._llm = llm
 
         self._memory = memory
         self._conversation = conversation
         self._rag = rag
-        self._max_iterations = max_iteration
-        self._max_reasoning_steps = max_reasoning_steps
+        self._max_iteration = max_iteration
+        self._max_reasoning_step = max_reasoning_step
 
         self._tools = list(
             tools or [],
@@ -306,9 +311,7 @@ class Agent:
             tool_executor=ToolExecutor(
                 self._tool_context.proxy,
                 run_context=run_context,
-            ),
-            max_iterations=self._max_iterations,
-            max_reasoning_steps=self._max_reasoning_steps
+            )
         )
 
     @property
@@ -335,9 +338,7 @@ class Agent:
             self._runner = AgentRunner(
                 tool_executor=ToolExecutor(
                     self._tool_context.proxy,
-                ),
-                max_iterations=self._max_iterations,
-                max_reasoning_steps=self._max_reasoning_steps
+                )
             )
 
         return self._runner
@@ -356,5 +357,9 @@ class Agent:
         return AgentSession(
             agent=self,
             session_id=session_id,
-            emitter=emitter
+            emitter=emitter,
+            max_iteration=self._max_iteration,
+            max_reasoning_step=self._max_reasoning_step,
+            prompt_detector_strategy=self._prompt_detector_strategy,
+
         )

@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from enum import Enum
+
+
+class PromptLeakageDetectionMode(str, Enum):
+    MANUAL = "manual"
+    SEMANTIC = "semantic"
+    HYBRID = "hybrid"
+
 
 class PromptLeakageDetectionStrategy(ABC):
     """

@@ -25,6 +25,7 @@ class GuardrailManager:
     def __init__(
         self,
         guardrails: list[Guardrail] | None = None,
+        ctx: RunContext | None = None,
     ) -> None:
 
         self.prompt_leakage_guard = PromptLeakageSafetyGuardrail()
