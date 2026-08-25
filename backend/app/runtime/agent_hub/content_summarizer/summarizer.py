@@ -247,7 +247,7 @@ async def content_summarizer(content: str, max_length: int = MAX_LENGTH) -> dict
                 llm=_get_llm(),
                 instructions=summarizer_system_prompt,
                 max_iteration=4,
-                max_reasoning_steps=2
+                max_reasoning_step=2
             )
             _session = agent.create_session()
             response = await _session.run(trigger_prompt.replace("{content}",  str(content)))

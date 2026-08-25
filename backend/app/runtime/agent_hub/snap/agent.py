@@ -267,7 +267,7 @@ class SnapAgent:
             enable_runtime_rag=False,
             enable_runtime_mem=True,
             max_iteration=4,
-            max_reasoning_steps=2
+            max_reasoning_step=2
         )
 
         session = self._agent.create_session()

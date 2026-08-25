@@ -11,6 +11,15 @@ import {
 } from "../atoms";
 import { TalkingCharacter } from "./TalkingCharacter";
 
+// How far from the bottom still counts as "following the conversation".
+const BOTTOM_FOLLOW_THRESHOLD = 80;
+
+function isNearBottom(el: HTMLElement) {
+  return (
+    el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_FOLLOW_THRESHOLD
+  );
+}
+
 export type InputSpec = {
   fields: Array<{
     id?: string;
@@ -109,6 +118,9 @@ export function ConversationPage({
   wakeActive = false,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Whether the view is following the bottom of the conversation.
+  // Once the user scrolls up, auto-scroll stops until they come back down.
+  const followBottomRef = useRef(true);
   const [displayedStatus, setDisplayedStatus] = useState("");
 
   useEffect(() => {
@@ -116,10 +128,26 @@ export function ConversationPage({
   }, [statusText]);
 
   useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      followBottomRef.current = isNearBottom(el);
+    };
+
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
     if (!scrollRef.current) return;
     const el = scrollRef.current;
     const observer = new ResizeObserver(() => {
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      // Reading back while streaming must not be interrupted.
+      if (!followBottomRef.current) return;
+      // Instant, because streamed text resizes the wrapper every few ms
+      // and queued smooth animations never settle.
+      el.scrollTo({ top: el.scrollHeight });
     });
     // Observe the inner content wrapper so that streaming text
     // (which grows the element height) triggers auto-scroll.
@@ -128,12 +156,19 @@ export function ConversationPage({
   }, [messages.length]);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: "smooth",
-      });
+    const el = scrollRef.current;
+    if (!el) return;
+
+    // Sending a message always returns the view to the bottom.
+    const sentByUser = messages[messages.length - 1]?.role === "user";
+
+    if (sentByUser) {
+      followBottomRef.current = true;
+    } else if (!followBottomRef.current) {
+      return;
     }
+
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, isTyping]);
 
   return (

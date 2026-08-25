@@ -891,7 +891,7 @@ function MessageDetail({
                     : formatRelativeTime(content.created_at)
                 }
                 avatarColor="bg-zinc-600"
-                defaultOpen={idx === 0}
+                defaultOpen={idx === 0 || idx === contents.length - 1}
                 icon={content.content_type}
                 processing={content._processing}
               >
