@@ -132,9 +132,11 @@ def create_memory_tool(
         """
         Search long-term memory for information relevant to the request.
 
-        Use this when the task requires prior facts, history, preferences,
+        Use this tool when the task requires prior facts, history, preferences,
         decisions, observations, relationships, or previously learned
-        information.
+        information. 
+
+        This tool is explicitly authorized for multiple simultaneous or sequential invocations to completely cross-reference and assemble the required past memory of informations.
         """
 
         if agent.memory is None:
@@ -163,11 +165,12 @@ def create_rag_tool(
         query: str,
     ) -> str:
         """
-        Search central business knowledge for information relevant to the request.
+        Search central system resources and datasets for data records relevant to the task.
 
-        Use this when the task requires business facts, documents, operations,
-        processes, entities, evidence, findings, goals, decisions, or other
-        accumulated business knowledge.
+        Use this capability when the task requires factual validation, documentation structures, 
+        parameters, operations, data entities, system metrics, logs, findings, or other accumulated resource knowledge bases. 
+
+        This tool is explicitly authorized for multiple simultaneous or sequential use to fully gather and assemble the required explicity, implicity and general data or information.
         """
 
         if agent.rag is None:

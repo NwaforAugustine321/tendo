@@ -6,6 +6,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import json_repair
+
 from typing_extensions import Self
 
 from .tool_search import ToolSearchToolset
@@ -249,6 +251,13 @@ class ToolProxyToolset(ToolSearchToolset):
             return await self.call(
                 ctx=ctx,
                 raw_arguments=arguments,
+            )
+
+        if self._selected_tools is not None:
+            return await self._execute_selected_tool(
+                name=name,
+                parameters=arguments,
+                ctx=ctx,
             )
 
         return ToolResult(
@@ -509,17 +518,6 @@ class ToolProxyToolset(ToolSearchToolset):
         raw_arguments: dict[str, Any],
     ) -> Any:
 
-        if self._selected_tools is None:
-            return ToolResult(
-                type="no_tool_found",
-                observation=(
-                    "TOOL EXECUTION FAILED.\n\n"
-                    "No tool has been discovered yet.\n\n"
-                    "Use tool_search first, then call_tool "
-                    "with the discovered tool name."
-                ),
-            )
-
         parsed = self._parse_call_arguments(
             raw_arguments,
         )
@@ -532,10 +530,7 @@ class ToolProxyToolset(ToolSearchToolset):
 
         name, parameters = parsed
 
-        if name in {
-            "tool_search",
-            "call_tool",
-        }:
+        if name == "tool_search":
             return ToolResult(
                 type="validation_error",
                 observation=(
@@ -544,6 +539,171 @@ class ToolProxyToolset(ToolSearchToolset):
                     "be executed through call_tool.\n\n"
                     "call_tool must receive the exact name of a "
                     "tool discovered by tool_search."
+                ),
+            )
+
+        if self._selected_tools is None:
+            return ToolResult(
+                type="no_tool_found",
+                observation=(
+                    "TOOL EXECUTION FAILED.\n\n"
+                    "No tool has been discovered yet.\n\n"
+                    "Use tool_search first, then call_tool "
+                    "with the discovered tool name."
+                ),
+            )
+
+        return await self._execute_selected_tool(
+            name=name,
+            parameters=parameters,
+            ctx=ctx,
+        )
+
+    @staticmethod
+    def _decode_json_value(
+        value: str,
+    ) -> Any:
+        """
+        Decode a JSON-looking string into a list or object.
+
+        Returns None when the value is not decodable structured JSON.
+        """
+
+        text = value.strip()
+
+        if not text:
+            return None
+
+        if text[0] not in "[{":
+            return None
+
+        try:
+            decoded = json.loads(
+                text,
+            )
+
+        except ValueError:
+
+            try:
+                decoded = json_repair.loads(
+                    text,
+                )
+
+            except Exception:
+                return None
+
+        if isinstance(
+            decoded,
+            (
+                list,
+                dict,
+            ),
+        ):
+            return decoded
+
+        return None
+
+    @classmethod
+    def _coerce_provider_arguments(
+        cls,
+        *,
+        tool: Any,
+        arguments: Any,
+    ) -> Any:
+        """
+        Coerce stringified JSON arguments for a provider tool.
+
+        Models frequently emit a structured parameter as a JSON string,
+        for example:
+
+            {"specialists": "[{\\"specialist_id\\": \\"knowledge\\"}]"}
+
+        The provider tool validates against its args_schema, so such a
+        value is rejected as the wrong type. Fields that do not expect
+        text are decoded before invocation.
+        """
+
+        if not isinstance(
+            arguments,
+            dict,
+        ):
+            return arguments
+
+        args_schema = getattr(
+            tool,
+            "args_schema",
+            None,
+        )
+
+        if args_schema is None:
+            return arguments
+
+        model_fields = getattr(
+            args_schema,
+            "model_fields",
+            None,
+        ) or {}
+
+        coerced = dict(
+            arguments,
+        )
+
+        for field_name, value in arguments.items():
+
+            if not isinstance(
+                value,
+                str,
+            ):
+                continue
+
+            field = model_fields.get(
+                field_name,
+            )
+
+            if field is None:
+                continue
+
+            #
+            # A text field keeps its value untouched, even when the
+            # text happens to look like JSON.
+            #
+            if field.annotation is str:
+                continue
+
+            decoded = cls._decode_json_value(
+                value,
+            )
+
+            if decoded is None:
+                continue
+
+            coerced[field_name] = decoded
+
+        return coerced
+
+    async def _execute_selected_tool(
+        self,
+        *,
+        name: str,
+        parameters: dict[str, Any] | str,
+        ctx: RunContext,
+    ) -> Any:
+        """
+        Resolve a tool by name against the tools discovered by the
+        previous tool_search and execute it.
+
+        Resolution is performed against self._selected_tools only.
+        Discovery is never repeated here.
+        """
+
+        if self._selected_tools is None:
+            return ToolResult(
+                type="no_tool_found",
+                observation=(
+                    "TOOL EXECUTION FAILED.\n\n"
+                    "No tool has been discovered yet.\n\n"
+                    "Use tool_search first, then call_tool "
+                    "with the discovered tool name."
                 ),
             )
 
@@ -593,6 +753,11 @@ class ToolProxyToolset(ToolSearchToolset):
                 else json.loads(
                     parameters,
                 )
+            )
+
+            arguments = self._coerce_provider_arguments(
+                tool=tool,
+                arguments=arguments,
             )
 
             try:
