@@ -254,7 +254,7 @@ async def content_insight_generator(business_id: str, record_id: str) -> dict:
                 namespace=business_id, scopes=scopes, ignore_threshold=True),
             instructions=insight_system_prompt,
             max_iteration=10,
-            max_reasoning_steps=5,
+            max_reasoning_step=5,
             enable_runtime_rag=True,
             enable_runtime_mem=True
         )
