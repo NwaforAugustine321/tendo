@@ -10,6 +10,7 @@ from app.runtime.guardrails.guards.input_security import InputSafetyGuardrail
 from app.runtime.guardrails.guards.output_security import OutputSafetyGuardrail
 from app.runtime.guardrails.classifiers.nvidia import NvidiaSafetyClassifier
 from app.runtime.guardrails.guards.conversation_history_security import ConversationHistorySafetyGuardrail
+from app.runtime.guardrails.guards.prompt_leakage_security import PromptLeakageSafetyGuardrail
 
 
 class GuardrailManager:
@@ -26,11 +27,8 @@ class GuardrailManager:
         guardrails: list[Guardrail] | None = None,
     ) -> None:
 
-        self._input_guard = InputSafetyGuardrail(
-            classifier=NvidiaSafetyClassifier())
-        self._output_guard = OutputSafetyGuardrail()
-        self.conversation_hist_guard = ConversationHistorySafetyGuardrail()
-        self._guardrails = guardrails or [self.conversation_hist_guard]
+        self.prompt_leakage_guard = PromptLeakageSafetyGuardrail()
+        self._guardrails = guardrails or [self.prompt_leakage_guard]
 
     @property
     def guardrails(

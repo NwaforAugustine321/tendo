@@ -51,7 +51,7 @@ class ConversationPromptBuilder:
         #
         if context.summary:
             self.HEADER = self.HEADER.replace(
-                "{summary}", context.summary.strip() or '')
+                "{summary}", context.summary.strip() if context.summary else '')
 
         #
         # Previous messages.

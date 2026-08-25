@@ -85,8 +85,6 @@ class OutputSafetyGuardrail(Guardrail):
             response.text,
         )
 
-        print('checkouput guardrails', result)
-
         if result.user_safety == "unsafe":
 
             return GuardrailResult(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 
 import logging
+import re
 from typing import TYPE_CHECKING
 
 
@@ -343,25 +344,56 @@ class AgentRunner:
 
                         # print('stream>>>', response)
 
-                        try:
-                            agent_status_tag = extract_tag(
-                                response.text, tag='<reasoning_state>')
-                            if agent_status_tag:
-                                agent_status = extract_json(agent_status_tag)
-
-                                status = agent_status.get('status', None)
-
-                                if status and status == 'thinking':
-                                    continue
-
-                        except Exception as e:
-                            logger.warning(
-                                "[RUNNER] Reasoning Parsing Error BLOCKED Next Run"
-                                "error%d",
-                                e,
-
+                        #
+                        # --------------------------------------------------
+                        #
+                        # --------------------------------------------------
+                        # INTERNAL REASONING STATE
+                        # --------------------------------------------------
+                        #
+                        # This is a runtime control signal, NEVER a user response.
+                        #
+                        if self._is_thinking_state(response):
+                            logger.info(
+                                "[RUNNER] INTERNAL THINKING STATE -> "
+                                "INNER LOOP CONTINUE: interaction=%d "
+                                "reasoning_step=%d/%d",
+                                current_step,
+                                reasoning_steps,
+                                self._max_reasoning_steps,
                             )
-                            pass
+
+                            # This LLM response is CONTROL DATA, not an
+                            # assistant message. It must never reach any
+                            # user-facing path.
+                            response = None
+
+                            run_context.add_message(
+                                ChatMessage.system(
+                                    "INTERNAL CONTROL STATE RECEIVED. "
+                                    "The previous model output was internal "
+                                    "reasoning state and has been discarded. "
+                                    "Continue the CURRENT INNER reasoning "
+                                    "loop. Do not expose, quote, echo, or "
+                                    "summarize the reasoning_state marker."
+                                )
+                            )
+
+                            # IMPORTANT:
+                            # The nearest enclosing loop here is the INNER
+                            # `while reasoning_steps < max_reasoning_steps`.
+                            #
+                            # Therefore:
+                            #   thinking -> next INNER reasoning step
+                            #   inner budget exhausted -> leave while
+                            #   -> OUTER interaction loop starts next cycle
+                            continue
+
+                        #
+                        # --------------------------------------------------
+                        # RESPONSE GUARDRAILS
+                        # --------------------------------------------------
+                        #
 
                         checked_response = (
                             await run_context.guardrails.check_response(
@@ -990,6 +1022,64 @@ class AgentRunner:
                         "Memory reflection failed.",
                     )
 
+    @staticmethod
+    def _is_thinking_state(response: LLMResponse) -> bool:
+        """
+        Detect an INTERNAL reasoning-state response.
+
+        The model is allowed to emit either:
+            <reasoning_state>{status:thinking}</reasoning_state>
+        or:
+            <reasoning_state>{"status":"thinking"}</reasoning_state>
+
+        If ANY reasoning_state block in the complete response says
+        `thinking`, the ENTIRE response is internal control data.
+        """
+        text = response.text or ""
+        if not text.strip():
+            return False
+
+        matches = re.findall(
+            r"<reasoning_state>\s*(.*?)\s*</reasoning_state>",
+            text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+
+        if not matches:
+            return False
+
+        for state in matches:
+            normalized = (
+                state.strip()
+                .lower()
+                .replace('"', "")
+                .replace("'", "")
+                .replace(" ", "")
+                .replace("\n", "")
+                .replace("\r", "")
+                .replace("\t", "")
+            )
+
+            # Handles the exact non-JSON form:
+            # {status:thinking}
+            if (
+                "status:thinking" in normalized
+                or "status=thinking" in normalized
+                or "statusthinking" in normalized
+            ):
+                return True
+
+            # Also support valid JSON.
+            try:
+                parsed = extract_json(state)
+                if isinstance(parsed, dict):
+                    if str(parsed.get("status", "")).strip().lower() == "thinking":
+                        return True
+            except Exception:
+                pass
+
+        return False
+
     async def _optimize_context(
         self,
         *,
@@ -1126,6 +1216,27 @@ class AgentRunner:
 
                 session.clear_activity()
 
+            # The internal reasoning marker is never a valid final response.
+            # Do not allow FINAL RESPONSE MODE to bypass the reasoning-state
+            # protection used by the normal interaction loop.
+            if self._is_thinking_state(response):
+                logger.warning(
+                    "[RUNNER] Final response attempt %d/%d returned "
+                    "internal reasoning state. Rejecting it; it must never "
+                    "be exposed to the user.",
+                    attempt,
+                    self._max_final_response_attempts,
+                )
+                run_context.add_message(
+                    ChatMessage.system(
+                        "FINAL RESPONSE INVALID. "
+                        "The previous output contained an internal "
+                        "reasoning_state marker. Never expose that marker. "
+                        "Generate only the user-facing final answer."
+                    )
+                )
+                continue
+
             if response.has_tool_calls:
 
                 logger.warning(
@@ -1213,10 +1324,13 @@ class AgentRunner:
                 ),
             )
 
-        if response is not None:
-
+        # Fail closed. Never return the last response blindly because it
+        # may be an internal reasoning_state payload after all finalization
+        # attempts were rejected.
+        if response is not None and not self._is_thinking_state(response):
             return response
 
         raise RuntimeError(
-            "Final response generation completed without a response."
+            "Final response generation completed without a valid "
+            "user-facing response."
         )
