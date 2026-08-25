@@ -17,7 +17,7 @@ class ToolUseCall:
     record_result().
     """
 
-    max_tool_search_calls: int = 3
+    max_tool_search_calls: int = 4
     max_same_search_query: int = 2
 
     search_calls: int = 0

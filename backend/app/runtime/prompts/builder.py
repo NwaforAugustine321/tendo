@@ -22,6 +22,8 @@ from app.runtime.prompts.sections.user_task import (
 from app.runtime.prompts.sections.tools import ToolPromptBuilder
 from app.runtime.prompts.sections.runtime import RuntimePromptBuilder
 from app.runtime.rag.builder import RAGPromptBuilder
+from app.runtime.memory.context import MemoryContext
+from app.runtime.rag.context import RAGContext
 from app.runtime.structured_output.formatter import OutputFormatter
 
 from .context import PromptContext
@@ -161,27 +163,26 @@ class PromptBuilder:
         #
         # Memory
         #
-        if self._context.run_context.session._agent._enable_runtime_mem:
 
-            prompt = await (
-                self._build_memory_prompt()
+        prompt = await (
+            self._build_memory_prompt()
+        )
+
+        if prompt:
+            runt_time_parts.append(
+                prompt,
             )
-
-            if prompt:
-                runt_time_parts.append(
-                    prompt,
-                )
 
         # Retrieved knowledge
-        if self._context.run_context.session._agent._enable_runtime_rag:
-            prompt = await (
-                self._build_rag_prompt()
-            )
 
-            if prompt:
-                runt_time_parts.append(
-                    prompt,
-                )
+        prompt = await (
+            self._build_rag_prompt()
+        )
+
+        if prompt:
+            runt_time_parts.append(
+                prompt,
+            )
 
         messages: list[ChatMessage] = []
 
@@ -267,9 +268,12 @@ class PromptBuilder:
             ),
         )
 
-        memory = await agent.memory.retrieve(
-            self._context.run_context,
-        )
+        memory = MemoryContext()
+
+        if self._context.run_context.session._agent._enable_runtime_rag:
+            memory = await agent.memory.retrieve(
+                self._context.run_context,
+            )
 
         await self._context.run_context.emitter.emit(
             EventType.PROGRESS,
@@ -298,9 +302,11 @@ class PromptBuilder:
             ),
         )
 
-        knowledge = await agent.rag.retrieve(
-            self._context.run_context,
-        )
+        knowledge = RAGContext()
+        if self._context.run_context.session._agent._enable_runtime_rag:
+            knowledge = await agent.rag.retrieve(
+                self._context.run_context,
+            )
 
         await self._context.run_context.emitter.emit(
             EventType.PROGRESS,

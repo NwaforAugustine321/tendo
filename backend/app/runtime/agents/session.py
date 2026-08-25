@@ -105,7 +105,7 @@ class AgentSession:
             context_monitor
             if context_monitor is not None
             else DefaultContextMonitor(
-                threshold=10500,
+                threshold=15000,
             )
         )
 

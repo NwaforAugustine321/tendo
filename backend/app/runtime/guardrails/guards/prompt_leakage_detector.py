@@ -142,7 +142,7 @@ class PromptLeakageSafetyGuardrail(Guardrail):
         response: LLMResponse,
     ) -> GuardrailResult:
 
-        logger.info('[OUTPUR VALIDATION] ===', response.text)
+        logger.info(f'[OUTPUR VALIDATION]')
 
         if not response.text:
             return GuardrailResult(
@@ -204,7 +204,7 @@ class PromptLeakageSafetyGuardrail(Guardrail):
         ctx: RunContext,
     ) -> GuardrailResult:
 
-        logger.info('[INPUT VALIDATION] ===', ctx.user_request)
+        logger.info(f'[INPUT VALIDATION]')
 
         message = ctx.user_request
 

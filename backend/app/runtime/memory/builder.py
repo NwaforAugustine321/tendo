@@ -36,9 +36,6 @@ class MemoryPromptBuilder:
         Convert retrieved memories into a prompt section.
         """
 
-        if context.empty:
-            return ""
-
         lines = []
 
         for entry in context.entries:
@@ -48,4 +45,4 @@ class MemoryPromptBuilder:
             )
 
         lines = '\n'.join(lines)
-        return self.HEADER.replace('{memory}', lines)
+        return self.HEADER.replace('{memory}', lines if lines else '')

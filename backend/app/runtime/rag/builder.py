@@ -32,9 +32,6 @@ class RAGPromptBuilder:
         context: RAGContext,
     ) -> str:
 
-        if context.empty:
-            return ""
-
         lines = []
 
         for document in context.documents:
@@ -44,4 +41,4 @@ class RAGPromptBuilder:
             )
 
         lines = '\n'.join(lines)
-        return self.HEADER.replace('{central_knowledge}', lines)
+        return self.HEADER.replace('{central_knowledge}', lines if lines else '')
