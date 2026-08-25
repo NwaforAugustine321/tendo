@@ -1,0 +1,265 @@
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+
+import lancedb
+from lancedb.pydantic import LanceModel, Vector
+
+from app.runtime.embeddings.client import (
+    get_embedding_client,
+)
+from app.runtime.embeddings.provider import (
+    EmbeddingProvider,
+)
+
+from .strategy import PromptLeakageDetectionStrategy
+
+
+def create_prompt_schema(
+    dimension: int,
+) -> type[LanceModel]:
+
+    class PromptRecord(LanceModel):
+
+        id: str
+        prompt_id: str
+        source: str
+        content: str
+        vector: Vector(dimension)
+
+    return PromptRecord
+
+
+class SemanticLeakageSearchStrategy(
+    PromptLeakageDetectionStrategy,
+):
+
+    def __init__(
+        self,
+        *,
+        db: lancedb.DBConnection | None = None,
+        namespace: str = "prompts",
+        table_name: str = "prompts",
+        uri: str | Path = "./data/prompts",
+        embeddings: EmbeddingProvider | None = None,
+        threshold: float = 0.20,
+    ) -> None:
+
+        self._embeddings = (
+            embeddings
+            or get_embedding_client()
+        )
+
+        self._db = (
+            db
+            or lancedb.connect(
+                str(
+                    Path(uri) / namespace,
+                ),
+            )
+        )
+
+        self._schema = create_prompt_schema(
+            self._embeddings.dimension,
+        )
+
+        self._table = (
+            self._get_or_create_table(
+                table_name,
+            )
+        )
+
+        self._threshold = threshold
+
+    def _get_or_create_table(
+        self,
+        table_name: str,
+    ):
+
+        if table_name in self._db.table_names():
+            return self._db.open_table(
+                table_name,
+            )
+
+        return self._db.create_table(
+            table_name,
+            schema=self._schema,
+        )
+
+    async def build_index(
+        self,
+        prompts: list[dict],
+    ) -> None:
+
+        if not prompts:
+            return
+
+        texts = [
+            prompt["content"]
+            for prompt in prompts
+        ]
+
+        vectors = await (
+            self._embeddings.embed_documents(
+                texts,
+            )
+        )
+
+        rows = []
+
+        for prompt, vector in zip(
+            prompts,
+            vectors,
+        ):
+            rows.append(
+                self._schema(
+                    id=self._prompt_id(
+                        prompt,
+                    ),
+                    prompt_id=prompt["id"],
+                    source=prompt["source"],
+                    content=prompt["content"],
+                    vector=vector,
+                ),
+            )
+
+        self._table.merge_insert(
+            "id",
+        ).when_matched_update_all(
+        ).when_not_matched_insert_all(
+        ).execute(
+            rows,
+        )
+
+    async def search(
+        self,
+        response: str,
+        max_results: int = 5,
+    ) -> list[dict]:
+
+        if (
+            not response
+            or not response.strip()
+            or max_results <= 0
+        ):
+            return []
+
+        vector = await (
+            self._embeddings.embed(
+                response,
+            )
+        )
+
+        rows = (
+            self._table
+            .search(vector)
+            .metric("cosine")
+            .limit(max_results)
+            .to_list()
+        )
+
+        results: list[dict] = []
+
+        for row in rows:
+
+            distance = row.get(
+                "_distance",
+            )
+
+            if distance is None:
+                continue
+
+            results.append(
+                {
+                    "id": row["id"],
+                    "prompt_id": row["prompt_id"],
+                    "source": row["source"],
+                    "content": row["content"],
+                    "distance": float(
+                        distance,
+                    ),
+                },
+            )
+
+        return results
+
+    async def detect_match(
+        self,
+        response: str,
+        *,
+        threshold: float | None = None,
+    ) -> dict | None:
+
+        if not response or not response.strip():
+            return None
+
+        threshold = (
+            self._threshold
+            if threshold is None
+            else threshold
+        )
+
+        results = await self.search(
+            response,
+            max_results=1,
+        )
+
+        if not results:
+            return None
+
+        result = results[0]
+
+        if result["distance"] > threshold:
+            return None
+
+        return result
+
+    async def detect(
+        self,
+        text: str,
+    ) -> dict | None:
+
+        match = await self.detect_match(
+            text,
+        )
+
+        if match is None:
+            return None
+
+        return {
+            "strategy": "semantic",
+            "prompt_id": match["prompt_id"],
+            "source": match["source"],
+            "content": match["content"],
+            "distance": match["distance"],
+        }
+
+    async def is_leakage(
+        self,
+        response: str,
+        *,
+        threshold: float | None = None,
+    ) -> bool:
+
+        return (
+            await self.detect_match(
+                response,
+                threshold=threshold,
+            )
+        ) is not None
+
+    @staticmethod
+    def _prompt_id(
+        prompt: dict,
+    ) -> str:
+
+        content = (
+            f"{prompt['id']}|"
+            f"{prompt['source']}|"
+            f"{prompt['content']}"
+        )
+
+        return hashlib.sha256(
+            content.encode("utf-8"),
+        ).hexdigest()

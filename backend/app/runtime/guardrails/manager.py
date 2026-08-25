@@ -10,7 +10,7 @@ from app.runtime.guardrails.guards.input_security import InputSafetyGuardrail
 from app.runtime.guardrails.guards.output_security import OutputSafetyGuardrail
 from app.runtime.guardrails.classifiers.nvidia import NvidiaSafetyClassifier
 from app.runtime.guardrails.guards.conversation_history_security import ConversationHistorySafetyGuardrail
-from app.runtime.guardrails.guards.prompt_leakage_security import PromptLeakageSafetyGuardrail
+from app.runtime.guardrails.guards.prompt_leakage_detector import PromptLeakageSafetyGuardrail
 
 
 class GuardrailManager:
