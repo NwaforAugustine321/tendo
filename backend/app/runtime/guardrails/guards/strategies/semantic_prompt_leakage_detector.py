@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 from pathlib import Path
 
 import lancedb
@@ -15,6 +16,11 @@ from app.runtime.embeddings.provider import (
 )
 
 from .strategy import PromptLeakageDetectionStrategy
+
+
+SENTENCE_PATTERN = re.compile(
+    r"[^.!?\n]+[.!?]*",
+)
 
 
 def create_prompt_schema(
@@ -44,7 +50,10 @@ class SemanticLeakageSearchStrategy(
         table_name: str = "prompts",
         uri: str | Path = "./data/internal/prompts",
         embeddings: EmbeddingProvider | None = None,
-        threshold: float = 0.20,
+        threshold: float = 0.40,
+        window_sentences: int = 3,
+        window_overlap: int = 1,
+        max_windows: int = 8,
     ) -> None:
 
         self._embeddings = (
@@ -72,6 +81,9 @@ class SemanticLeakageSearchStrategy(
         )
 
         self._threshold = threshold
+        self._window_sentences = max(1, window_sentences)
+        self._window_overlap = max(0, window_overlap)
+        self._max_windows = max(1, max_windows)
 
         self._pending: list[dict] = []
         self._pending_lock = asyncio.Lock()
@@ -291,20 +303,92 @@ class SemanticLeakageSearchStrategy(
             else threshold
         )
 
-        results = await self.search(
-            response,
-            max_results=1,
+        windows = self._windows(response)
+
+        if not windows:
+            return None
+
+        searches = await asyncio.gather(
+            *(
+                self.search(
+                    window,
+                    max_results=3,
+                )
+                for window in windows
+            ),
         )
 
-        if not results:
+        matches = [
+            result
+            for results in searches
+            for result in results
+            if result["distance"] <= threshold
+        ]
+
+        if not matches:
             return None
 
-        result = results[0]
+        return min(
+            matches,
+            key=lambda result: result["distance"],
+        )
 
-        if result["distance"] > threshold:
-            return None
+    def _windows(
+        self,
+        response: str,
+    ) -> list[str]:
+        """
+        Split a response into overlapping sentence windows.
 
-        return result
+        A leaked passage inside a long answer is diluted when the whole
+        response is embedded as one vector, so each window is compared
+        separately alongside the full text.
+        """
+
+        response = response.strip()
+
+        if not response:
+            return []
+
+        sentences = [
+            sentence.strip()
+            for sentence in SENTENCE_PATTERN.findall(
+                response,
+            )
+            if sentence.strip()
+        ]
+
+        if len(sentences) <= self._window_sentences:
+            return [response]
+
+        step = max(
+            1,
+            self._window_sentences - self._window_overlap,
+        )
+
+        windows = [response]
+
+        for start in range(
+            0,
+            len(sentences),
+            step,
+        ):
+
+            if len(windows) >= self._max_windows:
+                break
+
+            window = " ".join(
+                sentences[
+                    start: start + self._window_sentences
+                ],
+            )
+
+            if window and window not in windows:
+                windows.append(
+                    window,
+                )
+
+        return windows
 
     async def detect(
         self,

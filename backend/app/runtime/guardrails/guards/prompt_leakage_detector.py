@@ -110,18 +110,6 @@ class PromptLeakageSafetyGuardrail(Guardrail):
 
             return "", None
 
-        if self._manual is not None:
-
-            manual_match = await self._manual.detect(
-                text,
-            )
-
-            if manual_match:
-                return (
-                    self.PROMPT_LEAKAGE_MESSAGE,
-                    manual_match,
-                )
-
         if self._semantic is not None:
 
             semantic_match = await self._semantic.detect(
@@ -132,6 +120,18 @@ class PromptLeakageSafetyGuardrail(Guardrail):
                 return (
                     self.PROMPT_LEAKAGE_MESSAGE,
                     semantic_match,
+                )
+
+        if self._manual is not None:
+
+            manual_match = await self._manual.detect(
+                text,
+            )
+
+            if manual_match:
+                return (
+                    self.PROMPT_LEAKAGE_MESSAGE,
+                    manual_match,
                 )
 
         return "", None
