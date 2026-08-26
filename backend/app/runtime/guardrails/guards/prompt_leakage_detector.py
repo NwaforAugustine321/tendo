@@ -222,7 +222,7 @@ class PromptLeakageSafetyGuardrail(Guardrail):
 
             leakage_message = leakage_message.replace(
                 "{prev_response}",
-                f"```text\n{response.text}\n```",
+                f"```text\n{message}\n```",
             )
 
             if match:
