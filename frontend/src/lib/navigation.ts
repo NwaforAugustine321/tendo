@@ -1,19 +1,16 @@
-export type PrimarySection = 'conversations' | 'business' | 'inventory' | 'customers' | 'analytics'
+export type PrimarySection = 'insights' | 'recent' | 'analytics'
 
 export function primaryFromPathname(pathname: string): PrimarySection {
-  if (pathname.startsWith('/app/business')) return 'business'
-  if (pathname.startsWith('/app/inventory')) return 'inventory'
-  if (pathname.startsWith('/app/customers')) return 'customers'
+  if (pathname.startsWith('/app/insights')) return 'insights'
+  if (pathname.startsWith('/app/recent')) return 'recent'
   if (pathname.startsWith('/app/analytics')) return 'analytics'
-  return 'conversations'
+  return 'insights'
 }
 
 export function panelTitle(primary: PrimarySection): string {
   switch (primary) {
-    case 'conversations': return 'Sessions'
-    case 'business': return 'Business'
-    case 'inventory': return 'Inventory'
-    case 'customers': return 'Customers'
+    case 'insights': return 'Insights'
+    case 'recent': return 'Recent'
     case 'analytics': return 'Analytics'
   }
 }

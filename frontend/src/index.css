@@ -3,7 +3,9 @@
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-mono:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
 
   /* Two-tone dark: nav panels are #0f0f0f, everything else is #0a0a0a */
   --color-brand-bg: #0a0a0a;
@@ -26,6 +28,25 @@
   --color-brand-border: rgb(39 39 42 / 0.9);
   --color-brand-border-hover: rgb(63 63 70 / 0.9);
   --color-brand-border-subtle: rgb(39 39 42 / 0.6);
+}
+
+/* Thin overlay scrollbar for dark UI */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(63 63 70 / 0.5) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgb(63 63 70 / 0.5);
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(82 82 91 / 0.7);
 }
 
 html {
@@ -142,5 +163,27 @@ body {
 
   .av-btn-emerald-solid {
     @apply inline-flex items-center justify-center rounded-lg bg-[#3ecf8e] px-6 py-2.5 text-sm font-semibold text-[#0a0a0a] shadow-sm shadow-[#3ecf8e]/25 transition hover:bg-[#5ee9b0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3ecf8e]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:pointer-events-none disabled:opacity-45;
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

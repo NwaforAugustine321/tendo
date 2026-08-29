@@ -1,0 +1,106 @@
+/**
+ * Radial position math utilities.
+ * Converts item indices to x,y positions along a circle circumference.
+ */
+
+/**
+ * Get the x,y position for an item in a radial layout.
+ * Items are distributed evenly around a circle, starting from the top (12 o'clock).
+ *
+ * @param index - The item's index (0-based)
+ * @param total - Total number of items
+ * @param radius - Distance from center in pixels
+ * @returns { x, y } offset from center
+ */
+export function getRadialPosition(
+  index: number,
+  total: number,
+  radius: number
+): { x: number; y: number } {
+  if (total <= 0) return { x: 0, y: 0 }
+
+  // Start from top (270° in standard math coords = -90° = top)
+  const angleStep = (2 * Math.PI) / total
+  const angle = angleStep * index - Math.PI / 2 // offset to start at top
+
+  const x = radius * Math.cos(angle)
+  const y = radius * Math.sin(angle)
+
+  return { x, y }
+}
+
+/**
+ * Get the position for an item along a RIGHT-FACING semicircle hub.
+ * The semicircle arc spans from -90° (top) to +90° (bottom), extending to the right.
+ * Items are spaced with a fixed minimum angle gap to prevent overlap.
+ * Scrolling shifts all items along the arc, hiding those outside the visible range.
+ *
+ * @param index - The item's index (0-based)
+ * @param total - Total number of items to distribute
+ * @param radius - Distance from center in pixels
+ * @param rotationOffset - Rotation offset in degrees (from scrolling)
+ * @returns { x, y, angleDeg } position and the computed angle in degrees
+ */
+export function getHubPosition(
+  index: number,
+  total: number,
+  radius: number,
+  rotationOffset: number = 0
+): { x: number; y: number; angleDeg: number } {
+  if (total <= 0) return { x: 0, y: 0, angleDeg: 0 }
+
+  // Fixed spacing between items — enough to prevent overlap (min 35° apart)
+  const MIN_SPACING = 35
+  const arcSize = 180
+  // Use arc-fitting spacing if items fit, otherwise use minimum spacing
+  const naturalSpacing = total > 1 ? arcSize / (total - 1) : 0
+  const spacing = Math.max(MIN_SPACING, naturalSpacing)
+
+  // Item's base angle: start at -90° (top), increment by spacing
+  const baseAngle = -90 + spacing * index
+
+  // Apply rotation offset
+  const angleDeg = baseAngle + rotationOffset
+
+  // Convert to radians for position calculation
+  const angleRad = (angleDeg * Math.PI) / 180
+
+  const x = radius * Math.cos(angleRad)
+  const y = radius * Math.sin(angleRad)
+
+  return { x, y, angleDeg }
+}
+
+/**
+ * Check if an angle (in degrees) is within the visible semicircle arc.
+ * Only items on the RIGHT side (x > 0) should be visible.
+ * The visible arc is from -90° to +90° (right-facing half).
+ *
+ * @param angleDeg - The angle in degrees to check
+ * @param buffer - Optional buffer in degrees for fade-out zone (default 15)
+ * @returns Object with visibility state and opacity value
+ */
+export function isInVisibleArc(
+  angleDeg: number,
+  buffer: number = 15
+): { visible: boolean; opacity: number } {
+  const minAngle = -90
+  const maxAngle = 90
+
+  // Hide items that end up on the left side (angle outside -90 to +90 means x < 0)
+  if (angleDeg < minAngle || angleDeg > maxAngle) {
+    return { visible: false, opacity: 0 }
+  }
+
+  // Fade at edges of the visible arc
+  if (angleDeg < minAngle + buffer) {
+    const t = (angleDeg - minAngle) / buffer
+    return { visible: true, opacity: Math.max(0.2, t) }
+  }
+  if (angleDeg > maxAngle - buffer) {
+    const t = (maxAngle - angleDeg) / buffer
+    return { visible: true, opacity: Math.max(0.2, t) }
+  }
+
+  return { visible: true, opacity: 1 }
+}

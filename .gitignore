@@ -2,6 +2,7 @@
 node_modules/
 frontend/node_modules/
 frontend/dist/
+ollama-STT-TTS/
 
 # Environment
 .env
@@ -10,8 +11,14 @@ frontend/dist/
 # Kiro specs (local only)
 .kiro/
 
+tunnel/
+voice-agent/
+
 # Sigmoid reference (not part of tendo)
 sigmoid.ai/
+
+# CrewAI reference (local only)
+crewAI/
 
 # Python
 __pycache__/
@@ -19,6 +26,9 @@ __pycache__/
 *.pyo
 .venv/
 *.egg-info/
+
+# Data (vector stores, local DB)
+backend/data/
 
 # IDE
 .vscode/

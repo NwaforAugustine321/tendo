@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { MessageSquare, Home, Package, Users, BarChart3, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Lightbulb, History, BarChart3, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useAuth } from '../../context/auth'
 import type { PrimarySection } from '../../lib/navigation'
 
@@ -21,7 +21,7 @@ function railItemClass(active: boolean, orientation: 'vertical' | 'horizontal') 
       'transition-[background-color,color,box-shadow,gap,padding] duration-200 ease-out',
       'group-hover/rail:justify-start group-hover/rail:gap-2 group-hover/rail:bg-[#141414] group-hover/rail:px-2.5 group-hover/rail:shadow-lg',
       edge,
-      active ? 'border-[#3ecf8e] bg-white/[0.06] text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300',
+      active ? 'border-[#3ecf8e] bg-white/[0.06] text-white' : 'border-transparent text-zinc-400 hover:text-zinc-300',
     ].join(' ')
   }
   return [
@@ -29,7 +29,7 @@ function railItemClass(active: boolean, orientation: 'vertical' | 'horizontal') 
     'transition-[min-width,background-color,color,box-shadow,gap,padding] duration-200 ease-out',
     'group-hover/rail:min-w-[8.25rem] group-hover/rail:justify-start group-hover/rail:bg-[#141414] group-hover/rail:px-2 group-hover/rail:shadow-md',
     edge,
-    active ? 'border-[#3ecf8e] bg-white/[0.06] text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300',
+    active ? 'border-[#3ecf8e] bg-white/[0.06] text-white' : 'border-transparent text-zinc-400 hover:text-zinc-300',
   ].join(' ')
 }
 
@@ -37,10 +37,8 @@ const railItemLabelClass =
   'pointer-events-none max-w-0 truncate whitespace-nowrap text-left text-xs font-medium text-zinc-400 opacity-0 transition-[max-width,opacity] duration-200 ease-out group-hover/rail:max-w-[7.5rem] group-hover/rail:opacity-100'
 
 const NAV_ITEMS: { id: PrimarySection; to: string; label: string; icon: ReactNode }[] = [
-  { id: 'conversations', to: '/app', label: 'Conversations', icon: <MessageSquare size={20} /> },
-  { id: 'business', to: '/app/business', label: 'Business', icon: <Home size={20} /> },
-  { id: 'inventory', to: '/app/inventory', label: 'Inventory', icon: <Package size={20} /> },
-  { id: 'customers', to: '/app/customers', label: 'Customers', icon: <Users size={20} /> },
+  { id: 'insights', to: '/app/insights', label: 'Insights', icon: <Lightbulb size={20} /> },
+  { id: 'recent', to: '/app/recent', label: 'Recent', icon: <History size={20} /> },
   { id: 'analytics', to: '/app/analytics', label: 'Analytics', icon: <BarChart3 size={20} /> },
 ]
 
@@ -85,6 +83,8 @@ export function IconRail({ orientation = 'vertical', onNavigate, activePrimary, 
     <aside
       className="group/rail pointer-events-auto absolute inset-y-0 left-0 z-30 flex w-[52px] flex-col overflow-visible border-r border-zinc-800/90 bg-[#0f0f0f] shadow-none transition-[width,box-shadow] duration-200 ease-out hover:w-44 hover:shadow-2xl"
       aria-label="Primary navigation"
+      onMouseEnter={() => window.dispatchEvent(new Event('tendo:rail-enter'))}
+      onMouseLeave={() => window.dispatchEvent(new Event('tendo:rail-leave'))}
     >
       <div className="flex w-full flex-col overflow-visible py-2">
         {core}

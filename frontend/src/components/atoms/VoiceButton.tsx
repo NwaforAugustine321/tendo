@@ -6,9 +6,10 @@ type Props = {
   onRecorded?: (blob: Blob) => void
   onToggle?: () => void
   isListening?: boolean
+  loading?: boolean
 }
 
-export function VoiceButton({ onToggle, isListening = false }: Props) {
+export function VoiceButton({ onToggle, isListening = false, loading = false }: Props) {
   const [duration, setDuration] = useState(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -41,21 +42,31 @@ export function VoiceButton({ onToggle, isListening = false }: Props) {
       <button
         type="button"
         onClick={onToggle}
+        disabled={loading}
         className={clsx(
           'relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200',
-          isListening
-            ? 'border-red-400 bg-red-500/10 text-red-400'
-            : 'border-[#3ecf8e]/50 text-[#3ecf8e] hover:border-[#3ecf8e] hover:bg-[#3ecf8e]/10'
+          loading
+            ? 'border-zinc-500 text-zinc-400 cursor-wait'
+            : isListening
+              ? 'border-red-400 bg-red-500/10 text-red-400'
+              : 'border-[#3ecf8e]/50 text-[#3ecf8e] hover:border-[#3ecf8e] hover:bg-[#3ecf8e]/10'
         )}
-        aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
+        aria-label={loading ? 'Connecting...' : isListening ? 'Stop recording' : 'Start voice recording'}
       >
-        <Mic size={18} />
-        {isListening && (
+        {loading ? (
+          <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        ) : (
+          <Mic size={18} />
+        )}
+        {isListening && !loading && (
           <span className="absolute inset-0 animate-ping rounded-full border border-red-400/30" />
         )}
       </button>
 
-      {isListening && (
+      {isListening && !loading && (
         <span className="text-xs tabular-nums text-red-400">
           {formatTime(duration)}
         </span>

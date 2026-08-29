@@ -20,7 +20,7 @@ export function Welcome() {
       </Link>
       <p className="mt-4 text-sm font-medium text-[#3ecf8e]">Tap to start</p>
 
-      <p className="mt-8 text-xs text-zinc-600">
+      <p className="mt-8 text-xs text-zinc-400">
         Already have a login?{' '}
         <Link to="/login" className="text-[#3ecf8e] hover:underline">Sign in</Link>
       </p>

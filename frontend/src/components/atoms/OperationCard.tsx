@@ -22,10 +22,10 @@ export function OperationCard({ operationType, changes, onRevert, onContinueFrom
       <div className="space-y-1.5 mb-4">
         {changes.map((c, i) => (
           <div key={i} className="flex items-baseline justify-between text-xs">
-            <span className="text-zinc-500">{c.label}</span>
+            <span className="text-zinc-400">{c.label}</span>
             <span className="text-zinc-300">
-              <span className="text-zinc-500">{c.before}</span>
-              <span className="mx-1 text-zinc-600">→</span>
+              <span className="text-zinc-400">{c.before}</span>
+              <span className="mx-1 text-zinc-400">→</span>
               <span className="font-medium text-white">{c.after}</span>
             </span>
           </div>

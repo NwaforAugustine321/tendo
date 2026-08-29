@@ -3,12 +3,10 @@
 import logging
 
 from app.db.client import get_client
-from app.db.registry import register
 
 logger = logging.getLogger(__name__)
 
 
-@register("get_inventory")
 async def get_inventory(business_id: str, product_id: str = "", **kwargs) -> dict:
     """Get inventory items, optionally filtered by product."""
     client = get_client()
@@ -19,7 +17,6 @@ async def get_inventory(business_id: str, product_id: str = "", **kwargs) -> dic
     return {"results": result.data or [], "count": len(result.data or [])}
 
 
-@register("update_inventory")
 async def update_inventory(business_id: str, inventory_id: str, quantity: float, **kwargs) -> dict:
     """Update inventory quantity."""
     client = get_client()
@@ -33,7 +30,6 @@ async def update_inventory(business_id: str, inventory_id: str, quantity: float,
     return result.data[0] if result.data else {"error": "Update failed"}
 
 
-@register("add_inventory")
 async def add_inventory(business_id: str, product_id: str, quantity: float = 0, reorder_level: float = 0, **kwargs) -> dict:
     """Add a new inventory entry for a product."""
     client = get_client()
@@ -47,7 +43,6 @@ async def add_inventory(business_id: str, product_id: str, quantity: float = 0, 
     return result.data[0] if result.data else data
 
 
-@register("record_inventory_movement")
 async def record_inventory_movement(
     business_id: str, inventory_id: str, movement_type: str, quantity: float, reference: str = "", **kwargs
 ) -> dict:

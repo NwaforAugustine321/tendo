@@ -1,0 +1,351 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime, UTC
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+import lancedb
+from lancedb.pydantic import LanceModel, Vector
+from pydantic import Field
+
+from app.runtime.embeddings.client import (
+    get_embedding_client,
+)
+from app.runtime.embeddings.provider import (
+    EmbeddingProvider,
+)
+
+from .context import MemoryContext
+from .models import MemoryEntry
+from .reflection import MemoryReflection
+from .store import MemoryStore
+import logging
+
+_logger = logging.getLogger(__name__)
+
+
+def _create_memory_schema(
+    dimension: int,
+) -> type[LanceModel]:
+    """
+    Create a LanceDB schema using the configured
+    embedding dimension.
+    """
+
+    class MemoryRecord(LanceModel):
+        id: str
+
+        text: str
+
+        category: str = "general"
+
+        scopes: list[str] = Field(default_factory=list)
+
+        metadata: str = Field(
+            default="{}",
+        )
+
+        created_at: datetime
+
+        vector: Vector(dimension)
+
+    return MemoryRecord
+
+
+class LanceMemoryStore(
+    MemoryStore,
+):
+    """
+    LanceDB implementation of MemoryStore.
+    """
+
+    #
+    # Tables that are always available for retrieval,
+    # regardless of which table this store writes to.
+    #
+    DEFAULT_READ_TABLES: tuple[str, ...] = (
+        "memory",
+        "business_knowledge",
+    )
+
+    def __init__(
+        self,
+        *,
+        db: lancedb.DBConnection | None = None,
+        namespace: str,
+        table_name: str = "memory",
+        read_tables: list[str] | None = None,
+        uri: str | Path = "./data/memory",
+        embeddings: EmbeddingProvider | None = None,
+        scopes: list[str] | None = None,
+        ignore_threshold: bool = False
+    ) -> None:
+
+        self._embeddings = (
+            embeddings
+            or get_embedding_client()
+        )
+
+        self._scopes = scopes or []
+        self._ignore_threshold = ignore_threshold
+
+        self._db = (
+            db
+            or lancedb.connect(
+                str(
+                    Path(uri) / namespace
+                )
+            )
+        )
+
+        self._schema = _create_memory_schema(
+            self._embeddings.dimension,
+        )
+
+        # Write table — always a single explicit table.
+        self._table = self._get_or_create_table(
+            table_name,
+        )
+
+        requested_read_names = (
+            list(read_tables)
+            if read_tables is not None
+            else list(self.DEFAULT_READ_TABLES)
+        )
+
+        all_read_names = list(
+            dict.fromkeys(
+                [table_name] + requested_read_names,
+            )
+        )
+
+        self._read_table_names = all_read_names
+
+        self._read_tables: list[lancedb.table.Table] = [
+            self._get_or_create_table(name)
+            for name in all_read_names
+        ]
+
+    def _get_or_create_table(
+        self,
+        table_name: str,
+    ) -> lancedb.table.Table:
+
+        if table_name in self._db.table_names():
+
+            return self._db.open_table(
+                table_name,
+            )
+
+        return self._db.create_table(
+            table_name,
+            schema=self._schema,
+        )
+
+    async def retrieve(
+        self,
+        *,
+        query: str,
+        limit: int = 25,
+        distance_threshold: float = 0.5,
+        scopes: list[str] | None = None,
+
+    ) -> MemoryContext:
+
+        if not query.strip():
+            return MemoryContext()
+
+        vector = await self._embeddings.embed(
+            query,
+        )
+
+        merged_scopes = list(set(self._scopes + (scopes or [])))
+
+        # Query all read tables and merge results
+        all_rows: list[dict[str, Any]] = []
+
+        for table in self._read_tables:
+            try:
+                search = (
+                    table.search(vector)
+                    .metric("cosine")
+                    .limit(limit)
+                )
+
+                if merged_scopes:
+                    escaped = ", ".join(f"'{s}'" for s in merged_scopes)
+                    search = search.where(
+                        f"array_has_any(scopes, [{escaped}])")
+
+                rows = search.to_list()
+
+                all_rows.extend(rows)
+            except Exception:
+                continue
+
+        # Sort by distance (lower = more similar)
+        all_rows.sort(key=lambda r: r.get("_distance", 1.0))
+
+        # Filter out results that are too far from the query
+        relevant_rows = [
+            row for row in all_rows
+            if row.get("_distance", 1.0) <= distance_threshold
+        ]
+
+        selected_rows = all_rows if self._ignore_threshold else relevant_rows
+        _logger.info(
+            f"Mem retrieve: query='{query}', "
+            f"rows_found={len(selected_rows)}, "
+            f"tables={self._read_table_names}"
+        )
+
+        # Apply limit after merging
+        selected_rows = selected_rows[:limit]
+
+        return MemoryContext(
+            entries=[
+                MemoryEntry(
+                    id=row["id"],
+                    text=row["text"],
+                    category=row["category"],
+                    metadata=json.loads(
+                        row.get("metadata", "{}"),
+                    ),
+                )
+                for row in selected_rows
+            ]
+        )
+
+    async def save(
+        self,
+        *,
+        reflection: MemoryReflection,
+        scopes: list[str] | None = None,
+    ) -> None:
+
+        if reflection.empty:
+            return
+
+        await self._insert(
+            reflection.entries,
+            scopes=scopes,
+        )
+
+    async def delete(
+        self,
+        *,
+        memory_id: str,
+    ) -> None:
+
+        self._table.delete(
+            f"id='{memory_id}'",
+        )
+
+    async def _insert(
+        self,
+        entries: list[MemoryEntry],
+        scopes: list[str] | None = None,
+    ) -> None:
+
+        merged_scopes = list(set(self._scopes + (scopes or [])))
+
+        # Dedup: only insert entries that don't already
+        # have a semantically similar match in the store.
+        unique_entries = []
+        unique_vectors = []
+
+        vectors = await self._embeddings.embed_documents(
+            [
+                entry.text
+                for entry in entries
+            ]
+        )
+
+        for entry, vector in zip(entries, vectors):
+
+            if self._is_duplicate(vector):
+                continue
+
+            unique_entries.append(entry)
+            unique_vectors.append(vector)
+
+        if not unique_entries:
+            return
+
+        rows = [
+            self._schema(
+                id=entry.id or str(uuid4()),
+                text=entry.text,
+                category=entry.category,
+                scopes=merged_scopes,
+                metadata=json.dumps(entry.metadata),
+                created_at=datetime.now(UTC),
+                vector=vector,
+            )
+            for entry, vector in zip(
+                unique_entries,
+                unique_vectors,
+            )
+        ]
+
+        self._table.add(
+            rows,
+        )
+
+    def _is_duplicate(
+        self,
+        vector: list[float],
+        threshold: float = 0.92,
+    ) -> bool:
+        """
+        Check if a semantically similar memory already exists
+        across all read tables.
+        Returns True if a match with cosine similarity >= threshold is found.
+        """
+
+        for table in self._read_tables:
+            try:
+                results = (
+                    table.search(vector)
+                    .metric("cosine")
+                    .limit(1)
+                    .to_list()
+                )
+
+                if not results:
+                    continue
+
+                distance = results[0].get("_distance", 1.0)
+
+                # Cosine distance: 0 = identical, 1 = completely different.
+                # similarity = 1 - distance
+                # We want: similarity >= threshold → distance <= (1 - threshold)
+                if distance <= (1.0 - threshold):
+                    return True
+
+            except Exception:
+                continue
+
+        return False
+
+    async def _update(
+        self,
+        entry: MemoryEntry,
+    ) -> None:
+
+        vector = await self._embeddings.embed(
+            entry.text,
+        )
+
+        self._table.update(
+            where=f"id='{entry.id}'",
+            values={
+                "text": entry.text,
+                "category": entry.category,
+                "metadata": json.dumps(entry.metadata),
+                "created_at": datetime.now(UTC),
+                "vector": vector,
+            },
+        )

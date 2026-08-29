@@ -10,19 +10,11 @@ export function EmptyState() {
         </span>
       </div>
 
-      <h2 className="mt-5 text-lg font-semibold tracking-tight text-white">
-        Let Tendo know about your business
+      <h2 className="mt-5 text-sm font-semibold tracking-tight text-zinc-500">
+        Ask me anything
       </h2>
-
-      <div className="mt-4 flex flex-wrap justify-center gap-2">
-        <Chip icon={<Package size={14} />} label="Business type" color="orange" />
-        <Chip icon={<Wallet size={14} />} label="Team size" color="red" />
-        <Chip icon={<BarChart3 size={14} />} label="How it runs" color="green" />
-        <Chip icon={<Mic size={14} />} label="Use voice" color="green" />
-      </div>
-
-      <p className="mt-4 max-w-xs text-center text-sm text-zinc-500">
-        Tell me how your business works. I'll learn your customers, products, services or any type of bussiness, and how you operate.
+      <p className="mt-1 text-xs text-zinc-600">
+        or questions
       </p>
     </div>
   )

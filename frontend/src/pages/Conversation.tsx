@@ -1,174 +1,311 @@
-import { useState, useEffect, useRef } from 'react'
-import { ConversationPage, type MessageItem } from '../components/containers'
-import type { InputSpec } from '../components/containers/ConversationPage'
-import { useVoiceSession } from '../hooks/useVoiceSession'
+import { useState, useEffect, useRef, useCallback } from "react";
+import { ConversationPage, type MessageItem } from "../components/containers";
+import type { InputSpec } from "../components/containers/ConversationPage";
+import { useVoiceStore } from "../store/voice";
+import { useEventReceiver } from "../hooks/useEmitReceiver";
+import { useBusinessStore } from "../store/business";
+import { useWorkspaceStore } from "../store/workspace";
+import { connectSocket, disconnectSocket } from "../lib/ws";
 
 type Props = {
-  initialMessages?: MessageItem[]
-  sessionTitle?: string
-  fullScreen?: boolean
-  showHeader?: boolean
-  transparentBg?: boolean
-  flipCharacter?: boolean
-  characterRightOffset?: number
-}
+  initialMessages?: MessageItem[];
+  sessionTitle?: string;
+  sessionId?: string;
+  fullScreen?: boolean;
+  showHeader?: boolean;
+  transparentBg?: boolean;
+  flipCharacter?: boolean;
+  characterRightOffset?: number;
+  recordId?: string;
+  onFirstMessage?: () => void;
+};
 
-export function Conversation({ initialMessages, sessionTitle, fullScreen = false, showHeader = false, transparentBg = false, flipCharacter = false, characterRightOffset = 0 }: Props) {
-  const [messages, setMessages] = useState<MessageItem[]>(initialMessages ?? [])
-  const [thinking, setThinking] = useState(true)
-  const [wakeActive, setWakeActive] = useState(false)
-  const voice = useVoiceSession()
-  const connected = useRef(false)
-  const lastMsgId = useRef('')
+export function Conversation({
+  initialMessages,
+  sessionTitle,
+  sessionId,
+  fullScreen = false,
+  showHeader = false,
+  transparentBg = false,
+  flipCharacter = false,
+  characterRightOffset = 0,
+  recordId,
+  onFirstMessage,
+}: Props) {
+  const [messages, setMessages] = useState<MessageItem[]>(
+    initialMessages ?? [],
+  );
+  const [thinking, setThinking] = useState(false);
+  const [wakeActive, setWakeActive] = useState(false);
+  const [socketConnected, setSocketConnected] = useState(true);
+  const { currentProfile } = useBusinessStore();
+  const businessId = currentProfile?.id || "";
+  const {
+    connectionState,
+    micActive,
+    agentSpeaking,
+    statusText: voiceStatusText,
+    startAgent,
+    stopAgent,
+    toggleMic,
+    setStatusText,
+  } = useVoiceStore();
+  const { events: statusEvents } = useEventReceiver(["agent.progress"]);
 
-  useEffect(() => {
-    if (!connected.current) {
-      connected.current = true
-      voice.connect()
-      // Request mic permission on mount so audio is ready
-      navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {})
-    }
-  }, [])
+  const isConnected =
+    connectionState === "connected" ||
+    connectionState === "listening" ||
+    connectionState === "speaking";
+  const isListening = connectionState === "listening";
+  const isSpeaking = connectionState === "speaking";
 
-  // When voice connects successfully, mark as active
-  useEffect(() => {
-    if (voice.isConnected) {
-      setWakeActive(true)
-    } else if (!voice.isSpeaking && !voice.isListening) {
-      setWakeActive(false)
-    }
-  }, [voice.isConnected, voice.isSpeaking, voice.isListening])
-
-  // Display agent messages when they arrive
-  useEffect(() => {
-    if (!voice.lastMessage) return
-    if (voice.lastMessage.id === lastMsgId.current) return
-    lastMsgId.current = voice.lastMessage.id
-    setThinking(false)
-
-    console.log('[Conversation] lastMessage:', voice.lastMessage)
-
-    const { response, msgType, questions } = voice.lastMessage
-
-    // Add the text response as a message bubble
-    if (response) {
-      setMessages((prev) => [...prev, {
-        id: `text-${voice.lastMessage!.id}`,
-        role: 'assistant',
-        content: response,
-        type: 'text',
-      }])
-    }
-
-    // If type is "question", add the input card below the text
-    if (msgType === 'question' && questions) {
-      setMessages((prev) => [...prev, {
-        id: `input-${voice.lastMessage!.id}`,
-        role: 'assistant',
-        content: '',
-        type: 'input',
-        inputSpec: questions as InputSpec,
-      }])
-    }
-  }, [voice.lastMessage])
+  // ---------------------------------------------------------------
+  // Chat text via Socket.IO (completely separate from voice)
+  // ---------------------------------------------------------------
 
   useEffect(() => {
-    if (voice.errorMessage) {
-      setMessages((prev) => [...prev, {
-        id: `err-${Date.now()}`,
-        role: 'assistant',
-        content: voice.errorMessage,
-        type: 'text',
-      }])
+    const socket = connectSocket();
+
+    const handler = (raw: any) => {
+      const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
+      const data = msg.data || {};
+      const type = data.type || "";
+      const payload = data.payload || {};
+
+      if (type === "message" && payload.content) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            content: payload.content,
+            type: "text",
+            stream: true,
+          },
+        ]);
+        setThinking(false);
+        setStatusText("");
+      }
+    };
+
+    socket.on("message", handler);
+
+    const transcriptHandler = (raw: any) => {
+      const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
+      const content = msg?.data?.payload?.content || "";
+      if (content) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `user-${Date.now()}`,
+            role: "user",
+            content,
+            type: "text",
+          },
+        ]);
+        setThinking(true);
+      }
+    };
+
+    socket.on("transcript", transcriptHandler);
+
+    const onConnect = () => setSocketConnected(true);
+    const onDisconnect = () => {
+      setSocketConnected(false);
+      setThinking(false);
+    };
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+    setSocketConnected(socket.connected);
+
+    return () => {
+      socket.off("message", handler);
+      socket.off("transcript", transcriptHandler);
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
+      disconnectSocket();
+    };
+  }, []);
+
+  const sendChatText = useCallback(
+    (text: string) => {
+      if (!text.trim() || !businessId || !sessionId) return;
+
+      const socket = connectSocket();
+      socket.emit("message", {
+        type: "text",
+        payload: {
+          content: text,
+          business_id: businessId,
+          session_id: sessionId,
+          record_id: recordId || "",
+        },
+      });
+    },
+    [businessId, sessionId, recordId],
+  );
+
+  // ---------------------------------------------------------------
+  // Sync initialMessages when they change (e.g., switching sessions)
+  // ---------------------------------------------------------------
+
+  useEffect(() => {
+    if (initialMessages && initialMessages.length > 0) {
+      setMessages(initialMessages);
     }
-  }, [voice.errorMessage])
+  }, [initialMessages]);
+
+  // Sync Socket.IO progress events into the voice store
+  useEffect(() => {
+    if (statusEvents.length > 0) {
+      const latest = statusEvents[statusEvents.length - 1];
+      const data = latest.data as any;
+      const msg = data?.payload?.message || data?.message || "";
+      if (msg) setStatusText(msg);
+    }
+  }, [statusEvents]);
+
+  // ---------------------------------------------------------------
+  // Voice agent (LiveKit) — separate from text chat
+  // ---------------------------------------------------------------
+
+  useEffect(() => {
+    const bizId = currentProfile?.id;
+    if (bizId && connectionState === "disconnected") {
+      startAgent({ businessId: bizId, sessionId, recordId });
+    }
+  }, [currentProfile?.id, sessionId]);
+
+  // Listen for external voice toggle events
+  useEffect(() => {
+    const handleVoiceToggleEvent = async () => {
+      if (micActive) {
+        await toggleMic();
+        setWakeActive(false);
+      } else {
+        await toggleMic();
+        setWakeActive(true);
+      }
+      window.dispatchEvent(
+        new CustomEvent("tendo:recording-state", {
+          detail: { recording: !micActive },
+        }),
+      );
+    };
+    window.addEventListener("tendo:voice-toggle", handleVoiceToggleEvent);
+    return () =>
+      window.removeEventListener("tendo:voice-toggle", handleVoiceToggleEvent);
+  }, [micActive]);
+
+  useEffect(() => {
+    if (isConnected && micActive) {
+      setWakeActive(true);
+    } else if (!isSpeaking && !isListening) {
+      setWakeActive(false);
+    }
+  }, [isConnected, isSpeaking, isListening, micActive]);
+
+  // ---------------------------------------------------------------
+  // Send text handler — sends via socket, not voice
+  // ---------------------------------------------------------------
 
   const handleSendText = (text: string) => {
-    // Find option context if this was a radio select
-    const optionContext = findOptionContext(text)
-    const displayText = optionContext?.label || text
-    const sendText = optionContext
-      ? `label: ${optionContext.label}, answer: ${optionContext.id}, description: ${optionContext.description || ''}`
-      : text
+    const optionContext = findOptionContext(text);
+    const displayText = optionContext?.label || text;
 
-    setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: displayText, type: 'text' }])
-    setThinking(true)
-    voice.sendText(sendText)
-  }
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `user-${Date.now()}`,
+        role: "user",
+        content: displayText,
+        type: "text",
+      },
+    ]);
+    setThinking(true);
+
+    // Send to backend via Socket.IO
+    sendChatText(text);
+
+    if (onFirstMessage && messages.length === 0) onFirstMessage();
+  };
+
+  const pendingMsg = useWorkspaceStore((s) => s.pendingChatMessage);
+  const pendingSentRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (pendingMsg && pendingMsg !== pendingSentRef.current) {
+      pendingSentRef.current = pendingMsg;
+      handleSendText(pendingMsg);
+      useWorkspaceStore.getState().setPendingChatMessage(null);
+    }
+  }, [pendingMsg]);
 
   const handleVoiceToggle = async () => {
-    if (voice.isListening) {
-      const audioUrl = await voice.stopListening()
-      setMessages((prev) => [...prev, {
-        id: `user-${Date.now()}`,
-        role: 'user',
-        content: '🎤 Voice message',
-        type: 'text',
-        audioUrl: audioUrl ?? undefined,
-      }])
-    } else {
-      // Connect Gemini if not already connected
-      if (!voice.isConnected) {
-        await voice.connect()
-      }
-      await voice.startListening()
-    }
-  }
+    await toggleMic();
+    setWakeActive(!micActive);
+  };
 
   const handleOptionSelect = (optionId: string) => {
-    handleSendText(optionId)
-  }
+    handleSendText(optionId);
+  };
 
-  const findOptionContext = (optionId: string): { id: string; name: string; label: string; description?: string } | null => {
+  const findOptionContext = (
+    optionId: string,
+  ): {
+    id: string;
+    name: string;
+    label: string;
+    description?: string;
+  } | null => {
     for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i]
-      if (msg.type === 'input' && msg.inputSpec?.fields) {
+      const msg = messages[i];
+      if (msg.type === "input" && msg.inputSpec?.fields) {
         for (const field of msg.inputSpec.fields) {
-          if (field.type === 'radio' && field.options) {
-            const found = field.options.find((o) => o.id === optionId)
-            if (found) return found
+          if (field.type === "radio" && field.options) {
+            const found = field.options.find((o) => o.id === optionId);
+            if (found) return found;
           }
         }
       }
     }
-    return null
-  }
+    return null;
+  };
 
   return (
-    <ConversationPage
-      messages={messages}
-      isTyping={thinking || voice.isSpeaking}
-      thinkingText={thinking ? `${import.meta.env.VITE_AGENT_NAME || 'Jay'} is processing your request` : undefined}
-      onSendText={handleSendText}
-      onVoiceRecorded={() => {}}
-      onVoiceToggle={handleVoiceToggle}
-      isListening={voice.isListening}
-      onOptionSelect={handleOptionSelect}
-      onConfirm={() => handleOptionSelect('confirm')}
-      onModify={() => {}}
-      onCancel={() => handleOptionSelect('cancel')}
-      onRevert={() => {}}
-      onContinueFromHere={() => {}}
-      showHeader={showHeader}
-      headerSubtitle={sessionTitle ?? 'Your AI Business Assistant'}
-      fullScreen={fullScreen}
-      transparentBg={transparentBg}
-      flipCharacter={flipCharacter}
-      characterRightOffset={characterRightOffset}
-      wakeActive={wakeActive}
-      onWakeToggle={async () => {
-        if (wakeActive) {
-          // Turn off: stop mic + disconnect Gemini
-          await voice.stopListening()
-          voice.disconnect()
-          setWakeActive(false)
-        } else {
-          // Turn on: connect Gemini + start mic (continuous listening)
-          await voice.connect()
-          await voice.startListening()
-          setWakeActive(true)
+    <>
+      <ConversationPage
+        messages={messages}
+        isTyping={thinking || isSpeaking}
+        statusText={
+          voiceStatusText && !voiceStatusText.includes("reconnecting")
+            ? voiceStatusText
+            : undefined
         }
-      }}
-    />
-  )
+        connecting={!socketConnected}
+        onSendText={handleSendText}
+        onVoiceRecorded={() => {}}
+        onVoiceToggle={handleVoiceToggle}
+        isListening={isListening || isSpeaking}
+        voiceLoading={connectionState === "connecting"}
+        onOptionSelect={handleOptionSelect}
+        onConfirm={() => handleOptionSelect("confirm")}
+        onModify={() => {}}
+        onCancel={() => handleOptionSelect("cancel")}
+        onRevert={() => {}}
+        onContinueFromHere={() => {}}
+        showHeader={showHeader}
+        headerSubtitle={sessionTitle ?? "Your AI Business Assistant"}
+        fullScreen={fullScreen}
+        transparentBg={transparentBg}
+        flipCharacter={flipCharacter}
+        characterRightOffset={characterRightOffset}
+        wakeActive={wakeActive}
+        onWakeToggle={async () => {
+          await toggleMic();
+          setWakeActive(!micActive);
+        }}
+      />
+    </>
+  );
 }

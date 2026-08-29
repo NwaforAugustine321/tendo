@@ -3,12 +3,10 @@
 import logging
 
 from app.db.client import get_client
-from app.db.registry import register
 
 logger = logging.getLogger(__name__)
 
 
-@register("create_invoice")
 async def create_invoice(
     business_id: str,
     customer_id: str,
@@ -47,7 +45,6 @@ async def create_invoice(
     return invoice
 
 
-@register("get_invoices")
 async def get_invoices(business_id: str, status: str = "", customer_id: str = "", limit: int = 20, **kwargs) -> dict:
     """Get invoices."""
     client = get_client()
@@ -60,7 +57,6 @@ async def get_invoices(business_id: str, status: str = "", customer_id: str = ""
     return {"results": result.data or [], "count": len(result.data or [])}
 
 
-@register("update_invoice_status")
 async def update_invoice_status(business_id: str, invoice_id: str, status: str, **kwargs) -> dict:
     """Update invoice status (pending, paid, overdue, cancelled)."""
     client = get_client()

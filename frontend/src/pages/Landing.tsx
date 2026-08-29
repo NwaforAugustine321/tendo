@@ -37,20 +37,20 @@ export function Landing() {
             </nav>
 
             <div className="max-w-3xl">
-              <p className="font-sans text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
+              <p className="font-sans text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-400">
                 AI Business Operating System
               </p>
               <h1 className="mt-4 font-sans text-[1.875rem] font-semibold leading-[1.12] tracking-[-0.02em] text-white sm:text-4xl lg:text-[2.625rem]">
                 Talk to your business. Tendo handles the rest.
               </h1>
-              <p className="mt-5 max-w-2xl text-[15px] font-normal leading-relaxed text-zinc-500 sm:text-base">
+              <p className="mt-5 max-w-2xl text-[15px] font-normal leading-relaxed text-zinc-400 sm:text-base">
                 An AI employee that learns how your business operates. Record sales, manage inventory, track payments — through natural voice and text conversations.
               </p>
             </div>
 
             <div className="mt-8 flex flex-wrap gap-2">
               {['Voice & Text', 'Web & WhatsApp', 'No Setup Forms', 'Learns Over Time'].map((chip) => (
-                <span key={chip} className="landing-chip inline-flex items-center px-3 py-1 text-[11px] font-normal text-zinc-500">
+                <span key={chip} className="landing-chip inline-flex items-center px-3 py-1 text-[11px] font-normal text-zinc-400">
                   {chip}
                 </span>
               ))}
@@ -80,7 +80,7 @@ export function Landing() {
                   <p className="mt-2 text-sm font-medium leading-snug tracking-tight text-zinc-200 sm:text-[15px]">
                     {p.title}
                   </p>
-                  <p className="mt-1.5 text-[13px] font-normal leading-snug text-zinc-500">{p.body}</p>
+                  <p className="mt-1.5 text-[13px] font-normal leading-snug text-zinc-400">{p.body}</p>
                 </div>
               ))}
             </div>
@@ -91,7 +91,7 @@ export function Landing() {
         <section id="how-it-works" className="landing-tech-surface relative scroll-mt-14 border-t border-white/[0.07]">
           <div className="landing-grid-overlay opacity-[0.35]" aria-hidden />
           <div className="relative mx-auto max-w-5xl px-4 py-16 sm:py-20">
-            <p className="font-sans text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">How it works</p>
+            <p className="font-sans text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-400">How it works</p>
             <h2 className="mt-2 font-sans text-2xl font-semibold tracking-tight text-white sm:text-[1.65rem]">
               From conversation to business intelligence
             </h2>
@@ -113,7 +113,7 @@ export function Landing() {
                     <div className="min-w-0">
                       <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#3ecf8e]">{s.kicker}</p>
                       <p className="mt-1 text-lg font-medium tracking-tight text-zinc-100">{s.title}</p>
-                      <p className="mt-2 max-w-2xl text-sm font-normal leading-relaxed text-zinc-500 sm:text-[15px]">{s.body}</p>
+                      <p className="mt-2 max-w-2xl text-sm font-normal leading-relaxed text-zinc-400 sm:text-[15px]">{s.body}</p>
                     </div>
                   </li>
                 ))}
@@ -134,7 +134,7 @@ export function Landing() {
               </div>
               <span className="text-sm font-semibold text-zinc-200">Tendo</span>
             </div>
-            <p className="text-xs font-normal text-zinc-600">© 2026 Tendo. Built for business owners who want to operate, not configure.</p>
+            <p className="text-xs font-normal text-zinc-400">© 2026 Tendo. Built for business owners who want to operate, not configure.</p>
           </div>
         </footer>
       </div>

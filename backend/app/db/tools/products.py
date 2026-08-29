@@ -3,12 +3,10 @@
 import logging
 
 from app.db.client import get_client
-from app.db.registry import register
 
 logger = logging.getLogger(__name__)
 
 
-@register("search_products")
 async def search_products(business_id: str, query: str = "", **kwargs) -> dict:
     """Search products by name or category."""
     client = get_client()
@@ -19,7 +17,6 @@ async def search_products(business_id: str, query: str = "", **kwargs) -> dict:
     return {"results": result.data or [], "count": len(result.data or [])}
 
 
-@register("create_product")
 async def create_product(
     business_id: str, name: str, unit_price: float = 0, unit: str = "", category: str = "", **kwargs
 ) -> dict:
@@ -36,7 +33,6 @@ async def create_product(
     return result.data[0] if result.data else data
 
 
-@register("update_product")
 async def update_product(business_id: str, product_id: str, **kwargs) -> dict:
     """Update a product."""
     client = get_client()
@@ -53,7 +49,6 @@ async def update_product(business_id: str, product_id: str, **kwargs) -> dict:
     return result.data[0] if result.data else {"error": "Update failed"}
 
 
-@register("delete_product")
 async def delete_product(business_id: str, product_id: str, **kwargs) -> dict:
     """Delete a product."""
     client = get_client()

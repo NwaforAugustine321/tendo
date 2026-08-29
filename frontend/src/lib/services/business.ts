@@ -52,3 +52,25 @@ export async function getProfile(businessId: string): Promise<BusinessProfile | 
 export async function deleteBusinessProfile(businessId: string): Promise<void> {
   await request(`/business/profile/${businessId}`, { method: 'DELETE' })
 }
+
+export type UpdateProfileData = {
+  name?: string
+  category?: string
+  description?: string
+  phone?: string
+  location?: string
+  metadata?: Record<string, string>
+  onboarding_completed?: boolean
+}
+
+export async function updateProfile(businessId: string, data: UpdateProfileData): Promise<BusinessProfile | null> {
+  try {
+    const res = await request<{ profile: BusinessProfile }>(`/business/profile/${businessId}`, {
+      method: 'PUT',
+      body: data,
+    })
+    return res.profile
+  } catch {
+    return null
+  }
+}

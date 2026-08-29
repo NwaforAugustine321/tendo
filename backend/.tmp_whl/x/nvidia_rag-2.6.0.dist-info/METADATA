@@ -1,0 +1,315 @@
+Metadata-Version: 2.4
+Name: nvidia_rag
+Version: 2.6.0
+Summary: This blueprint serves as a reference solution for a foundational Retrieval Augmented Generation (RAG) pipeline.
+Author-email: NVIDIA RAG <foundational-rag-dev@exchange.nvidia.com>
+License-Expression: Apache-2.0
+Project-URL: Homepage, https://github.com/NVIDIA-AI-Blueprints/rag
+Project-URL: Documentation, https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/README.md
+Requires-Python: <3.14,>=3.11
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: bleach<7.0,>=6.2
+Requires-Dist: dataclass-wizard<1.0,>=0.27
+Requires-Dist: fastapi<1.0,>=0.115.5
+Requires-Dist: anyio>=4.12.0
+Requires-Dist: httpx>=0.28.1
+Requires-Dist: httpx-sse>=0.4.3
+Requires-Dist: langchain>=1.3.1
+Requires-Dist: langchain-community>=0.4
+Requires-Dist: langgraph>=1.2.1
+Requires-Dist: langchain-milvus>=0.3.0
+Requires-Dist: langchain-nvidia-ai-endpoints>=1.4.0
+Requires-Dist: minio<8.0,>=7.2
+Requires-Dist: pdfplumber>=0.11.9
+Requires-Dist: pydantic<3.0,>=2.11
+Requires-Dist: pymilvus[milvus_lite]<3.0,>=2.6.7
+Requires-Dist: pymilvus-model<1.0,>=0.3
+Requires-Dist: python-multipart<1.0,>=0.0.27
+Requires-Dist: pyyaml<7.0,>=6.0
+Requires-Dist: uvicorn[standard]<1.0,>=0.32
+Requires-Dist: langchain-core>=1.2.28
+Requires-Dist: redis>=4.3.4
+Requires-Dist: protobuf>=6.33.5
+Requires-Dist: lark>=1.2.2
+Requires-Dist: python-dateutil>=2.9.0.post0
+Provides-Extra: rag
+Requires-Dist: langchain-openai<1.1.9,>=0.2; extra == "rag"
+Requires-Dist: openai<2.0,>=1.0; extra == "rag"
+Requires-Dist: opentelemetry-api<2.0,>=1.29; extra == "rag"
+Requires-Dist: opentelemetry-exporter-otlp<2.0,>=1.29; extra == "rag"
+Requires-Dist: opentelemetry-exporter-prometheus<1.0,>=0.50b0; extra == "rag"
+Requires-Dist: opentelemetry-instrumentation<1.0,>=0.50b0; extra == "rag"
+Requires-Dist: opentelemetry-instrumentation-fastapi<1.0,>=0.50b0; extra == "rag"
+Requires-Dist: opentelemetry-instrumentation-milvus<1.0,>=0.36; extra == "rag"
+Requires-Dist: opentelemetry-processor-baggage<1.0,>=0.50b0; extra == "rag"
+Requires-Dist: opentelemetry-sdk<2.0,>=1.29; extra == "rag"
+Requires-Dist: opentelemetry-sdk-extension-prometheus-multiprocess<2.0,>=1.0; extra == "rag"
+Requires-Dist: prometheus-client<1.0,>=0.20; extra == "rag"
+Requires-Dist: azure-core<2.0,>=1.35; extra == "rag"
+Requires-Dist: azure-storage-blob<13.0,>=12.26; extra == "rag"
+Requires-Dist: pyarrow<22.0,>=21.0; extra == "rag"
+Requires-Dist: tiktoken>=0.7; extra == "rag"
+Provides-Extra: ingest
+Requires-Dist: nv-ingest-api==26.3.0; extra == "ingest"
+Requires-Dist: nv-ingest-client==26.3.0; extra == "ingest"
+Requires-Dist: tritonclient==2.57.0; extra == "ingest"
+Requires-Dist: langchain-openai<1.1.9,>=0.2; extra == "ingest"
+Requires-Dist: openai<2.0,>=1.0; extra == "ingest"
+Requires-Dist: overrides<8.0,>=7.7; extra == "ingest"
+Requires-Dist: tqdm<5.0,>=4.67; extra == "ingest"
+Requires-Dist: opentelemetry-api<2.0,>=1.29; extra == "ingest"
+Requires-Dist: opentelemetry-exporter-otlp<2.0,>=1.29; extra == "ingest"
+Requires-Dist: opentelemetry-exporter-prometheus<1.0,>=0.50b0; extra == "ingest"
+Requires-Dist: opentelemetry-instrumentation<1.0,>=0.50b0; extra == "ingest"
+Requires-Dist: opentelemetry-instrumentation-fastapi<1.0,>=0.50b0; extra == "ingest"
+Requires-Dist: opentelemetry-instrumentation-milvus<1.0,>=0.36; extra == "ingest"
+Requires-Dist: opentelemetry-processor-baggage<1.0,>=0.50b0; extra == "ingest"
+Requires-Dist: opentelemetry-sdk<2.0,>=1.29; extra == "ingest"
+Requires-Dist: azure-core<2.0,>=1.35; extra == "ingest"
+Requires-Dist: azure-storage-blob<13.0,>=12.26; extra == "ingest"
+Requires-Dist: pyarrow<22.0,>=21.0; extra == "ingest"
+Requires-Dist: setuptools>=80.10.2; extra == "ingest"
+Provides-Extra: all
+Requires-Dist: nv-ingest-api==26.3.0; extra == "all"
+Requires-Dist: nv-ingest-client==26.3.0; extra == "all"
+Requires-Dist: tritonclient==2.57.0; extra == "all"
+Requires-Dist: langchain-openai<1.1.9,>=0.2; extra == "all"
+Requires-Dist: openai<2.0,>=1.0; extra == "all"
+Requires-Dist: overrides<8.0,>=7.7; extra == "all"
+Requires-Dist: tqdm<5.0,>=4.67; extra == "all"
+Requires-Dist: opentelemetry-api<2.0,>=1.29; extra == "all"
+Requires-Dist: opentelemetry-exporter-otlp<2.0,>=1.29; extra == "all"
+Requires-Dist: opentelemetry-exporter-prometheus<1.0,>=0.50b0; extra == "all"
+Requires-Dist: opentelemetry-instrumentation<1.0,>=0.50b0; extra == "all"
+Requires-Dist: opentelemetry-instrumentation-fastapi<1.0,>=0.50b0; extra == "all"
+Requires-Dist: opentelemetry-instrumentation-milvus<1.0,>=0.36; extra == "all"
+Requires-Dist: opentelemetry-processor-baggage<1.0,>=0.50b0; extra == "all"
+Requires-Dist: opentelemetry-sdk<2.0,>=1.29; extra == "all"
+Requires-Dist: azure-core<2.0,>=1.35; extra == "all"
+Requires-Dist: azure-storage-blob<13.0,>=12.26; extra == "all"
+Requires-Dist: pyarrow<22.0,>=21.0; extra == "all"
+Requires-Dist: langchain-elasticsearch>=0.3; extra == "all"
+Provides-Extra: elasticsearch
+Requires-Dist: langchain-elasticsearch>=0.3; extra == "elasticsearch"
+Dynamic: license-file
+
+<h1>NVIDIA RAG Blueprint</h1>
+
+Retrieval-Augmented Generation (RAG) combines the reasoning power of large language models (LLMs)
+with real-time retrieval from trusted data sources.
+It grounds AI responses in enterprise knowledge,
+reducing hallucinations and ensuring accuracy, compliance, and freshness.
+
+
+
+## Overview
+
+The NVIDIA RAG Blueprint is a reference solution and foundational starting point
+for building Retrieval-Augmented Generation (RAG) pipelines with NVIDIA NIM microservices.
+It enables enterprises to deliver natural language question answering grounded in their own data,
+while meeting governance, latency, and scalability requirements.
+Designed to be decomposable and configurable, the blueprint integrates GPU-accelerated components with NeMo Retriever models, Multimodal and Vision Language Models, and guardrailing services,
+to provide an enterprise-ready framework.
+With a pre-built reference UI, open-source code, and multiple deployment options — including local docker (with and without NVIDIA Hosted endpoints) and Kubernetes —
+it serves as a flexible starting point that developers can adapt and extend to their specific needs.
+
+For complex, multi-hop, or ambiguous questions, [**Agentic RAG**](https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/docs/agentic-rag.md) adds a LangGraph plan-and-execute pipeline alongside the standard retrieve-then-generate chain — with scope discovery, parallel sub-tasks, synthesis, optional verification, and streaming stage events in the UI and API.
+
+
+
+## Key Features
+
+<details>
+    <summary>Agentic RAG</summary>
+    <ul>
+        <li>LangGraph plan-and-execute pipeline for multi-hop, ambiguous, and cross-document queries</li>
+        <li>Scope discovery, parallel task execution, synthesis, and optional verification</li>
+        <li>Enable per request (<code>agentic: true</code> on <code>/v1/generate</code>) or deployment-wide (<code>ENABLE_AGENTIC_RAG</code>); select <strong>Pipeline → Agentic</strong> in the reference UI</li>
+        <li>Streaming stage events and reasoning traces — see <a href="https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/docs/agentic-rag.md">Agentic RAG documentation</a></li>
+    </ul>
+</details>
+<details>
+    <summary>Data Ingestion</summary>
+    <ul>
+        <li>Multimodal content extraction - Documents with text, tables, charts, infographics, and audio. For the full list of supported file types, see <a href="https://docs.nvidia.com/nemo/retriever/latest/extraction/overview/">NeMo Retriever Extraction Overview</a>.</li>
+        <li>Custom metadata support</li>
+    </ul>
+</details>
+<details>
+    <summary>Search and Retrieval</summary>
+    <ul>
+        <li><a href="https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/docs/agentic-rag.md">Agentic RAG pipeline</a> — plan-and-execute retrieval with scope discovery, parallel sub-task search, retries, and optional verification for multi-hop and cross-document queries</li>
+        <li>Multi-collection searchability</li>
+        <li>Hybrid search with dense and sparse search</li>
+        <li>Reranking to further improve accuracy</li>
+        <li>GPU-accelerated Index creation and search</li>
+        <li>Pluggable vector database</li>
+    </ul>
+</details>
+<details>
+    <summary>Query Processing</summary>
+    <ul>
+        <li>Query decomposition</li>
+        <li>Dynamic filter expression creation</li>
+    </ul>
+</details>
+<details>
+    <summary>Generation and Enrichment</summary>
+    <ul>
+        <li>Opt-in for Multimodal and Vision Language Model Support in the answer generation pipeline.</li>
+        <li>Document summarization with multiple strategies, flexible page filtering, and real-time progress tracking</li>
+        <li>Improve accuracy with optional reflection</li>
+        <li>Optional programmable guardrails for content safety</li>
+    </ul>
+</details>
+<details>
+    <summary>Evaluation</summary>
+    <ul>
+        <li>Evaluation scripts (RAGAS framework)</li>
+    </ul>
+</details>
+<details>
+    <summary>User Experience</summary>
+    <ul>
+        <li>Sample user interface</li>
+        <li>Multi-turn conversations</li>
+        <li>Multi-session support</li>
+    </ul>
+</details>
+<details>
+    <summary>Deployment and Operations</summary>
+    <ul>
+        <li>Telemetry and observability</li>
+        <li>Decomposable and customizable</li>
+        <li>NIM Operator support</li>
+        <li>Python library mode support</li>
+        <li>OpenAI-compatible APIs</li>
+    </ul>
+</details>
+
+
+
+## Software Components
+
+The RAG blueprint is built from the following complementary categories of software:
+
+
+- **NVIDIA NIM microservices** – Deliver the core AI functionality. Large-scale inference (e.g. for example, Nemotron LLM models for response generation), retrieval and reranking models, and specialized extractors for text, tables, charts, and graphics. Optional NIMs extend these capabilities with OCR, content safety, topic control, and multimodal embeddings.
+
+- **The integration and orchestration layer** – Acts as the glue that binds the system into a complete solution.
+
+This modular design ensures efficient query processing, accurate retrieval of information, and easy customization.
+
+
+### NVIDIA NIM Microservices
+
+
+- Response Generation (Inference)
+
+    - [NVIDIA NIM nemotron-3-super-120b-a12b](https://build.nvidia.com/nvidia/nemotron-3-super-120b-a12b)
+
+- Retriever and Extraction Models
+
+    - [NVIDIA NIM llama-nemotron-embed-1b-v2](https://build.nvidia.com/nvidia/llama-nemotron-embed-1b-v2)
+    - [NVIDIA NIM llama-nemotron-rerank-1b-v2](https://build.nvidia.com/nvidia/llama-nemotron-rerank-1b-v2)
+    - [Nemotron Page Elements NIM](https://build.nvidia.com/nvidia/nemotron-page-elements-v3)
+    - [Nemotron Table Structure NIM](https://build.nvidia.com/nvidia/nemotron-table-structure-v1)
+    - [Nemotron Graphic Elements NIM](https://build.nvidia.com/nvidia/nemotron-graphic-elements-v1)
+    - [Nemotron OCR NIM](https://build.nvidia.com/nvidia/nemotron-ocr)
+
+- Optional NIMs
+
+    - [Llama 3.1 NemoGuard 8B Content Safety NIM](https://build.nvidia.com/nvidia/llama-3_1-nemoguard-8b-content-safety)
+    - [Llama 3.1 NemoGuard 8B Topic Control NIM](https://build.nvidia.com/nvidia/llama-3_1-nemoguard-8b-topic-control)
+    - [Nemotron Nano Omni 30B A3B Reasoning NIM](https://build.nvidia.com/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning)
+    - [Nemotron Parse NIM](https://build.nvidia.com/nvidia/nemotron-parse)
+    - [PaddleOCR NIM](https://build.nvidia.com/baidu/paddleocr)
+    - [llama-nemotron-embed-vl-1b-v2](https://build.nvidia.com/nvidia/llama-nemotron-embed-vl-1b-v2)
+
+
+### Integration and Orchestration Layer
+
+- **RAG Orchestrator Server** – Coordinates interactions between the user, retrievers, vector database, and inference models, ensuring multi-turn and context-aware query handling. This is [LangChain](https://www.langchain.com/)-based.
+
+- **Vector Database (accelerated with NVIDIA cuVS)** – Stores and searches embeddings at scale with GPU-accelerated indexing and retrieval for low-latency performance. The default is [Elasticsearch](https://www.elastic.co/elasticsearch/vector-database). Another alternative is [Milvus](https://milvus.io/) (GPU-accelerated).
+
+- **NeMo Retriever Extraction** – A high-performance ingestion microservice for parsing multimodal content. For more information about the ingestion pipeline, see [NeMo Retriever Extraction Overview](https://docs.nvidia.com/nemo/retriever/latest/extraction/overview/).
+
+- **RAG User Interface (rag-frontend)** – A lightweight user interface that demonstrates end-to-end query, retrieval, and response workflows for developers and end users. For more information, see the [RAG UI documentation](https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/docs/user-interface.md).
+
+
+## Technical Diagram
+
+The following image represents the architecture and workflow.
+
+<p align="center">
+<img src="https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/rag/main/docs/assets/arch_diagram.png" width="750">
+</p>
+
+
+## Workflow
+
+The following is a step-by-step explanation of the workflow from the end-user perspective:
+
+1. **Data Ingestion & Extraction Pipeline** – Multimodal enterprise documents (text, images, tables, charts, infographics, and audio) are ingested.
+
+2. **User Query** – The user interacts with the system through the UI or APIs, submitting a question. An optional NeMo Guardrails module can filter or reshape the query for safety and compliance before it enters the retrieval pipeline.
+
+3. **Query Processing** – The query is processed by the Query Processing service, which may also leverage reflection (an optional LLM step) to improve query understanding or reformulation for better retrieval results.
+
+4. **Retrieval from Enterprise Data** – The processed query is converted into embeddings using NeMo Retriever Embedding and matched against enterprise data stored in a cuVS accelerated Vector Database (cuVS) and associated S3-compatible object store. Relevant results are identified based on similarity.
+
+5. **Reranking for Precision** – An optional NeMo Retriever Reranker reorders the retrieved passages, ensuring the most relevant chunks are selected to ground the response.
+
+6. **Response Generation** – The selected context is passed into the LLM inference service (for example, Llama Nemotron models). An optional reflection step can further validate or refine the answer against the retrieved context. Guardrails may also be applied to enforce safety before delivery.
+
+7. **User Response** – The generated, grounded response is sent back to the user interface, often with citations to retrieved documents for transparency.
+
+
+## Get Started With NVIDIA RAG Blueprint
+
+The recommended way to get started with this Python package is to refer to the [RAG library usage notebook](https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/notebooks/rag_library_usage.ipynb).
+
+Refer to the [full documentation](https://docs.nvidia.com/rag/latest/index.html) to learn about the following:
+
+- [Agentic RAG](https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/docs/agentic-rag.md) — plan-and-execute pipeline, API and UI usage, configuration, and limitations
+- Minimum Requirements
+- Deployment Options
+- Configuration Settings
+- Common Customizations
+- Available Notebooks
+- Troubleshooting
+- Additional Resources
+
+The full blueprint also supports Docker Compose, Kubernetes, and Red Hat OpenShift deployments. For deployment details, see the [NVIDIA RAG Blueprint documentation](https://docs.nvidia.com/rag/latest/index.html).
+
+
+
+## Blog Posts
+
+- [NVIDIA NeMo Retriever Delivers Accurate Multimodal PDF Data Extraction 15x Faster](https://developer.nvidia.com/blog/nvidia-nemo-retriever-delivers-accurate-multimodal-pdf-data-extraction-15x-faster/)
+- [Finding the Best Chunking Strategy for Accurate AI Responses](https://developer.nvidia.com/blog/finding-the-best-chunking-strategy-for-accurate-ai-responses/)
+
+
+## Inviting the Community to Contribute
+
+We're posting these examples on GitHub to support the NVIDIA LLM community and facilitate feedback.
+We invite contributions!
+To open a GitHub issue or pull request, see the [contributing guidelines](https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/CONTRIBUTING.md).
+
+
+## License
+
+This NVIDIA AI BLUEPRINT is licensed under the [Apache License, Version 2.0.](https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/LICENSE). This project will download and install additional third-party open source software projects and containers. Review [the license terms of these open source projects](https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/LICENSE-3rd-party.txt) before use.
+
+Use of the models in this blueprint is governed by the [NVIDIA AI Foundation Models Community License](https://docs.nvidia.com/ai-foundation-models-community-license.pdf).
+
+
+## Terms of Use
+This blueprint is governed by the [NVIDIA Agreements | Enterprise Software | NVIDIA Software License Agreement](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-software-license-agreement/) and the [NVIDIA Agreements | Enterprise Software | Product Specific Terms for AI Product](https://www.nvidia.com/en-us/agreements/enterprise-software/product-specific-terms-for-ai-products/). The models are governed by the [NVIDIA Agreements | Enterprise Software | NVIDIA Community Model License](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-community-models-license/) and the NVIDIA RAG dataset is governed by the [NVIDIA Asset License Agreement](https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/data/LICENSE.DATA).
+The following models that are built with Llama are governed by the Llama 3.2 Community License Agreement: nvidia/llama-nemotron-embed-1b-v2, nvidia/llama-nemotron-rerank-1b-v2, and nvidia/llama-nemotron-embed-vl-1b-v2.
+
+## Additional Information
+
+The [Llama 3.1 Community License Agreement](https://www.llama.com/llama3_1/license/) applies to the llama-3.1-nemoguard-8b-content-safety and llama-3.1-nemoguard-8b-topic-control models. The [Llama 3.2 Community License Agreement](https://www.llama.com/llama3_2/license/) applies to the nvidia/llama-nemotron-embed-1b-v2, nvidia/llama-nemotron-rerank-1b-v2, and nvidia/llama-nemotron-embed-vl-1b-v2 models. Built with Llama. Apache 2.0 applies to NVIDIA Ingest and to the nemotron-page-elements-v3, nemotron-table-structure-v1, nemotron-graphic-elements-v1, nemotron-parse, paddleocr, and nemotron-ocr-v1 models.

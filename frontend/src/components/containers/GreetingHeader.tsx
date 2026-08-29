@@ -1,0 +1,60 @@
+import { getGreeting } from "../../lib/workspace/dashboard-utils";
+import type { SnapshotRecommendation } from "../../lib/services/snapshot";
+
+type Props = {
+  name: string;
+  recommendations?: SnapshotRecommendation[];
+};
+
+function getHealthStatus(recommendations: SnapshotRecommendation[]): {
+  label: string;
+  color: string;
+  dot: string;
+} {
+  const high = recommendations.filter((r) => r.priority === "high").length;
+  const medium = recommendations.filter((r) => r.priority === "medium").length;
+
+  if (high >= 3)
+    return {
+      label: "Needs urgent attention",
+      color: "text-red-400",
+      dot: "bg-red-400",
+    };
+  if (high >= 1)
+    return {
+      label: "Some issues need attention",
+      color: "text-amber-400",
+      dot: "bg-amber-400",
+    };
+  if (medium >= 3)
+    return {
+      label: "Mostly healthy · A few things to watch",
+      color: "text-amber-400",
+      dot: "bg-amber-400",
+    };
+  return {
+    label: "Business is healthy",
+    color: "text-emerald-400",
+    dot: "bg-emerald-400",
+  };
+}
+
+export function GreetingHeader({ name, recommendations = [] }: Props) {
+  const greeting = getGreeting(new Date().getHours());
+  const health = getHealthStatus(recommendations);
+
+  return (
+    <div className="flex items-center justify-between px-6 py-4">
+      {/* Left side */}
+      <div className="flex flex-col gap-1">
+        <h1 className="text-xl font-bold text-white">
+          {greeting}, {name} 👋
+        </h1>
+        <span className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-full bg-zinc-800/60 border border-zinc-700/50 px-3 py-1 text-[11px] font-medium">
+          <span className={`h-1.5 w-1.5 rounded-full ${health.dot}`} />
+          <span className={health.color}>{health.label}</span>
+        </span>
+      </div>
+    </div>
+  );
+}

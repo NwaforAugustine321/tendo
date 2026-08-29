@@ -1,52 +1,61 @@
-/**
- * Base HTTP client.
- */
+import { toast } from "sonner";
 
-import { toast } from 'sonner'
-
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 type RequestOptions = {
-  method?: string
-  body?: unknown
-  headers?: Record<string, string>
-  silent?: boolean  // Don't show toast on error
-}
+  method?: string;
+  body?: unknown;
+  headers?: Record<string, string>;
+  silent?: boolean; // Don't show toast on error
+};
 
 export class ApiError extends Error {
-  status: number
+  status: number;
   constructor(message: string, status: number) {
-    super(message)
-    this.status = status
+    super(message);
+    this.status = status;
   }
 }
 
-export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, headers = {}, silent = false } = options
+export async function request<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const { method = "GET", body, headers = {}, silent = false } = options;
 
   try {
     const res = await fetch(`${BASE_URL}${path}`, {
       method,
-      credentials: 'include',
+      credentials: "include",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
         ...headers,
       },
       body: body ? JSON.stringify(body) : undefined,
-    })
+    });
 
     if (!res.ok) {
-      const data = await res.json().catch(() => ({ message: 'Something went wrong' }))
-      const message = data.message || data.detail || 'Something went wrong'
-      if (!silent) toast.error(message)
-      throw new ApiError(message, res.status)
+      // Auto-logout on 401 (token expired) — skip auth endpoints
+      if (res.status === 401 && !path.includes("/auth/")) {
+        const { useAuthStore } = await import("../../store/auth");
+        useAuthStore.getState().clear();
+        window.location.href = "/login";
+        throw new ApiError("Session expired", 401);
+      }
+
+      const data = await res
+        .json()
+        .catch(() => ({ message: "Something went wrong" }));
+      const message = data.message || data.detail || "Something went wrong";
+      if (!silent) toast.error(message);
+      throw new ApiError(message, res.status);
     }
 
-    return res.json()
+    return res.json();
   } catch (err) {
-    if (err instanceof ApiError) throw err
-    const message = 'Could not connect to server'
-    if (!silent) toast.error(message)
-    throw new ApiError(message, 0)
+    if (err instanceof ApiError) throw err;
+    const message = "Could not connect to server";
+    if (!silent) toast.error(message);
+    throw new ApiError(message, 0);
   }
 }

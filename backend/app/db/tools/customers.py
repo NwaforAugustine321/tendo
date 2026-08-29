@@ -3,12 +3,10 @@
 import logging
 
 from app.db.client import get_client
-from app.db.registry import register
 
 logger = logging.getLogger(__name__)
 
 
-@register("search_customers")
 async def search_customers(business_id: str, query: str = "", **kwargs) -> dict:
     """Search customers by name, phone, or email."""
     client = get_client()
@@ -19,7 +17,6 @@ async def search_customers(business_id: str, query: str = "", **kwargs) -> dict:
     return {"results": result.data or [], "count": len(result.data or [])}
 
 
-@register("create_customer")
 async def create_customer(
     business_id: str, name: str, phone: str = "", email: str = "", customer_type: str = "customer", **kwargs
 ) -> dict:
@@ -36,7 +33,6 @@ async def create_customer(
     return result.data[0] if result.data else data
 
 
-@register("get_customer")
 async def get_customer(business_id: str, customer_id: str, **kwargs) -> dict:
     """Get a customer by ID."""
     client = get_client()
@@ -51,7 +47,6 @@ async def get_customer(business_id: str, customer_id: str, **kwargs) -> dict:
     return result.data if result.data else {"error": "Not found"}
 
 
-@register("update_customer")
 async def update_customer(business_id: str, customer_id: str, **kwargs) -> dict:
     """Update a customer."""
     client = get_client()

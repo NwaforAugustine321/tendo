@@ -1,0 +1,467 @@
+from __future__ import annotations
+
+import asyncio
+from collections.abc import AsyncIterator
+from enum import Enum
+from typing import TYPE_CHECKING, Any
+
+from langchain_core.messages import AIMessageChunk
+
+from app.runtime.agents.run_context import RunContext
+from app.runtime.chat.message import ChatMessage
+from app.runtime.conversation.context import (
+    ConversationContext,
+)
+from app.runtime.events.events import (
+    ErrorEvent,
+    GenerationFinishedEvent,
+    LLMEvent,
+)
+from app.runtime.llm.response import LLMResponse
+from app.runtime.prompts.builder import PromptBuilder
+from app.runtime.prompts.context import PromptContext
+
+if TYPE_CHECKING:
+    from app.runtime.agents.agent import Agent
+
+
+class InferenceMode(str, Enum):
+    INVOKE = "invoke"
+    STREAM = "stream"
+
+
+class InferenceStream(AsyncIterator[LLMEvent]):
+    """
+    Represents one active LLM inference.
+
+    Responsibilities
+    ----------------
+    - Build the current prompt.
+    - Select the required cached LLM preparation mode.
+    - Invoke the prepared LLM.
+    - Emit normalized inference events.
+    - Build the final LLMResponse.
+
+    Preparation itself is owned by the LLM provider.
+
+    The stream only tells the provider whether this inference
+    requires tools.
+
+    Normal inference:
+
+        tools_enabled=True
+            ↓
+        cached model with runtime tools
+
+    Forced-final inference:
+
+        tools_enabled=False
+            ↓
+        cached model with NO tools
+
+    This class does not:
+
+    - bind tools
+    - bind structured output
+    - count context tokens
+    - optimize conversation context
+    - decide when context optimization is required
+    """
+
+    def __init__(
+        self,
+        *,
+        agent: Agent,
+        conversation_context: ConversationContext,
+        run_context: RunContext,
+        mode: InferenceMode = InferenceMode.STREAM,
+        tools_enabled: bool = True,
+    ) -> None:
+
+        self._agent = agent
+
+        self._conversation_context = (
+            conversation_context
+        )
+
+        self._run_context = run_context
+
+        self._mode = mode
+
+        #
+        # Controls whether this inference uses the normal
+        # runtime tool model or the tool-free final model.
+        #
+        self._tools_enabled = tools_enabled
+
+        self._closed = False
+        self._finished = False
+
+        self._error: Exception | None = None
+
+        self._response: LLMResponse | None = None
+
+        self._events: asyncio.Queue[
+            LLMEvent | None
+        ] = asyncio.Queue()
+
+        #
+        # Start the inference asynchronously.
+        #
+        self._task = asyncio.create_task(
+            self._run(),
+        )
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def finished(
+        self,
+    ) -> bool:
+
+        return self._finished
+
+    @property
+    def closed(
+        self,
+    ) -> bool:
+
+        return self._closed
+
+    @property
+    def error(
+        self,
+    ) -> Exception | None:
+
+        return self._error
+
+    @property
+    def response(
+        self,
+    ) -> LLMResponse | None:
+
+        return self._response
+
+    @property
+    def mode(
+        self,
+    ) -> InferenceMode:
+
+        return self._mode
+
+    @property
+    def tools_enabled(
+        self,
+    ) -> bool:
+
+        return self._tools_enabled
+
+    # ------------------------------------------------------------------
+    # Async iterator
+    # ------------------------------------------------------------------
+
+    def __aiter__(
+        self,
+    ) -> AsyncIterator[LLMEvent]:
+
+        return self
+
+    async def __anext__(
+        self,
+    ) -> LLMEvent:
+
+        if self._closed:
+
+            raise StopAsyncIteration
+
+        event = await self._events.get()
+
+        if event is None:
+
+            self._closed = True
+
+            raise StopAsyncIteration
+
+        return event
+
+    # ------------------------------------------------------------------
+    # Main inference
+    # ------------------------------------------------------------------
+
+    async def _run(
+        self,
+    ) -> None:
+
+        try:
+
+            #
+            # ----------------------------------------------------------
+            # Build prompt
+            # ----------------------------------------------------------
+            #
+
+            #
+            # PromptState belongs to the session and survives
+            # across inference iterations.
+            #
+            builder = PromptBuilder(
+                context=PromptContext(
+                    agent=self._agent,
+                    run_context=self._run_context,
+                    conversation_context=(
+                        self._conversation_context
+                    ),
+                    prompt_state=(
+                        self._run_context.session.prompt_state
+                    ),
+                ),
+            )
+
+            #
+            # Build provider-independent messages.
+            #
+            # Context optimization is handled by AgentRunner
+            # before this inference is created.
+            #
+            messages = await (
+                self._agent.context_manager.build(
+                    builder,
+                )
+            )
+
+            #
+            # ----------------------------------------------------------
+            # Select LLM preparation mode
+            # ----------------------------------------------------------
+            #
+
+            #
+            # IMPORTANT:
+            #
+            # prepare() is NOT doing a new bind_tools() every time.
+            #
+            # LangChainLLM caches prepared models and simply selects
+            # the appropriate cached model when possible.
+            #
+            # Normal inference:
+            #
+            #     tools_enabled=True
+            #
+            # Forced-final inference:
+            #
+            #     tools_enabled=False
+            #
+            self._agent.llm.prepare(
+                tool_context=self._agent.tool_context,
+                output_type=self._agent.output_type,
+                tools_enabled=self._tools_enabled,
+            )
+
+            #
+            # ----------------------------------------------------------
+            # Execute inference
+            # ----------------------------------------------------------
+            #
+
+            provider_response = await self._invoke(
+                messages,
+            )
+
+            #
+            # ----------------------------------------------------------
+            # Parse response
+            # ----------------------------------------------------------
+            #
+
+            self._response = (
+                self._agent.llm.response_parser.parse(
+                    provider_response=provider_response,
+                    output_type=self._agent.output_type,
+                )
+            )
+
+            await self._finish()
+
+        except Exception as error:
+
+            await self._handle_error(
+                error,
+            )
+
+    # ------------------------------------------------------------------
+    # Invocation
+    # ------------------------------------------------------------------
+
+    async def _invoke(
+        self,
+        messages: list[ChatMessage],
+    ) -> Any:
+
+        if self._mode is InferenceMode.STREAM:
+
+            return await self._invoke_stream(
+                messages,
+            )
+
+        return await self._invoke_once(
+            messages,
+        )
+
+    async def _invoke_once(
+        self,
+        messages: list[ChatMessage],
+    ) -> Any:
+
+        return await self._agent.llm.invoke(
+            messages,
+        )
+
+    async def _invoke_stream(
+        self,
+        messages: list[ChatMessage],
+    ) -> Any:
+
+        chunks: list[AIMessageChunk] = []
+
+        async for chunk in self._agent.llm.stream(
+            messages,
+        ):
+
+            chunks.append(
+                chunk,
+            )
+
+            await self._emit_chunk(
+                chunk,
+            )
+
+        return self._agent.llm.merge_chunks(
+            chunks,
+        )
+
+    # ------------------------------------------------------------------
+    # Events
+    # ------------------------------------------------------------------
+
+    async def _emit(
+        self,
+        event: LLMEvent,
+    ) -> None:
+
+        if self._closed:
+
+            return
+
+        await self._events.put(
+            event,
+        )
+
+    async def _emit_chunk(
+        self,
+        chunk: AIMessageChunk,
+    ) -> None:
+        """
+        Placeholder for future token streaming events.
+
+        Token/text streaming can be implemented here without
+        affecting inference execution.
+        """
+
+        return
+
+    async def _finish(
+        self,
+    ) -> None:
+
+        if self._finished:
+
+            return
+
+        self._finished = True
+
+        await self._emit(
+            GenerationFinishedEvent(),
+        )
+
+        await self._events.put(
+            None,
+        )
+
+    async def _handle_error(
+        self,
+        error: Exception,
+    ) -> None:
+
+        self._error = error
+
+        await self._emit(
+            ErrorEvent(
+                error=error,
+            ),
+        )
+
+        await self._finish()
+
+    # ------------------------------------------------------------------
+    # Final response
+    # ------------------------------------------------------------------
+
+    async def final_response(
+        self,
+    ) -> LLMResponse:
+
+        await self._task
+
+        if self._error is not None:
+
+            raise self._error
+
+        if self._response is None:
+
+            raise RuntimeError(
+                "Inference completed without a response.",
+            )
+
+        return self._response
+
+    # ------------------------------------------------------------------
+    # Close
+    # ------------------------------------------------------------------
+
+    async def aclose(
+        self,
+    ) -> None:
+
+        if self._closed:
+
+            return
+
+        self._closed = True
+
+        if not self._task.done():
+
+            self._task.cancel()
+
+            try:
+
+                await self._task
+
+            except asyncio.CancelledError:
+
+                pass
+
+        while True:
+
+            try:
+
+                self._events.get_nowait()
+
+            except asyncio.QueueEmpty:
+
+                break
+
+        await self._events.put(
+            None,
+        )

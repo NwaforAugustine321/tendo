@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { getMe, type AuthUser } from '../lib/services/auth'
+import { createContext, useContext, useEffect, type ReactNode } from 'react'
+import { useAuthStore } from '../store/auth'
+import type { AuthUser } from '../lib/services/auth'
 
 type AuthState = {
   user: AuthUser | null
@@ -10,19 +11,12 @@ type AuthState = {
 const AuthContext = createContext<AuthState>({ user: null, loading: true, refresh: async () => {} })
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { user, loading, fetchUser } = useAuthStore()
 
-  const refresh = async () => {
-    const u = await getMe()
-    setUser(u)
-    setLoading(false)
-  }
-
-  useEffect(() => { refresh() }, [])
+  useEffect(() => { fetchUser() }, [])
 
   return (
-    <AuthContext.Provider value={{ user, loading, refresh }}>
+    <AuthContext.Provider value={{ user, loading, refresh: fetchUser }}>
       {children}
     </AuthContext.Provider>
   )

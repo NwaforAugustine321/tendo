@@ -7,34 +7,47 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     supabase_url: str
     supabase_service_role_key: str
-    mem0_api_key: str = ""
     redis_url: str = ""
+
+    # MongoDB
+    mongodb_url: str = ""
+    mongodb_user: str = ""
+    mongodb_pass: str = ""
+    mongodb_database: str = "tendo"
 
     # LLM
     llm_provider: str = ""
     anthropic_api_key: str = ""
     anthropic_model: str = ""
     gemini_model: str = ""
+    ollama_model: str = ""
+    ollama_base_url: str = ""
 
-    # Embeddings
-    embedding_provider: str = ""
-    gemini_embedding_model: str = ""
-    openai_embedding_model: str = ""
-    openai_api_key: str = ""
+    # Msty (local OpenAI-compatible)
+    msty_model: str = ""
+    msty_base_url: str = ""
+    msty_num_ctx: int = 4096
 
-    # Memory system
-    supabase_db_url: str = ""  
-    max_message_token_size: int = 1024  # Range: 128–131072
+    # LMStudio (local OpenAI-compatible)
+    lmstudio_model: str = ""
+    lmstudio_base_url: str = ""
+
+    # NVIDIA AI Endpoints
+    nvidia_api_key: str = ""
+    nvidia_embedding_model: str = "nvidia/llama-nemotron-embed-vl-1b-v2"
+    nvidia_rerank_model: str = "nv-rerank-qa-mistral-4b:1"
 
     # Storage
-    bucket_name: str = "business-assets"
+    bucket_name: str = ""
+    vector_store_path: str = "./data/vector_store"
 
     # Voice
-    voice_provider: str = "gemini"
     google_voice_api_key: str = ""
-    google_voice_model: str = ""
-    wake_phrase: str = ""
-    silence_timeout_seconds: int = 120
+
+    # LiveKit
+    livekit_url: str = ""
+    livekit_api_key: str = ""
+    livekit_api_secret: str = ""
 
     # Dev
     spec_hot_reload: bool = True
@@ -42,16 +55,38 @@ class Settings(BaseSettings):
     # Agent
     agent_name: str = ""
 
-    @field_validator("max_message_token_size")
-    @classmethod
-    def validate_token_size(cls, v: int) -> int:
-        if v < 128 or v > 131072:
-            raise ValueError(
-                f"MAX_MESSAGE_TOKEN_SIZE must be between 128 and 131072, got {v}"
-            )
-        return v
+    # Business Event System Worker
+    event_min_event_count: int
+    event_min_char_count: int
+    event_max_events_per_batch: int
+    event_polling_interval_seconds: int
+    event_max_batch_size: int
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    # WhatsApp
+    whatsapp_verify_token: str = ""
+    whatsapp_app_secret: str = ""
+    whatsapp_api_version: str = ""
+    whatsapp_app_id: str = ""
+    whatsapp_test_token: str = ""
+
+    # Business Event Scheduler
+    event_max_concurrent_workers: int
+    event_dispatcher_interval: int
+    event_idle_eviction_cycles: int
+
+    # Record Knowledge Engine
+    record_knowledge_max_entries: int = 20
+    record_knowledge_max_folder_entries: int = 200
+    record_knowledge_max_summary_length: int = 2000
+    record_knowledge_token_limit: int = 8000
+    record_knowledge_max_retries: int = 3
+    record_knowledge_llm_timeout: int = 30
+
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
 
 
 settings = Settings()

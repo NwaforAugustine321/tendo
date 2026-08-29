@@ -16,7 +16,7 @@ export function ConfirmationCard({ summary, details, onConfirm, onModify, onCanc
         <div className="mb-4 space-y-1.5">
           {details.map((d, i) => (
             <div key={i} className="flex items-baseline justify-between text-xs">
-              <span className="text-zinc-500">{d.label}</span>
+              <span className="text-zinc-400">{d.label}</span>
               <span className="font-medium text-zinc-200">{d.value}</span>
             </div>
           ))}
