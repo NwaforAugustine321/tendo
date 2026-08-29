@@ -1,0 +1,144 @@
+services:
+  - type: web
+    name: nv-ingest-ms-runtime
+    runtime: docker
+    dockerfilePath: ./Dockerfile.ingestor
+    dockerContext: .
+    plan: starter
+
+    envVars:
+      # Redis
+      - key: MESSAGE_CLIENT_HOST
+        fromService:
+          type: keyvalue
+          name: nv-ingest-redis
+          property: host
+
+      - key: MESSAGE_CLIENT_PORT
+        fromService:
+          type: keyvalue
+          name: nv-ingest-redis
+          property: port
+
+      - key: MESSAGE_CLIENT_TYPE
+        value: redis
+
+      - key: REDIS_INGEST_TASK_QUEUE
+        value: ingest_task_queue
+
+      # Runtime
+      - key: ARROW_DEFAULT_MEMORY_POOL
+        value: system
+
+      - key: OMP_NUM_THREADS
+        value: "1"
+
+      - key: CUDA_VISIBLE_DEVICES
+        value: "-1"
+
+      - key: MAX_INGEST_PROCESS_WORKERS
+        value: "16"
+
+      - key: INGEST_LOG_LEVEL
+        value: WARNING
+
+      - key: INGEST_RAY_LOG_LEVEL
+        value: PRODUCTION
+
+      - key: INGEST_DYNAMIC_MEMORY_THRESHOLD
+        value: "0.80"
+
+      - key: INGEST_DISABLE_DYNAMIC_SCALING
+        value: "True"
+
+      - key: RAY_num_grpc_threads
+        value: "1"
+
+      - key: RAY_num_server_call_thread
+        value: "1"
+
+      - key: RAY_worker_num_grpc_internal_threads
+        value: "1"
+
+      # NVIDIA hosted embedding
+      - key: APP_EMBEDDINGS_SERVERURL
+        value: "https://integrate.api.nvidia.com/v1"
+
+      - key: APP_EMBEDDINGS_MODELNAME
+        value: "nvidia/llama-nemotron-embed-vl-1b-v2"
+
+      # NVIDIA hosted parsing
+      - key: NEMOTRON_PARSE_HTTP_ENDPOINT
+        value: "https://integrate.api.nvidia.com/v1/chat/completions"
+
+      - key: NEMOTRON_PARSE_INFER_PROTOCOL
+        value: "http"
+
+      - key: NEMOTRON_PARSE_MODEL_NAME
+        value: "nvidia/nemotron-parse"
+
+      # NVIDIA authentication
+      - key: NVIDIA_API_KEY
+        sync: false
+
+      - key: NGC_API_KEY
+        sync: false
+
+      - key: NVIDIA_BUILD_API_KEY
+        sync: false
+
+      # OCR
+      - key: OCR_HTTP_ENDPOINT
+        value: "https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-ocr-v1"
+
+      - key: OCR_INFER_PROTOCOL
+        value: "http"
+
+      - key: OCR_MODEL_NAME
+        value: "pipeline"
+
+      # Page elements
+      - key: YOLOX_HTTP_ENDPOINT
+        value: "https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-page-elements-v2"
+
+      - key: YOLOX_INFER_PROTOCOL
+        value: "http"
+
+      # Graphic elements
+      - key: YOLOX_GRAPHIC_ELEMENTS_HTTP_ENDPOINT
+        value: "https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-graphic-elements-v1"
+
+      - key: YOLOX_GRAPHIC_ELEMENTS_INFER_PROTOCOL
+        value: "http"
+
+      # Table structure
+      - key: YOLOX_TABLE_STRUCTURE_HTTP_ENDPOINT
+        value: "https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-table-structure-v1"
+
+      - key: YOLOX_TABLE_STRUCTURE_INFER_PROTOCOL
+        value: "http"
+
+      # VLM captioning
+      - key: VLM_CAPTION_ENDPOINT
+        value: "https://integrate.api.nvidia.com/v1/chat/completions"
+
+      - key: VLM_CAPTION_MODEL_NAME
+        value: "nvidia/nemotron-nano-12b-v2-vl"
+
+      # PDF
+      - key: PDF_SPLIT_PAGE_COUNT
+        value: "32"
+
+      - key: NV_INGEST_MAX_UTIL
+        value: "48"
+
+      - key: COMPONENTS_TO_READY_CHECK
+        value: "ALL"
+
+    autoDeploy: true
+
+  - type: keyvalue
+    name: nv-ingest-redis
+    plan: starter
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
