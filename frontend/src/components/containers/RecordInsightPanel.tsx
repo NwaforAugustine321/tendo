@@ -219,7 +219,7 @@ export function RecordInsightPanel() {
                   className="flex items-center gap-1 rounded-full px-2.5 py-1 border border-[#3ecf8e]/30 bg-[#3ecf8e]/5 text-[10px] text-[#3ecf8e] hover:bg-[#3ecf8e]/10 hover:border-[#3ecf8e]/50 transition-colors"
                 >
                   <Sparkles size={10} />
-                  <span>Ask Tendo</span>
+                  <span>Ask Tendo about this document.</span>
                 </button>
                 <span className="text-[9px] text-zinc-600">
                   {new Date(entry.timestamp).toLocaleString()}

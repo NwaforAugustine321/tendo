@@ -1,0 +1,83 @@
+services:
+  redis:
+    image: redis/redis-stack:7.2.0-v18
+    restart: unless-stopped
+
+  nv-ingest-ms-runtime:
+    image: nvcr.io/nvidia/nemo-microservices/nv-ingest:26.3.0
+    restart: unless-stopped
+
+    shm_size: 40gb
+
+    cap_add:
+      - sys_nice
+
+    environment:
+      ARROW_DEFAULT_MEMORY_POOL: system
+      OMP_NUM_THREADS: "1"
+      CUDA_VISIBLE_DEVICES: "-1"
+
+      MAX_INGEST_PROCESS_WORKERS: ${MAX_INGEST_PROCESS_WORKERS:-16}
+      INGEST_LOG_LEVEL: WARNING
+      INGEST_RAY_LOG_LEVEL: PRODUCTION
+      INGEST_DYNAMIC_MEMORY_THRESHOLD: "0.80"
+      INGEST_DISABLE_DYNAMIC_SCALING: ${INGEST_DISABLE_DYNAMIC_SCALING:-True}
+
+      RAY_num_grpc_threads: "1"
+      RAY_num_server_call_thread: "1"
+      RAY_worker_num_grpc_internal_threads: "1"
+
+      MESSAGE_CLIENT_HOST: redis
+      MESSAGE_CLIENT_PORT: "6379"
+      MESSAGE_CLIENT_TYPE: redis
+      REDIS_INGEST_TASK_QUEUE: ingest_task_queue
+
+      APP_EMBEDDINGS_SERVERURL: ${APP_EMBEDDINGS_SERVERURL:-https://integrate.api.nvidia.com/v1}
+      APP_EMBEDDINGS_MODELNAME: ${APP_EMBEDDINGS_MODELNAME:-nvidia/llama-nemotron-embed-vl-1b-v2}
+
+      NEMOTRON_PARSE_HTTP_ENDPOINT: ${NEMOTRON_PARSE_HTTP_ENDPOINT:-https://integrate.api.nvidia.com/v1/chat/completions}
+      NEMOTRON_PARSE_INFER_PROTOCOL: http
+      NEMOTRON_PARSE_MODEL_NAME: ${NEMOTRON_PARSE_MODEL_NAME:-nvidia/nemotron-parse}
+
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY}
+      NGC_API_KEY: ${NGC_API_KEY}
+      NVIDIA_BUILD_API_KEY: ${NGC_API_KEY}
+
+      OCR_HTTP_ENDPOINT: ${OCR_HTTP_ENDPOINT:-https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-ocr-v1}
+      OCR_INFER_PROTOCOL: http
+      OCR_MODEL_NAME: ${OCR_MODEL_NAME:-pipeline}
+
+      YOLOX_HTTP_ENDPOINT: ${YOLOX_HTTP_ENDPOINT:-https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-page-elements-v2}
+      YOLOX_INFER_PROTOCOL: http
+
+      YOLOX_GRAPHIC_ELEMENTS_HTTP_ENDPOINT: ${YOLOX_GRAPHIC_ELEMENTS_HTTP_ENDPOINT:-https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-graphic-elements-v1}
+      YOLOX_GRAPHIC_ELEMENTS_INFER_PROTOCOL: http
+
+      YOLOX_TABLE_STRUCTURE_HTTP_ENDPOINT: ${YOLOX_TABLE_STRUCTURE_HTTP_ENDPOINT:-https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-table-structure-v1}
+      YOLOX_TABLE_STRUCTURE_INFER_PROTOCOL: http
+
+      VLM_CAPTION_ENDPOINT: ${VLM_CAPTION_ENDPOINT:-https://integrate.api.nvidia.com/v1/chat/completions}
+      VLM_CAPTION_MODEL_NAME: ${VLM_CAPTION_MODEL_NAME:-nvidia/nemotron-nano-12b-v2-vl}
+
+      PDF_SPLIT_PAGE_COUNT: ${PDF_SPLIT_PAGE_COUNT:-32}
+      NV_INGEST_MAX_UTIL: ${NV_INGEST_MAX_UTIL:-48}
+      COMPONENTS_TO_READY_CHECK: ALL
+
+    ports:
+      - "7670:7670"
+      - "7671:7671"
+      - "8265:8265"
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail http://localhost:7670/v1/health/ready || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+    depends_on:
+      - redis

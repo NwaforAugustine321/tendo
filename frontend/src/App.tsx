@@ -23,6 +23,7 @@ export default function App() {
     <AuthProvider>
       <Routes>
         {/* Public */}
+
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />

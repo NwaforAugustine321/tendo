@@ -216,7 +216,7 @@ function SummaryBlock({
         title="Ask Tendo to explain this summary in the open chat session"
         className="inline-flex items-baseline align-baseline text-[10px] text-[#3ecf8e] underline hover:text-[#3ecf8e]/80 transition-colors"
       >
-        Ask Tendo
+        Ask Tendo about this document.
       </button>
     </div>
   );
@@ -760,7 +760,7 @@ function MessageDetail({
                       className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                     >
                       <Sparkles size={8} />
-                      <span>Ask Tendo</span>
+                      <span>Ask Tendo about this document.</span>
                     </button>
                   </div>
                 </div>
@@ -821,7 +821,7 @@ function MessageDetail({
                       className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                     >
                       <Sparkles size={8} />
-                      <span>Ask Tendo</span>
+                      <span>Ask Tendo about this document.</span>
                     </button>
                   </div>
                 </>
@@ -865,7 +865,7 @@ function MessageDetail({
                     className="flex items-center gap-1 rounded-full px-2 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[9px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                   >
                     <Sparkles size={8} />
-                    <span>Ask Tendo</span>
+                    <span>Ask Tendo about this document.</span>
                   </button>
                 </div>
               )}

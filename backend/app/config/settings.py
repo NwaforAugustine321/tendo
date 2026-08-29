@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     supabase_service_role_key: str
     redis_url: str = ""
 
+    # MongoDB
+    mongodb_url: str = ""
+    mongodb_user: str = ""
+    mongodb_pass: str = ""
+    mongodb_database: str = "tendo"
+
     # LLM
     llm_provider: str = ""
     anthropic_api_key: str = ""
@@ -76,7 +82,11 @@ class Settings(BaseSettings):
     record_knowledge_max_retries: int = 3
     record_knowledge_llm_timeout: int = 30
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
 
 
 settings = Settings()

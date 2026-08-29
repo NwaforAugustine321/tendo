@@ -20,8 +20,17 @@ from .models import (
     ProcessingResult,
     RecordContentInput,
 )
+from typing import TYPE_CHECKING
 from ...agent_hub.content_summarizer.summarizer import content_summarizer
 from ...event_writer.default_event_writer import EventWriter
+from app.runtime.llm_vendors.langchain import LangChainLLM
+from app.llm.client import get_client
+
+from app.business_cores.entities.agent import EntityAgent
+
+
+llm = LangChainLLM(model=get_client())
+
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +117,15 @@ class DocumentProcessor(
             total_chunks = len(
                 result.entries,
             )
+
+            entity_agent = EntityAgent(llm=llm)
+
+            for object_type in ['customer']:
+                await entity_agent.run(
+                    business_id=business_id,
+                    object_type=object_type,
+                    chunks=result.entries,
+                )
 
             for chunk_index, chunk in enumerate(
                 result.entries,

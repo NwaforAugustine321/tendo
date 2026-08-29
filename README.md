@@ -48,3 +48,7 @@ npm run dev
 ```
 
 The frontend runs at `http://localhost:5173`.
+
+# Important doc - https://docs.nvidia.com/rag/latest/?utm_source=chatgpt.com
+
+https://docs.nvidia.com/rag/latest/api-key.html

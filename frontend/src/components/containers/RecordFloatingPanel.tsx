@@ -653,7 +653,7 @@ function RecordContentTab({
                     className="flex items-center gap-1 rounded-full px-1.5 py-0.5 mt-2 border border-emerald-500/30 bg-emerald-500/5 text-[8px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                   >
                     <Sparkles size={7} />
-                    <span>Ask Tendo</span>
+                    <span>Ask Tendo about this document.</span>
                   </button>
                 </div>
               ) : insight ? (
@@ -706,7 +706,7 @@ function RecordContentTab({
                       className="flex items-center gap-1 rounded-full px-1.5 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[8px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                     >
                       <Sparkles size={7} />
-                      <span>Ask Tendo</span>
+                      <span>Ask Tendo about this document.</span>
                     </button>
                   </div>
                 </>
@@ -724,7 +724,7 @@ function RecordContentTab({
                     className="flex items-center gap-1 rounded-full px-1.5 py-0.5 border border-emerald-500/30 bg-emerald-500/5 text-[8px] text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
                   >
                     <Sparkles size={7} />
-                    <span>Ask Tendo</span>
+                    <span>Ask Tendo about this document.</span>
                   </button>
                 </div>
               )}
