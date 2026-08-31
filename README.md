@@ -13,7 +13,7 @@ cd backend
 conda env create -f environment.yml
 
 # Activate the environment
-conda activate tendo
+conda activate tendo_v2
 
 # Copy env file and fill in your API keys
 cp .env.example .env

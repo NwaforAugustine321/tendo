@@ -1,0 +1,179 @@
+version: "3.8"
+
+volumes:
+  rag-vol-ingestor:
+
+services:
+  # 1. CENTRAL MESSAGE BROKER QUEUE
+  redis:
+    image: redis:7-alpine
+    container_name: tendo-redis-broker
+    restart: always
+    ports:
+      - "6379:6379"
+
+  ingestor-server:
+    container_name: ingestor-server
+    image: nvcr.io/nvidia/blueprint/ingestor-server:${TAG:-2.6.0}
+    restart: always
+    command: --port 8082 --host 0.0.0.0 --workers 2
+    depends_on:
+      - redis
+      - nv-ingest-ms-runtime
+    ports:
+      - "8082:8082"
+    volumes:
+      - rag-vol-ingestor:/data/
+
+    env_file:
+      - .env
+
+    environment:
+      PROMPT_CONFIG_FILE: "/prompt.yaml"
+
+      OBJECTSTORE_ENDPOINT: "seaweedfs:9010"
+      OBJECTSTORE_ACCESSKEY: "seaweedfsadmin"
+      OBJECTSTORE_SECRETKEY: "seaweedfsadmin"
+
+      NGC_API_KEY: ${NVIDIA_API_KEY}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY}
+
+      APP_NVINGEST_MESSAGECLIENTHOSTNAME: ${MESSAGE_CLIENT_HOST:-redis}
+      APP_NVINGEST_MESSAGECLIENTPORT: ${MESSAGE_CLIENT_PORT:-6379}
+
+      APP_RANKING_MODELNAME: "nvidia/llama-nemotron-rerank-1b-v2"
+      ENABLE_RERANKER: True
+      RERANKER_TOP_K: 10
+      VDB_TOP_K: 100
+      APP_VECTORSTORE_SEARCHTYPE: "hybrid"
+
+      APP_NVINGEST_EXTRACTTEXT: ${APP_NVINGEST_EXTRACTTEXT:-True}
+      APP_NVINGEST_EXTRACTINFOGRAPHICS: ${APP_NVINGEST_EXTRACTINFOGRAPHICS:-True}
+      APP_NVINGEST_EXTRACTTABLES: ${APP_NVINGEST_EXTRACTTABLES:-True}
+      APP_NVINGEST_EXTRACTCHARTS: ${APP_NVINGEST_EXTRACTCHARTS:-True}
+      APP_NVINGEST_EXTRACTIMAGES: False
+
+      APP_NVINGEST_STRUCTURED_ELEMENTS_MODALITY: ""
+      APP_NVINGEST_IMAGE_ELEMENTS_MODALITY: ""
+      APP_NVINGEST_EXTRACTPAGEASIMAGE: False
+
+      APP_NVINGEST_PDFEXTRACTMETHOD: ${APP_NVINGEST_PDFEXTRACTMETHOD:-nemotron_parse}
+      APP_NVINGEST_EXTRACTTABLESMETHOD: ${APP_NVINGEST_EXTRACTTABLESMETHOD:-yolox}
+      APP_NVINGEST_TEXTDEPTH: ${APP_NVINGEST_TEXTDEPTH:-page}
+
+      APP_NVINGEST_CHUNKSIZE: ${APP_NVINGEST_CHUNKSIZE:-512}
+      APP_NVINGEST_CHUNKOVERLAP: ${APP_NVINGEST_CHUNKOVERLAP:-150}
+
+      APP_NVINGEST_ENABLE_PAGED_DOC_SPLIT: ${APP_NVINGEST_ENABLE_PAGED_DOC_SPLIT:-False}
+      APP_NVINGEST_SEGMENTAUDIO: ${APP_NVINGEST_SEGMENTAUDIO:-True}
+
+      APP_NVINGEST_CAPTIONMODELNAME: ${APP_NVINGEST_CAPTIONMODELNAME:-nvidia/nemotron-nano-12b-v2-vl}
+
+      APP_NVINGEST_CAPTIONENDPOINTURL: ${APP_NVINGEST_CAPTIONENDPOINTURL:-https://integrate.api.nvidia.com/v1/chat/completions}
+
+      APP_NVINGEST_PAGEELEMENTSURL: ${APP_NVINGEST_PAGEELEMENTSURL:-https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-page-elements-v3}
+
+      APP_NVINGEST_GRAPHICELEMENTSURL: ${APP_NVINGEST_GRAPHICELEMENTSURL:-https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-graphic-elements-v1}
+
+      APP_NVINGEST_OCRURL: ${APP_NVINGEST_OCRURL:-https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-ocr-v2}
+
+      APP_NVINGEST_TABLESTRUCTUREURL: ${APP_NVINGEST_TABLESTRUCTUREURL:-https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-table-structure-v1}
+
+      APP_NVINGEST_SAVETODISK: ${APP_NVINGEST_SAVETODISK:-False}
+
+      NVINGEST_OBJECTSTORE_BUCKET: ${NVINGEST_OBJECTSTORE_BUCKET:-nv-ingest}
+
+      APP_NVINGEST_ENABLE_PDF_SPLIT_PROCESSING: ${APP_NVINGEST_ENABLE_PDF_SPLIT_PROCESSING:-False}
+      APP_NVINGEST_PAGES_PER_CHUNK: ${APP_NVINGEST_PAGES_PER_CHUNK:-16}
+
+      ENABLE_CITATIONS: ${ENABLE_CITATIONS:-True}
+
+      SUMMARY_LLM: ${SUMMARY_LLM:-nvidia/nemotron-3-super-120b-a12b}
+      SUMMARY_LLM_SERVERURL: ${SUMMARY_LLM_SERVERURL:-${APP_LLM_SERVERURL:-https://integrate.api.nvidia.com/v1}}
+      SUMMARY_LLM_MAX_CHUNK_LENGTH: ${SUMMARY_LLM_MAX_CHUNK_LENGTH:-9000}
+      SUMMARY_CHUNK_OVERLAP: ${SUMMARY_CHUNK_OVERLAP:-400}
+      SUMMARY_LLM_TEMPERATURE: ${SUMMARY_LLM_TEMPERATURE:-0.0}
+      SUMMARY_LLM_TOP_P: ${SUMMARY_LLM_TOP_P:-1.0}
+      SUMMARY_MAX_PARALLELIZATION: ${SUMMARY_MAX_PARALLELIZATION:-20}
+
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_DB: ${REDIS_DB:-0}
+      ENABLE_REDIS_BACKEND: ${ENABLE_REDIS_BACKEND:-False}
+
+      TEMP_DIR: ${TEMP_DIR:-/tmp-data}
+      INGESTOR_SERVER_DATA_DIR: ${INGESTOR_SERVER_DATA_DIR:-/data/}
+
+      NV_INGEST_FILES_PER_BATCH: ${NV_INGEST_FILES_PER_BATCH:-16}
+      NV_INGEST_CONCURRENT_BATCHES: ${NV_INGEST_CONCURRENT_BATCHES:-4}
+      ENABLE_NV_INGEST_DYNAMIC_BATCHING: ${ENABLE_NV_INGEST_DYNAMIC_BATCHING:-True}
+
+      INGESTION_MAX_MEMORY_BUDGET_MB: ${INGESTION_MAX_MEMORY_BUDGET_MB:-1024}
+
+  nv-ingest-ms-runtime:
+    image: nvcr.io/nvidia/nemo-microservices/nv-ingest:26.3.0
+    container_name: tendo-nv-ingest-runtime
+    restart: always
+    shm_size: "4.15gb"
+    depends_on:
+      - redis
+
+    env_file:
+      - .env
+
+    environment:
+      - PORT=7670
+      - WEB_CONCURRENCY=${WEB_CONCURRENCY:-4}
+      - MESSAGE_CLIENT_HOST=redis
+      - MESSAGE_CLIENT_PORT=6379
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+      - NGC_API_KEY=${NVIDIA_API_KEY}
+
+      - ARROW_DEFAULT_MEMORY_POOL=system
+      - OMP_NUM_THREADS=1
+      # - MAX_INGEST_PROCESS_WORKERS=${MAX_INGEST_PROCESS_WORKERS:-16}
+      - INGEST_LOG_LEVEL=INFO
+      - INGEST_RAY_LOG_LEVEL=PRODUCTION
+      - INGEST_DYNAMIC_MEMORY_THRESHOLD=0.80
+      - INGEST_DISABLE_DYNAMIC_SCALING=${INGEST_DISABLE_DYNAMIC_SCALING:-True}
+      - RAY_num_grpc_threads=1
+      - RAY_num_server_call_thread=1
+      - RAY_worker_num_grpc_internal_threads=1
+
+      - MINIO_ENDPOINT=http://seaweedfs:9010
+      - MINIO_BUCKET=${NVINGEST_OBJECTSTORE_BUCKET:-nv-ingest}
+      - MINIO_ACCESS_KEY=${OBJECTSTORE_ACCESSKEY:-seaweedfsadmin}
+      - MINIO_SECRET_KEY=${OBJECTSTORE_SECRETKEY:-seaweedfsadmin}
+      - NV_INGEST_MAX_UTIL=${NV_INGEST_MAX_UTIL:-48}
+      - OCR_HTTP_ENDPOINT=https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-ocr-v2
+      - OCR_INFER_PROTOCOL=http
+      - PDF_SPLIT_PAGE_COUNT=${PDF_SPLIT_PAGE_COUNT:-32}
+
+      - REDIS_INGEST_TASK_QUEUE=ingest_task_queue
+
+      - NEMOTRON_PARSE_HTTP_ENDPOINT=https://integrate.api.nvidia.com/v1/chat/completions
+      - NEMOTRON_PARSE_MODEL_NAME=nvidia/nemotron-parse
+      - NEMOTRON_PARSE_INFER_PROTOCOL=http
+      - APP_NVINGEST_PDFEXTRACTMETHOD=nemotron_parse
+
+      - APP_EMBEDDINGS_SERVERURL=https://integrate.api.nvidia.com/v1
+      - APP_EMBEDDINGS_MODELNAME=nvidia/llama-nemotron-embed-vl-1b-v2
+
+      - YOLOX_INFER_PROTOCOL=http
+      - YOLOX_HTTP_ENDPOINT=https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-page-elements-v3
+      - YOLOX_GRAPHIC_ELEMENTS_HTTP_ENDPOINT=https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-graphic-elements-v1
+      - YOLOX_GRAPHIC_ELEMENTS_INFER_PROTOCOL=http
+      - YOLOX_TABLE_STRUCTURE_HTTP_ENDPOINT=https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-table-structure-v1
+      - YOLOX_TABLE_STRUCTURE_INFER_PROTOCOL=http
+
+      - PAGE_ELEMENTS_INVOKE_URL=https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-page-elements-v3
+      - PAGE_ELEMENTS_MODEL_NAME=nvidia/nemotron-page-elements-v3
+      - NIM_ENGINE_MODEL_NAME=nvidia/nemotron-page-elements-v3
+
+      - VLM_CAPTION_ENDPOINT=https://integrate.api.nvidia.com/v1/chat/completions
+      - VLM_CAPTION_MODEL_NAME=nvidia/nemotron-nano-12b-v2-vl
+
+    ports:
+      - "7670:7670"
+      - "7671:7671"
+      - "8265:8265"

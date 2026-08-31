@@ -19,7 +19,7 @@ class DocumentSource:
 class RAGPipeline(ABC):
 
     @abstractmethod
-    async def create_collection(self, name: str) -> Any:
+    async def create_collection(self, name: str, collection_type: str | None = None) -> Any:
         ...
 
     @abstractmethod

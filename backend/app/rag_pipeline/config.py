@@ -1,33 +1,42 @@
 from nvidia_rag.utils.configuration import NvidiaRAGConfig
+from app.config.settings import settings
+import os
+ingest_domain = "http://3.226.250.54"
+
+
+os.environ["NVIDIA_API_KEY"] = settings.nvidia_api_key
+
+os.environ["NGC_API_KEY"] = os.environ["NVIDIA_API_KEY"]
 
 
 def create_config() -> NvidiaRAGConfig:
+
     return NvidiaRAGConfig.from_dict(
         {
-            "vector_store": {
-                "name": "milvus",
-                "url": "https://in03-87999fc6931bf94.serverless.aws-eu-central-1.cloud.zilliz.com",
-                "search_type": "dense",
-                "username": "db_87999fc6931bf94",
-                "password": "rgw4T!nqXp!4Bix",
-                "enable_gpu_index": False,
-                "enable_gpu_search": False,
-            },
+
             "nv_ingest": {
+                "message_client_hostname": f"{ingest_domain}",
+                "message_client_port": 7670,
+                "extract_infographics": True,
+                "redis_host": f"{ingest_domain}",
+                "redis_port": 6379,
                 "backend": "nrl",
-                "nrl_run_mode": "batch",
+                "nrl_run_mode": "batch"
+
             },
             "embeddings": {
                 "model_name": "nvidia/llama-nemotron-embed-vl-1b-v2",
                 "model_engine": "nvidia-ai-endpoints",
-                "dimensions": 2048,
                 "server_url": "https://integrate.api.nvidia.com/v1",
+
+
             },
             "ranking": {
-                "server_url": "",
+                "enable_reranker": True,
+                "model_name": "nvidia/llama-nemotron-rerank-vl-1b-v2",
+                # "model_engine": "nvidia-ai-endpoints",
+                # "server_url": "https://integrate.api.nvidia.com/v1",
             },
-            "llm": {
-                "server_url": "",
-            },
+
         }
     )

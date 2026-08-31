@@ -1,47 +1,10 @@
-# ---------------------------------------------------------------------------
-# Tendo backend — single source of truth for dependencies.
-#
-# Only two dependency files exist:
-#
-#   pyproject.toml    this file. Hand-edited. Declares direct dependencies.
-#   requirements.txt  generated lock. Never hand-edit.
-#
-# Re-lock after editing [project.dependencies]:
-#
-#   uv pip compile pyproject.toml -o requirements.txt --no-build
-#
-# Install:
-#
-#   uv pip install -r requirements.txt --no-build
-#
-# ---------------------------------------------------------------------------
-# Three rules keep this environment installable on this machine
-# (Intel macOS, x86_64):
-#
-# 1. Do not install with plain `pip`. pip's resolver aborts with
-#    "resolution-too-deep" on this graph while backtracking through
-#    grpcio/onnxruntime candidates. Always install the compiled lock.
-#
-# 2. Always pass --no-build. There is no Xcode command line toolchain here,
-#    so any package that falls back to an sdist fails to build. --no-build
-#    makes the resolver pick only versions that publish an x86_64 macOS
-#    wheel, turning a late build failure into an early resolution error.
-#
-# 3. Use a conda-forge interpreter. conda-forge builds osx-64 python against
-#    a macOS 11.0 deployment target, so it reports the platform tag
-#    macosx-11.0-x86_64 and can install the macosx_11_0_universal2 wheels
-#    that grpcio, onnxruntime and friends publish. The anaconda `pkgs/main`
-#    channel reports macosx-10.15-x86_64, under which every macosx_11_0
-#    wheel is ineligible.
-#
-#      conda create -n tendo -c conda-forge --override-channels python=3.11
-# ---------------------------------------------------------------------------
+
 
 [project]
 name = "tendo"
 version = "0.1.0"
 description = "Tendo — AI Business Operating System"
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.12,<3.13"
 
 dependencies = [
   # --- Web / API ---------------------------------------------------------
@@ -100,49 +63,14 @@ dependencies = [
   "livekit-plugins-nvidia",
   "nvidia-riva-client",
 
-  # --- RAG (NVIDIA) ------------------------------------------------------
-  # Extras:
-  #   rag    -> orchestrator/telemetry deps used by app.rag_pipeline.pipeline
-  #   ingest -> NeMo Retriever Extraction (nv-ingest-api / nv-ingest-client)
-  #
-  # Resolves to nvidia-rag 2.5.0, NOT 2.6.0: nvidia-rag[rag]==2.6.0 requires
-  # openai<2.0 while livekit-agents>=1.6.1 requires openai>=2.
-  #
-  # Consequence: the in-process NeMo Retriever Library backend
-  # (nv_ingest.backend = "nrl") does NOT exist in 2.5.0, so the two nv_ingest
-  # keys in app/rag_pipeline/config.py are silently ignored and ingestion
-  # runs through the NV-Ingest service path instead.
-  #
-  # lancedb is not an nvidia-rag dependency; it is declared here because
-  # config.py selects the lancedb vector store.
+  
   "nvidia-rag[rag,ingest]",
   "lancedb",
+
 
   # --- Document ingestion (RAG loaders) ----------------------------------
   "opendataloader-pdf==2.5.0",
   "pymupdf==1.28.0",
-
-  # --- Docling -----------------------------------------------------------
-  # docling-parse dropped x86_64 macOS wheels after 4.7.2 — newer releases
-  # ship macosx arm64 wheels only, so pip falls back to an sdist build that
-  # fails. docling 2.55.1 declares docling-parse<5.0.0, so 4.7.2 satisfies
-  # it from a prebuilt wheel.
-  #
-  # Do not unpin without checking that a matching x86_64 macOS wheel exists.
-  "docling==2.55.1",
-  "docling-parse==4.7.2",
-
-  # --- torch / numpy -----------------------------------------------------
-  # torch 2.2.2 is the last release with x86_64 macOS wheels, and it is built
-  # against NumPy 1.x. With numpy>=2 installed, torch fails with "Failed to
-  # initialize NumPy: _ARRAY_API not found" and torch.from_numpy raises,
-  # which breaks the docling model pipeline.
-  #
-  # opencv-python-headless>=4.14 requires numpy>=2, so it is capped here to
-  # keep numpy<2 resolvable.
-  "torch==2.2.2",
-  "numpy==1.26.4",
-  "opencv-python-headless==4.10.0.84",
 
   # --- Transitive pins for prebuilt x86_64 macOS wheels ------------------
   # argon2-cffi-bindings (via minio -> argon2-cffi): 26.1.0 ships only
@@ -165,7 +93,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
@@ -176,3 +104,7 @@ testpaths = ["tests"]
 
 [tool.pytest-asyncio]
 mode = "auto"
+
+[tool.setuptools.packages.find]
+include = ["app*"]  
+exclude = ["data*", "migrations*", "tests*"]
