@@ -32,7 +32,7 @@ def create_config() -> NvidiaRAGConfig:
 
             },
             "ranking": {
-                "enable_reranker": True,
+                "enable_reranker": False,
                 "model_name": "nvidia/llama-nemotron-rerank-vl-1b-v2",
                 # "model_engine": "nvidia-ai-endpoints",
                 # "server_url": "https://integrate.api.nvidia.com/v1",

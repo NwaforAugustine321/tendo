@@ -221,14 +221,9 @@ class Pipeline(RAGPipeline):
                 "at least one valid collection must be provided"
             )
 
-        # return await self._rag.search(
-        #     query=query.strip(),
-        #     collection_names=collection_names,
-        # )
-
         return await self._rag.search(
             query=query,
-            reranker_top_k=10,
+            reranker_top_k=top_k,
             vdb_top_k=100,
             collection_names=collection_names,
         )

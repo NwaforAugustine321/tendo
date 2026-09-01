@@ -2,6 +2,9 @@ version: "3.8"
 
 volumes:
   rag-vol-ingestor:
+  minio-data:
+  kafka-data:
+  ingestion-tmp:
 
 services:
   # 1. CENTRAL MESSAGE BROKER QUEUE
@@ -11,6 +14,115 @@ services:
     restart: always
     ports:
       - "6379:6379"
+
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: tendo-kafka
+    restart: always
+
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+    ports:
+      - "9092:9092"
+
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  kafka-consumer:
+    build:
+      context: ./kafka-consumer
+      dockerfile: Dockerfile
+    container_name: tendo-kafka-consumer
+    restart: unless-stopped
+
+    depends_on:
+      - kafka
+      - minio
+      - ingestor-server
+
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: tendo-kafka:9092
+      KAFKA_TOPIC: minio-events
+      KAFKA_GROUP_ID: tendo-document-ingestion
+
+      MINIO_ENDPOINT: tendo-minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_SECURE: "false"
+
+      INGESTOR_SERVER_URL: http://ingestor-server:8082
+
+      TEMP_DIR: /tmp/tendo-ingestion
+
+    volumes:
+      - ingestion-tmp:/tmp/tendo-ingestion
+
+    networks:
+      - default
+
+  minio:
+    image: minio/minio:latest
+    container_name: tendo-minio
+    restart: always
+
+    command: server /data --console-address ":9001"
+
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_USER:-minioadmin}
+
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+    volumes:
+      - minio-data:/data
+
+  minio-mc:
+    image: minio/mc:latest
+    container_name: tendo-minio-mc
+    depends_on:
+      minio:
+        condition: service_started
+      kafka:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Waiting for MinIO...';
+      until mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD}; do
+        sleep 2;
+      done;
+
+      echo 'Setting up MinIO bucket...';
+      mc mb --ignore-existing local/tendo-documents;
+
+      echo 'Configuring Kafka bucket notifications...';
+      mc event add local/tendo-documents arn:minio:sqs::MINIOKAFKA:kafka --event put,delete || true;
+
+      echo 'MinIO setup complete.';
+      echo 'Bucket: tendo-documents';
+      echo 'Kafka topic: minio-events';
+
+      tail -f /dev/null
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
 
   ingestor-server:
     container_name: ingestor-server
@@ -31,10 +143,6 @@ services:
     environment:
       PROMPT_CONFIG_FILE: "/prompt.yaml"
 
-      OBJECTSTORE_ENDPOINT: "seaweedfs:9010"
-      OBJECTSTORE_ACCESSKEY: "seaweedfsadmin"
-      OBJECTSTORE_SECRETKEY: "seaweedfsadmin"
-
       NGC_API_KEY: ${NVIDIA_API_KEY}
       NVIDIA_API_KEY: ${NVIDIA_API_KEY}
 
@@ -51,10 +159,10 @@ services:
       APP_NVINGEST_EXTRACTINFOGRAPHICS: ${APP_NVINGEST_EXTRACTINFOGRAPHICS:-True}
       APP_NVINGEST_EXTRACTTABLES: ${APP_NVINGEST_EXTRACTTABLES:-True}
       APP_NVINGEST_EXTRACTCHARTS: ${APP_NVINGEST_EXTRACTCHARTS:-True}
-      APP_NVINGEST_EXTRACTIMAGES: False
+      APP_NVINGEST_EXTRACTIMAGES: True
 
-      APP_NVINGEST_STRUCTURED_ELEMENTS_MODALITY: ""
-      APP_NVINGEST_IMAGE_ELEMENTS_MODALITY: ""
+      APP_NVINGEST_STRUCTURED_ELEMENTS_MODALITY: "image"
+      APP_NVINGEST_IMAGE_ELEMENTS_MODALITY: "image"
       APP_NVINGEST_EXTRACTPAGEASIMAGE: False
 
       APP_NVINGEST_PDFEXTRACTMETHOD: ${APP_NVINGEST_PDFEXTRACTMETHOD:-nemotron_parse}
@@ -172,6 +280,18 @@ services:
 
       - VLM_CAPTION_ENDPOINT=https://integrate.api.nvidia.com/v1/chat/completions
       - VLM_CAPTION_MODEL_NAME=nvidia/nemotron-nano-12b-v2-vl
+
+      - KAFKA_BOOTSTRAP_SERVERS=tendo-kafka:9092
+      - KAFKA_TOPIC=minio-events
+      - MINIO_ENDPOINT=tendo-minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - INGESTOR_SERVER_URL=http://ingestor-server:8082
+
+      - NVINGEST_OBJECTSTORE_BUCKET=nv-ingest
+      - OBJECTSTORE_ACCESSKEY=seaweedfsadmin
+      - OBJECTSTORE_ENDPOINT=seaweedfs:9010
+      - OBJECTSTORE_SECRETKEY=seaweedfsadmin
 
     ports:
       - "7670:7670"

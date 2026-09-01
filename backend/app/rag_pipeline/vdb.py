@@ -78,7 +78,8 @@ class NRLLanceDB(LanceDB):
 
         if isinstance(results, list):
             return [
-                row for row in results
+                row
+                for row in results
                 if isinstance(row, dict)
             ]
 
@@ -103,6 +104,24 @@ class NRLLanceDB(LanceDB):
 
         return []
 
+    @staticmethod
+    def _is_large_string(value: Any) -> bool:
+        return isinstance(value, str) and len(value) > 100000
+
+    @classmethod
+    def _sanitize_source(cls, source: Any) -> dict[str, Any]:
+        if not isinstance(source, dict):
+            source = {}
+
+        source = dict(source)
+
+        description = source.get("description")
+
+        if cls._is_large_string(description):
+            source["description"] = "Image content"
+
+        return source
+
     def results_to_docs(
         self,
         results: Any,
@@ -110,13 +129,16 @@ class NRLLanceDB(LanceDB):
     ) -> list[Document]:
 
         rows = self._rows_from_results(results)
+
         docs: list[Document] = []
 
         for row in rows:
             row_data = dict(row)
 
+            text_key = getattr(self, "_text_key", "text")
+
             text = row_data.pop(
-                self._text_key,
+                text_key,
                 row_data.pop("text", ""),
             )
 
@@ -126,7 +148,9 @@ class NRLLanceDB(LanceDB):
 
             source = metadata.get("source")
 
-            if not isinstance(source, dict):
+            if isinstance(source, dict):
+                source = self._sanitize_source(source)
+            else:
                 source = {}
 
             for key, value in row_data.items():
@@ -136,12 +160,33 @@ class NRLLanceDB(LanceDB):
             source_id = row.get("source_id")
 
             if source_id is not None:
-                source["source_id"] = source_id
+                source["source_id"] = str(source_id)
+
+            path = row.get("path")
+
+            if path is not None:
+                source["path"] = str(path)
+
+            document_id = row.get("document_id")
+
+            if document_id is not None:
+                metadata["document_id"] = str(document_id)
+
+            document_name = row.get("document_name")
+
+            if document_name is not None:
+                metadata["document_name"] = str(document_name)
+
+            row_id = row.get("id")
+
+            if row_id is not None:
+                metadata["id"] = str(row_id)
 
             metadata["source"] = source
 
             if score:
                 distance = row.get("_distance")
+
                 if distance is not None:
                     metadata["_score"] = distance
 

@@ -15,19 +15,19 @@ async def main():
         namespace="test",
     )
 
-    # print("4. Ingesting text file...", flush=True)
+    print("4. Ingesting text file...", flush=True)
 
-    # source = DocumentSource(
-    #     type=SourceType.FILE,
-    #     value="test.png",
-    # )
+    source = DocumentSource(
+        type=SourceType.FILE,
+        value="test_v1.txt",
+    )
 
-    # result = await pipeline.ingest(
-    #     collection="documents",
-    #     source=source,
-    # )
+    result = await pipeline.ingest(
+        collection="documents",
+        source=source,
+    )
 
-    # print("5. INGEST RESULT:", result, flush=True)
+    print("5. INGEST RESULT:", result, flush=True)
 
     print("6. Searching...", flush=True)
 
