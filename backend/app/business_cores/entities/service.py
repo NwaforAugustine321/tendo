@@ -242,6 +242,206 @@ class EntityService:
             offset=offset,
         )
 
+    async def search(
+        self,
+        *,
+        business_id: str,
+        object_type: str,
+        filters: dict[str, Any],
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+
+        return await self.repository.search(
+            business_id=business_id,
+            object_type=object_type,
+            filters=filters,
+            limit=limit,
+        )
+
+    async def inspect_database(
+        self,
+        *,
+        business_id: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+
+        return await self.repository.inspect_database(
+            business_id=business_id,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def inspect_collection(
+        self,
+        *,
+        business_id: str,
+        collection: str,
+    ) -> dict[str, Any]:
+
+        return await self.repository.inspect_collection(
+            business_id=business_id,
+            collection=collection,
+        )
+
+    async def inspect_collections(
+        self,
+        *,
+        business_id: str,
+        collections: list[str],
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+
+        return await self.repository.inspect_collections(
+            business_id=business_id,
+            collections=collections,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def query_collection(
+        self,
+        *,
+        business_id: str,
+        collection: str,
+        filters: dict[str, Any],
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+
+        return await self.repository.query_collection(
+            business_id=business_id,
+            collection=collection,
+            filters=filters,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def profile_collection(
+        self,
+        *,
+        business_id: str,
+        collection: str,
+        fields: list[str] | None = None,
+    ) -> dict[str, Any]:
+
+        return await self.repository.profile_collection(
+            business_id=business_id,
+            collection=collection,
+            fields=fields,
+        )
+
+    async def search_business_data(
+        self,
+        *,
+        business_id: str,
+        collection: str,
+        query: str,
+        search_type: str,
+        fields: list[str],
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+
+        return await self.repository.search_business_data(
+            business_id=business_id,
+            collection=collection,
+            query=query,
+            search_type=search_type,
+            fields=fields,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def discover_relationships(
+        self,
+        *,
+        business_id: str,
+        collections: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+
+        return await self.repository.discover_relationships(
+            business_id=business_id,
+            collections=collections,
+        )
+
+    async def find_collections_path(
+        self,
+        *,
+        business_id: str,
+        from_collection: str,
+        to_collection: str,
+        max_depth: int = 5,
+    ) -> list[dict[str, Any]]:
+
+        return await self.repository.find_collections_path(
+            business_id=business_id,
+            from_collection=from_collection,
+            to_collection=to_collection,
+            max_depth=max_depth,
+        )
+
+    async def aggregate_collection(
+        self,
+        *,
+        business_id: str,
+        collection: str,
+        filters: dict[str, Any],
+        group_by: list[str],
+        metrics: list[dict[str, str]],
+    ) -> list[dict[str, Any]]:
+
+        return await self.repository.aggregate_collection(
+            business_id=business_id,
+            collection=collection,
+            filters=filters,
+            group_by=group_by,
+            metrics=metrics,
+        )
+
+    async def aggregate_related_data(
+        self,
+        *,
+        business_id: str,
+        collections: list[str],
+        relationship: dict[str, str],
+        filters: dict[str, Any],
+        group_by: list[str],
+        metrics: list[dict[str, str]],
+    ) -> list[dict[str, Any]]:
+
+        return await self.repository.aggregate_related_data(
+            business_id=business_id,
+            collections=collections,
+            relationship=relationship,
+            filters=filters,
+            group_by=group_by,
+            metrics=metrics,
+        )
+
+    async def traverse_relationships(
+        self,
+        *,
+        business_id: str,
+        start_collection: str,
+        relationships: list[dict[str, str]],
+        filters: dict[str, Any],
+        fields: list[str],
+        limit: int = 20,
+        max_depth: int = 5,
+    ) -> list[dict[str, Any]]:
+
+        return await self.repository.traverse_relationships(
+            business_id=business_id,
+            start_collection=start_collection,
+            relationships=relationships,
+            filters=filters,
+            fields=fields,
+            limit=limit,
+            max_depth=max_depth,
+        )
+
 
 entity_service = EntityService(
     registry=entity_registry,

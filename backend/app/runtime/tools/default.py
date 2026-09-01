@@ -125,19 +125,40 @@ def create_memory_tool(
     *,
     agent: Agent,
 ) -> Callable:
-    @tool
+    @tool(
+        "search_memory",
+        description=(
+            """
+        Search long-term memory for information relevant to the task.
+
+        Long-term memory is the agent's persistent memory of information learned,
+        remembered, or retained over time. It may contain information about the
+        user, business, entities, preferences, goals, facts, experiences,
+        relationships, decisions, observations, important context, and other
+        durable information.
+
+        Use this tool when the task depends on information the agent may already
+        remember, regardless of where that information originally came from.
+
+        This tool retrieves remembered information. It is not used to inspect,
+        filter, query, count, aggregate, or retrieve exact records from
+        structured business data.
+
+        Use business-data tools when the task requires exact structured records,
+        field values, filtering, aggregation, or relationships.
+
+        Use knowledge search when the required information is contained in
+        stored documents, evidence, or accumulated knowledge sources rather than
+        the agent's long-term memory.
+
+        Multiple searches may be used when different pieces of remembered
+        information need to be retrieved or cross-referenced.
+        """
+        )
+    )
     async def search_memory(
         query: str,
     ) -> str:
-        """
-        Search long-term memory for information relevant to the request.
-
-        Use this tool when the task requires prior facts, history, preferences,
-        decisions, observations, relationships, or previously learned
-        information. 
-
-        This tool is explicitly authorized for multiple simultaneous or sequential invocations to completely cross-reference and assemble the required past memory of informations.
-        """
 
         if agent.memory is None:
             return "Long-term memory is not available."
@@ -160,18 +181,38 @@ def create_rag_tool(
     *,
     agent: Agent,
 ) -> Callable:
-    @tool
+    @tool(
+        "search_evidence",
+        description=(
+            """
+        Search stored business knowledge and evidence for information relevant to
+        the task.
+
+        Use this tool when the task requires information contained in stored
+        documents, evidence, findings, documentation, policies, processes,
+        business context, explanations, decisions, observations, or other
+        accumulated knowledge.
+
+        Use this tool when the required information may be distributed across
+        documents or knowledge sources and needs to be found based on its
+        meaning, context, or relevance rather than an exact structured field
+        value.
+
+        This tool retrieves knowledge and evidence. It is not used to inspect,
+        filter, query, count, aggregate, or retrieve exact records from
+        structured business data.
+
+        Use business-data tools when the task requires exact structured records,
+        field values, filtering, aggregation, or relationships.
+
+        Multiple searches may be used when the task requires gathering or
+        cross-referencing information from different knowledge sources.
+        """
+        )
+    )
     async def search_knowledge(
         query: str,
     ) -> str:
-        """
-        Search central system resources and datasets for data records relevant to the task.
-
-        Use this capability when the task requires factual validation, documentation structures, 
-        parameters, operations, data entities, system metrics, logs, findings, or other accumulated resource knowledge bases. 
-
-        This tool is explicitly authorized for multiple simultaneous or sequential use to fully gather and assemble the required explicity, implicity and general data or information.
-        """
 
         if agent.rag is None:
             return "Central knowledge is not available."

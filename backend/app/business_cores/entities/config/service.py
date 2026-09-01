@@ -1,4 +1,7 @@
+
 from __future__ import annotations
+
+from typing import Any
 
 from ..defaults import DEFAULT_ENTITY_CONFIGS
 from .config import EntityConfig
@@ -160,6 +163,32 @@ class EntityConfigService:
             *configs,
             *defaults,
         ]
+
+    async def list_object_types(
+        self,
+        *,
+        business_id: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+
+        limit = max(
+            1,
+            min(limit, 100),
+        )
+
+        offset = max(
+            0,
+            offset,
+        )
+
+        objects = await self.repository.list_object_types(
+            business_id=business_id,
+            limit=limit,
+            offset=offset,
+        )
+
+        return objects
 
     @staticmethod
     def _validate_fields(

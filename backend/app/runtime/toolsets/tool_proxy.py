@@ -776,10 +776,7 @@ class ToolProxyToolset(ToolSearchToolset):
                     ),
                 )
 
-            except (
-                NotImplementedError,
-                TypeError,
-            ):
+            except NotImplementedError:
 
                 result = tool.invoke(
                     arguments,

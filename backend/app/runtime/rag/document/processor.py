@@ -118,14 +118,14 @@ class DocumentProcessor(
                 result.entries,
             )
 
-            entity_agent = EntityAgent(llm=llm)
+            # entity_agent = EntityAgent(llm=llm)
 
-            for object_type in ['customer']:
-                await entity_agent.run(
-                    business_id=business_id,
-                    object_type=object_type,
-                    chunks=result.entries,
-                )
+            # for object_type in ['customer']:
+            #     await entity_agent.run(
+            #         business_id=business_id,
+            #         object_type=object_type,
+            #         chunks=result.entries,
+            #     )
 
             for chunk_index, chunk in enumerate(
                 result.entries,

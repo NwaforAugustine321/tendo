@@ -116,6 +116,69 @@ class EntityConfigRepository:
             for document in documents
         ]
 
+    async def list_object_types(
+        self,
+        *,
+        business_id: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+
+        if not business_id:
+            raise ValueError(
+                "business_id cannot be empty"
+            )
+
+        limit = max(
+            1,
+            min(limit, 100),
+        )
+
+        offset = max(
+            0,
+            offset,
+        )
+
+        cursor = (
+            self.collection
+            .find(
+                {
+                    "business_id": business_id,
+                    "enabled": True,
+                },
+                {
+                    "_id": 0,
+                    "object_type": 1,
+                    "fields.name": 1,
+                },
+            )
+            .sort(
+                "object_type",
+                ASCENDING,
+            )
+            .skip(offset)
+            .limit(limit)
+        )
+
+        documents = await cursor.to_list(
+            length=limit,
+        )
+
+        return [
+            {
+                "object_type": document["object_type"],
+                "fields": [
+                    field["name"]
+                    for field in document.get(
+                        "fields",
+                        [],
+                    )
+                    if field.get("name")
+                ],
+            }
+            for document in documents
+        ]
+
     async def ensure_indexes(self) -> None:
 
         await self.collection.create_index(
@@ -125,6 +188,15 @@ class EntityConfigRepository:
             ],
             unique=True,
             name="business_object_type",
+        )
+
+        await self.collection.create_index(
+            [
+                ("business_id", ASCENDING),
+                ("enabled", ASCENDING),
+                ("object_type", ASCENDING),
+            ],
+            name="business_enabled_object_type",
         )
 
     @staticmethod

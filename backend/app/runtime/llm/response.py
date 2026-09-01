@@ -1,10 +1,34 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Generic, TypeVar
 
 
 T = TypeVar("T")
+
+
+class LLMAction(str, Enum):
+    FINAL = "final"
+    CONTINUE = "continue"
+    REQUEST_CONFIRMATION = "request_confirmation"
+    REQUEST_APPROVAL = "request_approval"
+
+
+class InteractionType(str, Enum):
+    CONFIRMATION = "confirmation"
+    APPROVAL = "approval"
+
+
+class ApprovalState(str, Enum):
+    ACCEPT = "accept"
+    REJECT = "reject"
+
+
+@dataclass(slots=True)
+class Interaction:
+    type: InteractionType
+    approval_state: ApprovalState | None = None
 
 
 @dataclass(slots=True)
@@ -14,9 +38,7 @@ class ToolCall:
     """
 
     id: str
-
     name: str
-
     arguments: dict[str, Any]
 
 
@@ -24,11 +46,12 @@ class ToolCall:
 class LLMResponse(Generic[T]):
     """
     Provider-independent LLM response.
-
-    T is the provider's raw response type.
     """
 
     text: str = ""
+    content: str | None = None
+    question: str | None = None
+
     output: T | None = None
 
     tool_calls: list[ToolCall] = field(
@@ -41,13 +64,40 @@ class LLMResponse(Generic[T]):
 
     raw: T | None = None
 
+    action: LLMAction | None = None
+    interaction: Interaction | None = None
+
     @property
     def has_tool_calls(self) -> bool:
         return bool(self.tool_calls)
 
     @property
     def is_final(self) -> bool:
-        return not self.tool_calls
+        return (
+            not self.has_tool_calls
+            and (
+                self.action is None
+                or self.action == LLMAction.FINAL
+            )
+        )
+
+    @property
+    def should_continue(self) -> bool:
+        return self.action == LLMAction.CONTINUE
+
+    @property
+    def requests_confirmation(self) -> bool:
+        return (
+            self.action
+            == LLMAction.REQUEST_CONFIRMATION
+        )
+
+    @property
+    def requests_approval(self) -> bool:
+        return (
+            self.action
+            == LLMAction.REQUEST_APPROVAL
+        )
 
     def tool_to_chat_message(
         self,

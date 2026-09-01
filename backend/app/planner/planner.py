@@ -26,7 +26,7 @@ from app.communication.ws.server import socket_dispatcher
 from app.communication.events import ApplicationEvent
 from app.communication.event_bus import get_event_bus
 from app.communication.events import EventDelivery
-
+from app.tools.db.db_tool import get_db_tool
 
 logger = logging.getLogger(__name__)
 
@@ -941,9 +941,10 @@ class Planner:
             instructions=planner_system_prompt,
 
             tools=[
-                delegate_to_agents(
-                    self._session,
-                ),
+                # delegate_to_agents(
+                #     self._session,
+                # ),
+                *get_db_tool(business_id=self._business_id)
             ],
 
             enable_runtime_mem=False,
