@@ -9,30 +9,65 @@ def extract_tag(
     tag: str,
 ) -> str:
     """
-    Extract the content of a tag robustly.
-    Handles multiple instances, malformed prefixes, and unclosed tags.
+
+
+    Extraction therefore:
+    - finds all complete occurrences,
+    - prefers the last non-empty occurrence,
+    - falls back to the last incomplete occurrence,
+    - never consumes another tag,
+    - returns only the tag value.
     """
+
+    if not text or not tag:
+        return ""
+
     escaped_tag = re.escape(tag)
 
-    # 1. Match a properly closed tag (non-greedy .*?)
-    # This picks the content between the closest matching pair.
-    closed_match = re.search(
-        rf"<{escaped_tag}>(.*?)</{escaped_tag}>",
+    closed_matches = re.findall(
+        rf"<{escaped_tag}>\s*(.*?)\s*</{escaped_tag}>",
         text,
-        re.DOTALL | re.IGNORECASE,
+        flags=re.DOTALL | re.IGNORECASE,
     )
-    if closed_match:
-        return closed_match.group(1).strip()
 
-    # 2. Fallback for unclosed/incomplete tags.
-    # It stops if it hits another tag starting with '<' to prevent swallowing the whole text.
-    fallback_match = re.search(
-        rf"<{escaped_tag}>([^<]*)",
+    if closed_matches:
+        for value in reversed(closed_matches):
+            value = value.strip()
+
+            if not value:
+                continue
+
+            # Remove accidental surrounding quotes.
+            if (
+                len(value) >= 2
+                and value[0] == '"'
+                and value[-1] == '"'
+            ):
+                value = value[1:-1].strip()
+
+            return value
+
+    fallback_matches = re.findall(
+        rf"<{escaped_tag}>\s*([^<]*)",
         text,
-        re.DOTALL | re.IGNORECASE,
+        flags=re.DOTALL | re.IGNORECASE,
     )
-    if fallback_match:
-        return fallback_match.group(1).strip()
+
+    if fallback_matches:
+        for value in reversed(fallback_matches):
+            value = value.strip()
+
+            if not value:
+                continue
+
+            if (
+                len(value) >= 2
+                and value[0] == '"'
+                and value[-1] == '"'
+            ):
+                value = value[1:-1].strip()
+
+            return value
 
     return ""
 
@@ -52,7 +87,6 @@ def extract_json(
     if not raw:
         return None
 
-    # Remove markdown fences.
     raw = re.sub(
         r"```(?:json)?",
         "",
@@ -66,16 +100,13 @@ def extract_json(
     ).strip()
 
     try:
-        return json.loads(
-            raw,
-        )
+        return json.loads(raw)
     except (
         json.JSONDecodeError,
         TypeError,
     ):
         pass
 
-    # Try to find a JSON object.
     object_match = re.search(
         r"\{.*\}",
         raw,
@@ -90,7 +121,6 @@ def extract_json(
         except json.JSONDecodeError:
             pass
 
-    # Try to find a JSON array.
     array_match = re.search(
         r"\[.*\]",
         raw,
@@ -147,7 +177,6 @@ def extract_json_list(
             if str(item).strip()
         ]
 
-    # Fallback for partially generated JSON arrays.
     values = re.findall(
         r'"((?:\\.|[^"\\])*)"',
         raw,

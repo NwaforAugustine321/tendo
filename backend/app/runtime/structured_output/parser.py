@@ -497,6 +497,17 @@ class ResponseParser:
             AIMessage,
         ):
 
+            if self.extract_action(
+                self.extract_text(
+                    provider_response,
+                ),
+            ):
+
+                return (
+                    None,
+                    None,
+                )
+
             output, error = self._parse_text(
                 text=self.extract_text(
                     provider_response,
