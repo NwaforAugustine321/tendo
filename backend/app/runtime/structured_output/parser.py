@@ -499,10 +499,6 @@ class ResponseParser:
         question: str | None,
     ) -> tuple[Interaction | None, str | None]:
 
-        # ---------------------------------------------------------
-        # No interaction is allowed for normal processing.
-        # ---------------------------------------------------------
-
         if action in {
             LLMAction.CONTINUE,
             LLMAction.FINAL,
@@ -513,9 +509,7 @@ class ResponseParser:
                 return (
                     None,
                     (
-                        f"The <interaction>{interaction}"
-                        "</interaction> tag is not allowed for "
-                        f"the '{action.value}' action. "
+
                         "Only request_user_input may contain an "
                         "interaction tag."
                     ),
@@ -537,18 +531,6 @@ class ResponseParser:
                 None,
                 None,
             )
-
-        # ---------------------------------------------------------
-        # request_user_input requires only:
-        #
-        # <action>request_user_input</action>
-        # <content>...</content>
-        # <question>...</question>
-        #
-        # <interaction> is NOT part of the LLM XML protocol.
-        # The internal Interaction object is created here for runtime
-        # compatibility.
-        # ---------------------------------------------------------
 
         if action == LLMAction.REQUEST_USER_INPUT:
 

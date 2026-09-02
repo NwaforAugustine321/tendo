@@ -1257,7 +1257,7 @@ class AgentRunner:
                     <action>request_user_input</action>
                     <content>Briefly explain what data or clarification is missing.</content>
                     <question>[One clear question asking the user how they would like to proceed]</question>
-                    <interaction>user_input</interaction>
+                    
 
                     STRICT RULE: Do not guess, assume, or invent facts. If the tool data was missing or ambiguous, you MUST select Option B and ask the user for clarification. Output nothing outside these exact XML tags.
                     """
