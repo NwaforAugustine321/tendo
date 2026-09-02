@@ -1479,14 +1479,35 @@ class AgentRunner:
                 )
 
             else:
+                if response.text:
 
-                logger.warning(
-                    "[RUNNER] Finalization attempt %d returned "
-                    "non-terminal action=%s. The response will not "
-                    "be exposed.",
-                    attempt,
-                    action,
-                )
+                    assistant_message = (
+                        ChatMessage.from_llm_response(
+                            response,
+                        )
+                    )
+
+                    run_context.add_message(
+                        assistant_message,
+                    )
+
+                    await run_context.middleware.dispatch(
+                        MiddlewareEvent.AFTER_LLM,
+                        run_context,
+                        AfterLLMEvent(
+                            message=assistant_message,
+                            response=response,
+                        ),
+                    )
+                else:
+
+                    logger.warning(
+                        "[RUNNER] Finalization attempt %d returned "
+                        "non-terminal action=%s. The response will not "
+                        "be exposed.",
+                        attempt,
+                        action,
+                    )
 
             run_context.add_message(
                 ChatMessage.system(
