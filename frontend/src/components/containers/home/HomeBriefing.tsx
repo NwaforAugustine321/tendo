@@ -78,7 +78,7 @@ export function HomeBriefing({
   const hasMoreActivity = activityCount > ACTIVITY_LIMIT;
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-10 lg:px-10 lg:py-12">
+    <div className="mx-auto w-full max-w-3xl px-6 py-10 lg:px-10 lg:py-6">
       {/* Greeting */}
       <div>
         <p className="text-[26px] font-medium tracking-[-0.025em] text-zinc-100">

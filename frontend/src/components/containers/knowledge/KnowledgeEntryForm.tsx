@@ -10,7 +10,8 @@ type Props = {
   definition: KnowledgeDefinition;
   onBack: () => void;
   onClose: () => void;
-  onSave: (values: KnowledgeEntryValues) => void;
+  onSave: (values: KnowledgeEntryValues) => void | Promise<void>;
+  isSaving?: boolean;
 };
 
 export default function KnowledgeEntryForm({
@@ -18,6 +19,7 @@ export default function KnowledgeEntryForm({
   onBack,
   onClose,
   onSave,
+  isSaving = false,
 }: Props) {
   const [values, setValues] = useState<KnowledgeEntryValues>({});
 
@@ -28,6 +30,14 @@ export default function KnowledgeEntryForm({
     }));
   };
 
+  const handleSave = async () => {
+    if (isSaving) {
+      return;
+    }
+
+    await onSave(values);
+  };
+
   return (
     <div className="flex max-h-[620px] w-full max-w-[520px] flex-col overflow-hidden rounded-xl border border-zinc-800/80 bg-[#151515] shadow-2xl">
       {/* HEADER */}
@@ -35,7 +45,8 @@ export default function KnowledgeEntryForm({
         <button
           type="button"
           onClick={onBack}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+          disabled={isSaving}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-white/5 hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <ArrowLeft size={15} />
         </button>
@@ -53,7 +64,8 @@ export default function KnowledgeEntryForm({
         <button
           type="button"
           onClick={onClose}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+          disabled={isSaving}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-white/5 hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <X size={15} />
         </button>
@@ -72,8 +84,9 @@ export default function KnowledgeEntryForm({
                 type="text"
                 value={values[field.id] ?? ""}
                 onChange={(event) => updateValue(field.id, event.target.value)}
+                disabled={isSaving}
                 placeholder={`Enter ${field.name.toLowerCase()}`}
-                className="h-10 w-full rounded-lg border border-zinc-800 bg-[#111111] px-3 text-[12px] text-zinc-200 outline-none placeholder:text-zinc-700 focus:border-emerald-500/50"
+                className="h-10 w-full rounded-lg border border-zinc-800 bg-[#111111] px-3 text-[12px] text-zinc-200 outline-none placeholder:text-zinc-700 focus:border-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-50"
               />
             </div>
           ))}
@@ -85,17 +98,19 @@ export default function KnowledgeEntryForm({
         <button
           type="button"
           onClick={onClose}
-          className="rounded-md px-3 py-2 text-[11px] font-medium text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+          disabled={isSaving}
+          className="rounded-md px-3 py-2 text-[11px] font-medium text-zinc-500 hover:bg-white/5 hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Cancel
         </button>
 
         <button
           type="button"
-          onClick={() => onSave(values)}
-          className="rounded-md bg-emerald-500 px-4 py-2 text-[11px] font-medium text-black hover:bg-emerald-400"
+          onClick={handleSave}
+          disabled={isSaving}
+          className="rounded-md bg-emerald-500 px-4 py-2 text-[11px] font-medium text-black hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Save
+          {isSaving ? "Saving..." : "Save"}
         </button>
       </div>
     </div>

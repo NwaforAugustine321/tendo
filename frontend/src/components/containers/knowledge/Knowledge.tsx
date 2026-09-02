@@ -273,6 +273,37 @@ export default function Knowledge() {
 
   /*
    * -----------------------------------------------------------------------
+   * PENDING ENTITY FOR DOCUMENT UPLOAD
+   * -----------------------------------------------------------------------
+   *
+   * After the entity is saved, we keep the newly-created record here while
+   * the user moves through the document upload step.
+   *
+   * This gives the document flow a concrete entity/record to attach the
+   * uploaded files to.
+   */
+
+  const [pendingDocumentRecord, setPendingDocumentRecord] =
+    useState<KnowledgeRecord | null>(null);
+
+  /*
+   * -----------------------------------------------------------------------
+   * DOCUMENTS
+   * -----------------------------------------------------------------------
+   *
+   * Temporary frontend storage for the selected files.
+   *
+   * This is intentionally kept separate from the knowledge record itself.
+   * The actual upload, document extraction, processing and persistence
+   * should be connected here when the document service/API is ready.
+   */
+
+  const [entityDocuments, setEntityDocuments] = useState<
+    Record<string, File[]>
+  >({});
+
+  /*
+   * -----------------------------------------------------------------------
    * FILTER STATE
    * -----------------------------------------------------------------------
    */
@@ -492,6 +523,7 @@ export default function Knowledge() {
 
   const closeAddModal = () => {
     setShowAdd(false);
+    setPendingDocumentRecord(null);
   };
 
   /**
@@ -542,6 +574,12 @@ export default function Knowledge() {
 
   /**
    * Save a new knowledge entry.
+   *
+   * IMPORTANT:
+   * We do not close the modal here.
+   *
+   * The AddToKnowledgeModal owns the next step and will move the user to
+   * document selection after this save completes.
    */
   const handleSaveEntry = (
     definition: KnowledgeDefinition,
@@ -568,6 +606,75 @@ export default function Knowledge() {
           : item,
       ),
     );
+
+    /*
+     * Keep this record alive for the following document step.
+     */
+    setPendingDocumentRecord(newRecord);
+  };
+
+  /**
+   * Handle documents selected for the newly-created entity.
+   *
+   * The modal supplies the definition and selected files. The actual entity
+   * is resolved from pendingDocumentRecord, which was created immediately
+   * before the document step.
+   *
+   * This currently stores the files in local frontend state only.
+   * Replace the body with the real document upload/processing API when that
+   * service is connected.
+   */
+  const handleUploadDocuments = async (
+    definition: KnowledgeDefinition,
+    files: File[],
+  ) => {
+    if (!pendingDocumentRecord) {
+      console.error(
+        "Cannot upload documents because no entity record is pending.",
+      );
+      return;
+    }
+
+    if (pendingDocumentRecord.definitionId !== definition.id) {
+      console.error(
+        "Cannot upload documents because the pending entity does not match the selected definition.",
+      );
+      return;
+    }
+
+    setEntityDocuments((current) => ({
+      ...current,
+      [pendingDocumentRecord.id]: [
+        ...(current[pendingDocumentRecord.id] ?? []),
+        ...files,
+      ],
+    }));
+
+    /*
+     * ---------------------------------------------------------------------
+     * DOCUMENT SERVICE INTEGRATION POINT
+     * ---------------------------------------------------------------------
+     *
+     * This is where the real upload/processing call should eventually go.
+     *
+     * Example future flow:
+     *
+     * await uploadDocuments({
+     *   entityId: pendingDocumentRecord.id,
+     *   definitionId: definition.id,
+     *   files,
+     * });
+     *
+     * The document service can then:
+     *
+     * 1. Upload the files.
+     * 2. Create document records.
+     * 3. Process/extract their contents.
+     * 4. Associate the documents with this entity.
+     * 5. Trigger the knowledge/document processing pipeline.
+     *
+     * We intentionally do not invent that API here.
+     */
 
     closeAddModal();
   };
@@ -630,6 +737,7 @@ export default function Knowledge() {
           onClose={closeAddModal}
           onDefinitionSaved={handleDefinitionSaved}
           onSaveEntry={handleSaveEntry}
+          onUploadDocuments={handleUploadDocuments}
         />
       )}
     </div>

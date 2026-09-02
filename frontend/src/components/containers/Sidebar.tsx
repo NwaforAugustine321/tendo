@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import {
   Home,
@@ -9,19 +9,10 @@ import {
   Settings,
   Plus,
   Menu,
-  MessageCircle,
-  ChevronDown,
 } from "lucide-react";
 import clsx from "clsx";
-import { toast } from "sonner";
 
 import { useAuth } from "../../context/auth";
-import { useBusinessStore } from "../../store/business";
-import {
-  listDataSources,
-  disconnectDataSource,
-  onboardWhatsApp,
-} from "../../lib/services/integrations";
 
 type NavItem = {
   to: string;
@@ -43,8 +34,8 @@ const PRIMARY_NAV: NavItem[] = [
     icon: <Sparkles size={18} />,
   },
   {
-    to: "/me/files",
-    label: "Documents",
+    to: "/me/mems",
+    label: "Memory",
     icon: <FileText size={18} />,
   },
   {
@@ -64,9 +55,6 @@ type SidebarProps = {
   collapsed: boolean;
   onToggle: () => void;
 };
-
-const CODE =
-  "AQIZMgohzOX1Fg8BH7E26-3iuwLKboSSEpaR6vUoIIZXpL60lsyoLFE4yVXB5mlbHO6QbtTA445X5C3U0pTScMYEBikNeugXjSdT8JiqAJxkt6JqETYfssDVGyxiBZWZ3CMhixaNwNSRQ7afdL98eSGuTAg-8G50mD7IP_WdUEUENCjkeb_DRC3ti32hAWXNnS8cK0QT1lMk1J2WbiBCaBBfXHirG3-cWfeNTOQzvX3G5La1NG3ODwpKcmp95LsV99cJalQZnKOYAI65NkiwjNLRmPCnXHGRO_rFJl6NGaeWit_NqNrY1Lwus-t_BKhQKbdCXAhMaAsWb7LftkxZq8mvymeb9rNbo3tJ4HXcazO4tsHkMObO_DC2JWIWWlfis45SOtV8FHqkbivxeyzfGOpHCJ7AGJEzWr00JD0gBS2iNQ";
 
 function NavigationItem({
   item,
@@ -104,10 +92,6 @@ export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { currentProfile } = useBusinessStore();
-
-  const [whatsappConnected, setWhatsappConnected] = useState(false);
-
   const [documentsOpen, setDocumentsOpen] = useState(
     location.pathname.startsWith("/me/files"),
   );
@@ -118,73 +102,12 @@ export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
     }
   }, [location.pathname]);
 
-  const fetchWhatsAppStatus = useCallback(async () => {
-    if (!currentProfile?.id) return;
-
-    try {
-      const sources = await listDataSources(currentProfile.id);
-
-      const wa = sources.find(
-        (source) =>
-          source.source_type === "whatsapp" && source.status === "active",
-      );
-
-      setWhatsappConnected(!!wa);
-    } catch {
-      setWhatsappConnected(false);
-    }
-  }, [currentProfile?.id]);
-
-  useEffect(() => {
-    fetchWhatsAppStatus();
-  }, [fetchWhatsAppStatus]);
-
-  const handleConnectWhatsApp = async () => {
-    if (!currentProfile?.id) return;
-
-    if (whatsappConnected) {
-      try {
-        await disconnectDataSource(currentProfile.id, "whatsapp");
-
-        setWhatsappConnected(false);
-      } catch {
-        toast.error("Couldn't disconnect WhatsApp. Please try again.");
-      }
-
-      return;
-    }
-
-    try {
-      const WHATSAPP_CONFIG_ID = import.meta.env.VITE_WHATSAPP_CONFIG_ID;
-
-      if (!WHATSAPP_CONFIG_ID) {
-        toast.error("WhatsApp connection is not configured.");
-        return;
-      }
-
-      const FB = (window as any).FB;
-
-      if (!FB) {
-        toast.error("WhatsApp connection is unavailable right now.");
-        return;
-      }
-
-      onboardWhatsApp(currentProfile.id, CODE).then(() => {
-        setWhatsappConnected(true);
-      });
-    } catch {
-      toast.error("Couldn't connect WhatsApp. Please try again.");
-    }
-  };
-
   const handleAdd = () => {
     navigate("/me/knowledge");
   };
 
   const settingsActive =
     location.pathname === "/me/settings" || location.pathname === "/me/profile";
-
-  const documentsActive = location.pathname.startsWith("/me/files");
 
   return (
     <aside
@@ -259,119 +182,8 @@ export function Sidebar({ className, collapsed, onToggle }: SidebarProps) {
 
         <NavigationItem item={PRIMARY_NAV[1]} collapsed={collapsed} />
 
-        {/* Documents + WhatsApp */}
-        <div>
-          <NavLink
-            to="/me/files"
-            end
-            title={collapsed ? "Documents" : undefined}
-            onClick={() => {
-              setDocumentsOpen(true);
-            }}
-            className={clsx(
-              "group flex items-center transition-colors",
-              collapsed
-                ? "mx-auto h-9 w-9 justify-center rounded-lg"
-                : "gap-3 py-1.5 pl-4 pr-3 text-[12px] font-medium",
-              documentsActive
-                ? "bg-emerald-500/15 text-emerald-400"
-                : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200",
-            )}
-          >
-            <FileText size={18} className="shrink-0" />
-
-            {!collapsed && (
-              <>
-                <span className="min-w-0 flex-1 truncate text-left">
-                  Documents
-                </span>
-
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-
-                    setDocumentsOpen((open) => !open);
-                  }}
-                  className={clsx(
-                    "flex h-5 w-5",
-                    "items-center justify-center",
-                    "rounded",
-                    "transition-colors",
-                    "hover:bg-white/5",
-                  )}
-                  aria-label={
-                    documentsOpen ? "Collapse Documents" : "Expand Documents"
-                  }
-                >
-                  <ChevronDown
-                    size={13}
-                    className={clsx(
-                      "transition-transform",
-                      !documentsOpen && "-rotate-90",
-                    )}
-                  />
-                </button>
-              </>
-            )}
-          </NavLink>
-
-          {!collapsed && documentsOpen && (
-            <div className="ml-[27px] mt-[0.4rem] border-l border-zinc-800/80 pl-3">
-              <button
-                type="button"
-                onClick={handleConnectWhatsApp}
-                className={clsx(
-                  "flex w-full items-center gap-2",
-                  "rounded-md",
-                  "px-2 py-1.5",
-                  "text-[11px]",
-                  "transition-colors",
-                  whatsappConnected
-                    ? "text-emerald-400 hover:bg-emerald-500/5"
-                    : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300",
-                )}
-              >
-                <MessageCircle size={14} className="shrink-0" />
-
-                <span className="min-w-0 flex-1 truncate text-left">
-                  WhatsApp
-                </span>
-
-                {whatsappConnected && (
-                  <span className="shrink-0 text-[9px] font-medium text-emerald-500/80">
-                    Connected
-                  </span>
-                )}
-              </button>
-            </div>
-          )}
-
-          {collapsed && (
-            <button
-              type="button"
-              onClick={handleConnectWhatsApp}
-              title={
-                whatsappConnected ? "WhatsApp connected" : "Connect WhatsApp"
-              }
-              aria-label={
-                whatsappConnected ? "WhatsApp connected" : "Connect WhatsApp"
-              }
-              className={clsx(
-                "mx-auto mt-0.5 flex h-7 w-7",
-                "items-center justify-center",
-                "rounded-md",
-                "text-zinc-500",
-                "transition-colors",
-                "hover:bg-white/5",
-                "hover:text-zinc-300",
-              )}
-            >
-              <MessageCircle size={15} />
-            </button>
-          )}
-        </div>
+        {/* DOCUMENTS */}
+        <NavigationItem item={PRIMARY_NAV[2]} collapsed={collapsed} />
 
         <NavigationItem item={PRIMARY_NAV[3]} collapsed={collapsed} />
 

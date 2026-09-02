@@ -6,6 +6,7 @@ import {
   FileText,
   Pencil,
   Plus,
+  Upload,
   X,
 } from "lucide-react";
 
@@ -17,7 +18,7 @@ import type {
   KnowledgeEntryValues,
 } from "./knowledge.types";
 
-type Step = "choice" | "create" | "entry";
+type Step = "choice" | "create" | "entry" | "document" | "upload";
 
 type Props = {
   definitions: KnowledgeDefinition[];
@@ -35,11 +36,26 @@ type Props = {
   /**
    * Called when an entry is saved using a definition's
    * configured fields.
+   *
+   * The entity/knowledge entry must be saved before the
+   * document step is shown.
    */
   onSaveEntry: (
     definition: KnowledgeDefinition,
     values: KnowledgeEntryValues,
-  ) => void;
+  ) => void | Promise<void>;
+
+  /**
+   * Called after the entity entry has been successfully saved
+   * and the user selects documents from their computer.
+   *
+   * The parent owns the actual upload, association, and
+   * document processing API calls.
+   */
+  onUploadDocuments?: (
+    definition: KnowledgeDefinition,
+    files: File[],
+  ) => void | Promise<void>;
 };
 
 const DEFINITIONS_PER_PAGE = 5;
@@ -49,6 +65,7 @@ export default function AddToKnowledgeModal({
   onClose,
   onDefinitionSaved,
   onSaveEntry,
+  onUploadDocuments,
 }: Props) {
   const [step, setStep] = useState<Step>("choice");
 
@@ -62,6 +79,13 @@ export default function AddToKnowledgeModal({
    * Current page for the available templates.
    */
   const [definitionPage, setDefinitionPage] = useState(0);
+
+  /*
+   * Document state.
+   */
+  const [isSavingEntry, setIsSavingEntry] = useState(false);
+
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
   /*
    * -----------------------------------------------------------------------
@@ -113,6 +137,8 @@ export default function AddToKnowledgeModal({
     setSelectedDefinition(null);
     setEditingDefinition(null);
     setDefinitionPage(0);
+    setIsSavingEntry(false);
+    setSelectedFiles([]);
   }, []);
 
   /*
@@ -126,6 +152,8 @@ export default function AddToKnowledgeModal({
     setSelectedDefinition(null);
     setEditingDefinition(null);
     setDefinitionPage(0);
+    setIsSavingEntry(false);
+    setSelectedFiles([]);
 
     onClose();
   };
@@ -179,6 +207,106 @@ export default function AddToKnowledgeModal({
     setEditingDefinition(null);
 
     setStep("entry");
+  };
+
+  /*
+   * -----------------------------------------------------------------------
+   * SAVE ENTRY
+   * -----------------------------------------------------------------------
+   */
+
+  const handleSaveEntry = async (values: KnowledgeEntryValues) => {
+    if (!selectedDefinition || isSavingEntry) {
+      return;
+    }
+
+    setIsSavingEntry(true);
+
+    try {
+      /*
+       * Save the main entity first.
+       *
+       * Document selection happens only after the
+       * entity has been successfully saved.
+       */
+      await onSaveEntry(selectedDefinition, values);
+
+      setSelectedFiles([]);
+
+      /*
+       * The entity now exists, so the user can optionally
+       * add documents belonging to it.
+       */
+      setStep("document");
+    } finally {
+      setIsSavingEntry(false);
+    }
+  };
+
+  /*
+   * -----------------------------------------------------------------------
+   * DOCUMENT
+   * -----------------------------------------------------------------------
+   */
+
+  const handleDocumentBack = () => {
+    setStep("entry");
+  };
+
+  /*
+   * -----------------------------------------------------------------------
+   * SELECT FILES FROM COMPUTER
+   * -----------------------------------------------------------------------
+   */
+
+  const handleSelectFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+
+    if (files.length === 0) {
+      return;
+    }
+
+    setSelectedFiles(files);
+
+    /*
+     * Reset the input so selecting the same file again
+     * still triggers onChange.
+     */
+    event.target.value = "";
+  };
+
+  /*
+   * -----------------------------------------------------------------------
+   * UPLOAD DOCUMENTS
+   * -----------------------------------------------------------------------
+   */
+
+  const handleUploadDocuments = async () => {
+    if (
+      !selectedDefinition ||
+      selectedFiles.length === 0 ||
+      !onUploadDocuments
+    ) {
+      return;
+    }
+
+    /*
+     * The parent owns:
+     *
+     * 1. Uploading the files.
+     * 2. Associating them with the entity.
+     * 3. Starting document processing.
+     *
+     * Processing is intentionally outside this modal.
+     */
+    await onUploadDocuments(selectedDefinition, selectedFiles);
+
+    handleClose();
+  };
+
+  const handleUploadBack = () => {
+    setSelectedFiles([]);
+    setStep("document");
   };
 
   /*
@@ -439,8 +567,193 @@ export default function AddToKnowledgeModal({
           definition={selectedDefinition}
           onBack={handleEntryBack}
           onClose={handleClose}
-          onSave={(values) => onSaveEntry(selectedDefinition, values)}
+          onSave={handleSaveEntry}
         />
+      )}
+
+      {/* =========================================================
+          ADD DOCUMENT
+          ========================================================= */}
+      {step === "document" && selectedDefinition && (
+        <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-zinc-800/80 bg-[#151515] shadow-2xl">
+          {/* HEADER */}
+          <div className="flex items-center gap-2 border-b border-zinc-800/70 px-5 py-4">
+            <button
+              type="button"
+              onClick={handleDocumentBack}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+            >
+              <ArrowLeft size={15} />
+            </button>
+
+            <div className="min-w-0 flex-1">
+              <h3 className="text-[14px] font-medium text-zinc-100">
+                Add document
+              </h3>
+
+              <p className="mt-1 text-[11px] text-zinc-500">
+                Add a document to this {selectedDefinition.name.toLowerCase()}.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleClose}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+            >
+              <X size={15} />
+            </button>
+          </div>
+
+          {/* OPTIONS */}
+          <div className="p-5">
+            <button
+              type="button"
+              onClick={() => setStep("upload")}
+              className="group flex w-full items-center gap-3 rounded-xl border border-zinc-800/80 bg-[#111111] p-4 text-left transition-colors hover:border-zinc-700 hover:bg-[#131313]"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                <Upload size={17} strokeWidth={1.8} />
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="text-[12px] font-medium text-zinc-200">
+                  Select from computer
+                </div>
+
+                <div className="mt-1 text-[11px] text-zinc-600">
+                  Choose documents from your computer.
+                </div>
+              </div>
+
+              <ChevronRight
+                size={14}
+                className="shrink-0 text-zinc-700 transition-colors group-hover:text-zinc-500"
+              />
+            </button>
+          </div>
+
+          {/* FOOTER */}
+          <div className="border-t border-zinc-800/70 px-5 py-3">
+            <button
+              type="button"
+              onClick={handleClose}
+              className="ml-auto block rounded-md px-3 py-2 text-[11px] font-medium text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+            >
+              Skip
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================
+          SELECT FROM COMPUTER
+          ========================================================= */}
+      {step === "upload" && selectedDefinition && (
+        <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-zinc-800/80 bg-[#151515] shadow-2xl">
+          {/* HEADER */}
+          <div className="flex items-center gap-2 border-b border-zinc-800/70 px-5 py-4">
+            <button
+              type="button"
+              onClick={handleUploadBack}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+            >
+              <ArrowLeft size={15} />
+            </button>
+
+            <div className="min-w-0 flex-1">
+              <h3 className="text-[14px] font-medium text-zinc-100">
+                Select from computer
+              </h3>
+
+              <p className="mt-1 text-[11px] text-zinc-500">
+                Select documents to add to this{" "}
+                {selectedDefinition.name.toLowerCase()}.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleClose}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+            >
+              <X size={15} />
+            </button>
+          </div>
+
+          {/* BODY */}
+          <div className="p-5">
+            <label className="flex min-h-[170px] cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-zinc-800 bg-[#111111] px-5 text-center transition-colors hover:border-zinc-700 hover:bg-[#131313]">
+              <input
+                type="file"
+                multiple
+                className="hidden"
+                onChange={handleSelectFiles}
+              />
+
+              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                <Upload size={18} strokeWidth={1.7} />
+              </div>
+
+              <div className="mt-3 text-[12px] font-medium text-zinc-200">
+                Choose files from your computer
+              </div>
+
+              <div className="mt-1 text-[11px] text-zinc-600">
+                You can select multiple documents.
+              </div>
+            </label>
+
+            {selectedFiles.length > 0 && (
+              <div className="mt-4">
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
+                  Selected documents
+                </div>
+
+                <div className="max-h-[150px] space-y-1.5 overflow-y-auto">
+                  {selectedFiles.map((file) => (
+                    <div
+                      key={`${file.name}-${file.size}-${file.lastModified}`}
+                      className="flex items-center gap-3 rounded-lg border border-zinc-800/70 bg-[#111111] px-3 py-2.5"
+                    >
+                      <FileText size={15} className="shrink-0 text-zinc-500" />
+
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[11px] text-zinc-300">
+                          {file.name}
+                        </div>
+
+                        <div className="mt-0.5 text-[10px] text-zinc-600">
+                          {(file.size / 1024 / 1024).toFixed(2)} MB
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* FOOTER */}
+          <div className="flex items-center justify-end gap-2 border-t border-zinc-800/70 px-5 py-3">
+            <button
+              type="button"
+              onClick={handleUploadBack}
+              className="rounded-md px-3 py-2 text-[11px] font-medium text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+            >
+              Back
+            </button>
+
+            <button
+              type="button"
+              onClick={handleUploadDocuments}
+              disabled={selectedFiles.length === 0 || !onUploadDocuments}
+              className="rounded-md bg-emerald-500 px-4 py-2 text-[11px] font-medium text-black transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Upload
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

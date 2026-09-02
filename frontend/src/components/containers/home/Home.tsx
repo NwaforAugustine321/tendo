@@ -223,7 +223,7 @@ export function Home() {
             </button>
           </div>
 
-          <div className="px-6 pt-1 lg:px-10">
+          <div className="px-6  lg:px-10">
             <div className="mx-auto w-full max-w-3xl">
               <HomeBriefing
                 firstName={getFirstName(currentProfile)}

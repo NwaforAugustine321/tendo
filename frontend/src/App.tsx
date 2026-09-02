@@ -26,6 +26,7 @@ import AttentionSnapSpace from "./pages/AttentionSnapSpace";
 import ActivityDetailSpace from "./pages/ActivityDetailSpace";
 import InsightDetailSpace from "./pages/InsightDetailSpace";
 import AttentionDetailSpace from "./pages/AttentionDetailSpace";
+import Documents from "./pages/DocumentsSpace";
 
 export default function App() {
   return (
@@ -91,6 +92,7 @@ export default function App() {
           <Route path="activity/:id" element={<ActivityDetailSpace />} />
           <Route path="insights/:id" element={<InsightDetailSpace />} />
           <Route path="attention/:id" element={<AttentionDetailSpace />} />
+          <Route path="mems" element={<Documents />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
