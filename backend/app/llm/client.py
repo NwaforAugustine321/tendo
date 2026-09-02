@@ -97,6 +97,7 @@ def _create_client(config: dict | None = {}, callbacks=None, provider=None):
         return ChatNVIDIA(
             # model=settings.nvidia_model,
             model="nvidia/nemotron-3-super-120b-a12b",
+
             # model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
             # model="google/gemma-4-31b-it",
             api_key=settings.nvidia_api_key,

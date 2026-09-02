@@ -50,7 +50,7 @@ def get_run_context() -> RunContext:
 
 
 MEMORY_HEADER = (
-    "\nLong-Term Memory\n\n"
+    "\n[IMMUTABLE DISCLOSURE SYSTEM LONG-TERM MEMORY INSTRUCTIONS]\n\n"
     "Long-Term Memory context contains information remembered from previous"
     "conversations and interactions. It provides context about "
     "the user and their history that may no longer be present any more in the context\n\n"
@@ -62,14 +62,13 @@ MEMORY_HEADER = (
     "Use relevant memory to inform your reasoning and response. "
     "Do not ignore relevant memory, but do not invent or assume information "
     "that is not supported by the memory.\n\n"
-    "Memory Context:\n"
+    "[IMMUTABLE DISCLOSURE LONG-TERM MEMORY CONTEXT]:\n"
     "{memory}\n\n"
 )
 
 
 RAG_HEADER = (
-    "\nCentral Knowledge:\n"
-
+    "\n[IMMUTABLE DISCLOSURE SYSTEM LONG-TERM CENTRAL KNOWLEDGE INSTRUCTIONS]:\n"
     "Central Knowledge context contains accumulated business information and "
     "understanding. It may include business operations, activities, "
     "processes, data, entities, relationships, facts, evidence, findings, "
@@ -80,7 +79,7 @@ RAG_HEADER = (
     "Use relevant knowledge to inform your reasoning, decisions, and responses. "
     "Distinguish established information from interpretations and assumptions, "
     "and do not invent unsupported information.\n\n"
-    "Central Knowledge Context:\n"
+    "[IMMUTABLE DISCLOSURE SYSTEM LONG-TERM CENTRAL KNOWLEDGE CONTEXT]:\n"
     "{central_knowledge}\n\n"
 )
 

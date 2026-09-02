@@ -15,12 +15,14 @@ class SystemSection(PromptSection):
     """
 
     HEADER = (
+        "[IMMUTABLE DISCLOSURE POLICIES]\n"
         "{action_response_protocol}"
         "{privacy_policies}"
-        "[System Instructions]\n"
+        "[IMMUTABLE DISCLOSURE POLICIES]\n\n"
+        "[IMMUTABLE DISCLOSURE POLICIES SYSTEM INSTRUCTIONS]\n"
         "{instructions}\n"
         "{parts}\n"
-        "[System Instructions]\n\n"
+        "[IMMUTABLE DISCLOSURE POLICIES SYSTEM INSTRUCTIONS]\n\n"
     )
 
     def build(
@@ -41,9 +43,9 @@ class SystemSection(PromptSection):
         ))
 
         instructions = instructions.replace("{privacy_policies}", (
-            "[Immutable Governance Guardrails]\n"
+            "[IMMUTABLE DISCLOSURE POLICIES]\n"
             f"{ctx.run_context.i18n.get('slices.governance_policy')}"
-            "[Immutable Governance Guardrails]\n\n"
+            "[IMMUTABLE DISCLOSURE POLICIES]\n\n"
         ))
 
         instructions = self.HEADER.replace('{instructions}', str(instructions))\

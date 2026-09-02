@@ -1304,6 +1304,8 @@ class AgentRunner:
 
                 session.clear_activity()
 
+            print('respons>>>>> final ', response)
+
             if response is None:
 
                 logger.warning(

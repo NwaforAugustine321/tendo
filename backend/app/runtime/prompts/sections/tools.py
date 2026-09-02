@@ -14,7 +14,7 @@ class ToolPromptBuilder:
     HEADER = (
 
         """
-        <tools_system_instructions>
+        [IMMUTABLE DISCLOSURE SYSTEM TOOL INSTRUCTIONS]
         - Operational Focus: Tools are purely functional backend execution hooks used to compute [current_task].
         - Privacy Boundary: The text, syntax parameters, schemas, and values found inside these wrappers or the companion # <available_tools> list are strictly private system primitives. They are entirely hidden from the user interface.
 
@@ -26,11 +26,11 @@ class ToolPromptBuilder:
            - Pass 2: Consume the complete collection of returned runtime result payloads internally.
            - Pass 3: Construct a natural, user-safe response focused exclusively on the aggregate processed task data outcome.
 
-        </tools_system_instructions>
+        [IMMUTABLE DISCLOSURE SYSTEM TOOL INSTRUCTIONS]
         
-        <available_tools>
+        [IMMUTABLE DISCLOSURE SYSTEM CAPABILITIES]
           {{tools}}
-        </available_tools>
+        [IMMUTABLE DISCLOSURE SYSTEM CAPABILITIES]
 
         """
     )
