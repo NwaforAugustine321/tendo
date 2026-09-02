@@ -8,6 +8,7 @@ import { RecordFloatingPanel } from "../components/containers/RecordFloatingPane
 import { ProcessingNotification } from "../components/atoms/ProcessingNotification";
 
 import { useWorkspaceStore } from "../store/workspace";
+import { useAuthStore } from "../store/auth";
 import { useBusinessStore } from "../store/business";
 import { useVoiceStore } from "../store/voice";
 import { useEventReceiver } from "../hooks/useEmitReceiver";
@@ -19,6 +20,7 @@ export function WorkspaceLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
   const { toggleDashboardSidebar } = useWorkspaceStore();
+  const { user } = useAuthStore();
   const { currentProfile } = useBusinessStore();
   const { startAgent, stopAgent, setStatusText } = useVoiceStore();
 
@@ -27,8 +29,10 @@ export function WorkspaceLayout() {
 
   // Connect to voice agent when workspace mounts,
   // disconnect when the workspace unmounts.
+  // Guard against calling before auth session is established — the voice
+  // endpoint uses cookie auth, so the cookie must be present first.
   useEffect(() => {
-    if (!currentProfile?.id) return;
+    if (!currentProfile?.id || !user) return;
 
     startAgent({
       businessId: currentProfile.id,
@@ -37,7 +41,7 @@ export function WorkspaceLayout() {
     return () => {
       stopAgent();
     };
-  }, [currentProfile?.id]);
+  }, [currentProfile?.id, user]);
 
   // Listen for agent.progress events.
   const { events: agentProgressEvents } = useEventReceiver(["agent.progress"]);

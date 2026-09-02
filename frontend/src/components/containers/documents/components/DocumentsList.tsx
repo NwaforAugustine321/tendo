@@ -221,7 +221,7 @@ export default function DocumentsList({ documents }: Props) {
             {/* LIST HEADER */}
             <div className="hidden grid-cols-[minmax(260px,1.8fr)_minmax(150px,1fr)_110px_120px] items-center gap-4 border-b border-zinc-800/60 bg-white/[0.015] px-4 py-2.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-700 md:grid">
               <span>Document</span>
-              <span>Linked entity</span>
+              <span>Linked To</span>
               <span>Source</span>
               <span>Status</span>
             </div>

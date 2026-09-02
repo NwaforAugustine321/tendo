@@ -35,8 +35,12 @@ export async function request<T>(
     });
 
     if (!res.ok) {
-      // Auto-logout on 401 (token expired) — skip auth endpoints
-      if (res.status === 401 && !path.includes("/auth/")) {
+      // Auto-logout on 401 (token expired) — skip auth and voice endpoints
+      if (
+        res.status === 401 &&
+        !path.includes("/auth/") &&
+        !path.includes("/voice/")
+      ) {
         const { useAuthStore } = await import("../../store/auth");
         useAuthStore.getState().clear();
         window.location.href = "/login";
