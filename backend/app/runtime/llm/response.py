@@ -11,24 +11,20 @@ T = TypeVar("T")
 class LLMAction(str, Enum):
     FINAL = "final"
     CONTINUE = "continue"
-    REQUEST_CONFIRMATION = "request_confirmation"
-    REQUEST_APPROVAL = "request_approval"
+    REQUEST_USER_INPUT = "request_user_input"
 
 
 class InteractionType(str, Enum):
-    CONFIRMATION = "confirmation"
-    APPROVAL = "approval"
-
-
-class ApprovalState(str, Enum):
-    ACCEPT = "accept"
-    REJECT = "reject"
+    USER_INPUT = "user_input"
 
 
 @dataclass(slots=True)
 class Interaction:
+    """
+    Describes an interaction requested from the user.
+    """
+
     type: InteractionType
-    approval_state: ApprovalState | None = None
 
 
 @dataclass(slots=True)
@@ -44,9 +40,6 @@ class ToolCall:
 
 @dataclass(slots=True)
 class LLMResponse(Generic[T]):
-    """
-    Provider-independent LLM response.
-    """
 
     text: str = ""
     content: str | None = None
@@ -86,17 +79,10 @@ class LLMResponse(Generic[T]):
         return self.action == LLMAction.CONTINUE
 
     @property
-    def requests_confirmation(self) -> bool:
+    def requests_user_input(self) -> bool:
         return (
             self.action
-            == LLMAction.REQUEST_CONFIRMATION
-        )
-
-    @property
-    def requests_approval(self) -> bool:
-        return (
-            self.action
-            == LLMAction.REQUEST_APPROVAL
+            == LLMAction.REQUEST_USER_INPUT
         )
 
     def tool_to_chat_message(

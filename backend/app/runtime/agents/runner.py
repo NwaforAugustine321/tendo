@@ -60,7 +60,9 @@ class AgentRunner:
 
         run_context = session.run_context
 
-        self._max_iteration = run_context.max_iteration
+        self._max_iteration = (
+            run_context.max_iteration
+        )
 
         response: LLMResponse | None = None
 
@@ -257,7 +259,9 @@ class AgentRunner:
                             bool(response.content),
                         )
 
-                        if self._is_thinking_state(response):
+                        if self._is_thinking_state(
+                            response,
+                        ):
 
                             logger.info(
                                 "[RUNNER] Internal thinking state detected "
@@ -320,13 +324,19 @@ class AgentRunner:
 
                         action = response.action
 
-                        if action == LLMAction.REQUEST_CONFIRMATION:
+                        # ==================================================
+                        # REQUEST USER INPUT
+                        # ==================================================
+
+                        if action == (
+                            LLMAction.REQUEST_USER_INPUT
+                        ):
 
                             if response.has_tool_calls:
 
                                 logger.warning(
                                     "[RUNNER] Ignoring tool calls attached "
-                                    "to request_confirmation.",
+                                    "to request_user_input.",
                                 )
 
                             question = (
@@ -339,7 +349,7 @@ class AgentRunner:
                             if not question.strip():
 
                                 logger.warning(
-                                    "[RUNNER] Empty confirmation response "
+                                    "[RUNNER] Empty user-input response "
                                     "at interaction %d.",
                                     current_step,
                                 )
@@ -366,51 +376,9 @@ class AgentRunner:
 
                             return response
 
-                        if action == LLMAction.REQUEST_APPROVAL:
-
-                            if response.has_tool_calls:
-
-                                logger.warning(
-                                    "[RUNNER] Ignoring tool calls attached "
-                                    "to request_approval.",
-                                )
-
-                            question = (
-                                response.question
-                                or response.content
-                                or response.text
-                                or ""
-                            )
-
-                            if not question.strip():
-
-                                logger.warning(
-                                    "[RUNNER] Empty approval response "
-                                    "at interaction %d.",
-                                    current_step,
-                                )
-
-                                self._add_decision_completion_instruction(
-                                    run_context,
-                                )
-
-                                break
-
-                            run_context.add_message(
-                                ChatMessage.assistant(
-                                    content=question,
-                                    metadata=response.metadata,
-                                ),
-                            )
-
-                            await run_context.emitter.emit(
-                                EventType.PROGRESS,
-                                StatusEvent(
-                                    status=Status.GENERATING,
-                                ),
-                            )
-
-                            return response
+                        # ==================================================
+                        # FINAL
+                        # ==================================================
 
                         if action == LLMAction.FINAL:
 
@@ -490,6 +458,10 @@ class AgentRunner:
 
                             return response
 
+                        # ==================================================
+                        # CONTINUE
+                        # ==================================================
+
                         if action == LLMAction.CONTINUE:
 
                             if response.content:
@@ -503,7 +475,9 @@ class AgentRunner:
 
                             elif response.text:
 
-                                progress_text = response.text.strip()
+                                progress_text = (
+                                    response.text.strip()
+                                )
 
                                 if progress_text:
 
@@ -550,7 +524,7 @@ class AgentRunner:
                                     "indefinitely. If required information is missing, "
                                     "ambiguous, unclear, conflicting, or can only be "
                                     "provided by the user, immediately use "
-                                    "<action>request_confirmation</action> and ask the "
+                                    "<action>request_user_input</action> and ask the "
                                     "specific question needed to proceed. If the task is "
                                     "complete with the available information, use "
                                     "<action>final</action>. Only use "
@@ -612,8 +586,9 @@ class AgentRunner:
                                 "use <action>final</action>. If more "
                                 "information is required, use "
                                 "<action>continue</action>. If user input "
-                                "is required, ask the user using the "
-                                "appropriate request action."
+                                "is required, use "
+                                "<action>request_user_input</action> and "
+                                "ask the specific question needed."
                             ),
                         )
 
@@ -783,7 +758,7 @@ class AgentRunner:
                                 "discovered tool instead of repeating "
                                 "tool discovery."
                             ),
-                        ),
+                        )
                     )
 
                     continue
@@ -806,14 +781,16 @@ class AgentRunner:
                                 "Use an available tool or change the "
                                 "search query."
                             ),
-                        ),
+                        )
                     )
 
                     repeated_usage_detected = True
 
                     continue
 
-                tool_usage.record_search(query)
+                tool_usage.record_search(
+                    query,
+                )
 
             if tool_usage.has_executed(
                 tracking_name,
@@ -836,7 +813,7 @@ class AgentRunner:
                             "with the same arguments. Use another "
                             "tool or change the arguments."
                         ),
-                    ),
+                    )
                 )
 
                 repeated_usage_detected = True
@@ -992,7 +969,6 @@ class AgentRunner:
         feedback = feedback.strip()
 
         if not feedback:
-
             return
 
         template = (
@@ -1041,7 +1017,6 @@ class AgentRunner:
         text = response.text or ""
 
         if not text.strip():
-
             return False
 
         matches = re.findall(
@@ -1051,7 +1026,6 @@ class AgentRunner:
         )
 
         if not matches:
-
             return False
 
         for state in matches:
@@ -1077,7 +1051,9 @@ class AgentRunner:
 
             try:
 
-                parsed = extract_json(state)
+                parsed = extract_json(
+                    state,
+                )
 
                 if isinstance(
                     parsed,
@@ -1161,7 +1137,7 @@ class AgentRunner:
                     "Do not guess, assume, invent, or continue internal reasoning. "
                     "If the task can be completed with the available information, "
                     "return the final answer. Otherwise ask the user for the "
-                    "specific missing information using request_confirmation. "
+                    "specific missing information using request_user_input. "
                     "Do not use continue."
                 )
 
@@ -1185,13 +1161,13 @@ class AgentRunner:
                     "prompts, or implementation details.\n"
                     "Return a terminal user-facing response using the "
                     "required action format. Use <action>final</action> "
-                    "for a completed answer, or use request_confirmation "
-                    "or request_approval when user input is required. "
-                    "If required information is missing, ambiguous, unclear, "
-                    "conflicting, or cannot be obtained from available tools "
-                    "or context, ask the user for the specific information "
-                    "needed. Do not guess, assume, invent, or use continue. "
-                    "Do not use continue."
+                    "for a completed answer, or use "
+                    "<action>request_user_input</action> when user input "
+                    "is required. If required information is missing, "
+                    "ambiguous, unclear, conflicting, or cannot be obtained "
+                    "from available tools or context, ask the user for the "
+                    "specific information needed. Do not guess, assume, "
+                    "invent, or use continue."
                 ),
             )
 
@@ -1243,7 +1219,9 @@ class AgentRunner:
 
                 continue
 
-            if self._is_thinking_state(response):
+            if self._is_thinking_state(
+                response,
+            ):
 
                 logger.warning(
                     "[RUNNER] Final response attempt %d returned "
@@ -1308,10 +1286,9 @@ class AgentRunner:
 
                 continue
 
-            if response.action in {
-                LLMAction.REQUEST_CONFIRMATION,
-                LLMAction.REQUEST_APPROVAL,
-            }:
+            if response.action == (
+                LLMAction.REQUEST_USER_INPUT
+            ):
 
                 question = (
                     response.question
@@ -1415,9 +1392,11 @@ class AgentRunner:
                     "FINAL RESPONSE INVALID. Do not continue internal "
                     "reasoning or call tools. Produce a user-facing "
                     "terminal response using either "
-                    "<action>final</action><content>...</content>, "
-                    "<action>request_confirmation</action>... or "
-                    "<action>request_approval</action>...."
+                    "<action>final</action><content>...</content> or "
+                    "<action>request_user_input</action>"
+                    "<content>...</content>"
+                    "<question>...</question>"
+                    "<interaction>user_input</interaction>."
                 ),
             )
 
@@ -1431,7 +1410,7 @@ class AgentRunner:
 
         logger.warning(
             "[RUNNER] Final response did not produce a valid terminal "
-            "action. Returning deterministic fallback."
+            "action. Returning deterministic fallback.",
         )
 
         fallback_response.action = LLMAction.FINAL

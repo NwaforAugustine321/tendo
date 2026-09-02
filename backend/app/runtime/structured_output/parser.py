@@ -1,7 +1,7 @@
-
 from __future__ import annotations
 
 import json
+import re
 
 from typing import Any
 
@@ -33,9 +33,14 @@ class ResponseParser:
             provider_response,
             AIMessage,
         ):
-            raise TypeError(
-                "Unsupported provider response "
-                f"'{type(provider_response).__name__}'."
+            return self.parser_error_response(
+                provider_response=provider_response,
+                raw_text=str(provider_response),
+                error=(
+                    "Unsupported provider response type "
+                    f"'{type(provider_response).__name__}'. "
+                    "The response could not be processed."
+                ),
             )
 
         print(
@@ -43,61 +48,195 @@ class ResponseParser:
             provider_response,
         )
 
-        raw_text = self.extract_text(
-            provider_response,
-        )
+        try:
 
-        action = self.extract_action(
-            raw_text,
-        )
+            raw_text = self.extract_text(
+                provider_response,
+            )
 
-        content = self.extract_content(
-            raw_text,
-        )
+            action = self.extract_action(
+                raw_text,
+            )
 
-        question = self.extract_question(
-            raw_text,
-        )
+            content = self.extract_content(
+                raw_text,
+            )
 
-        interaction = self.extract_interaction(
-            raw_text,
-        )
+            question = self.extract_question(
+                raw_text,
+            )
 
-        tool_calls = self.extract_tool_calls(
-            provider_response,
-        )
+            interaction = self.extract_interaction(
+                raw_text,
+            )
 
-        parsed_action = self.parse_action(
-            action,
-        )
+            tool_calls = self.extract_tool_calls(
+                provider_response,
+            )
 
-        parsed_interaction = self.parse_interaction(
-            action=parsed_action,
-            interaction=interaction,
-            question=question,
-        )
+            # -----------------------------------------------------
+            # Parse action.
+            # -----------------------------------------------------
 
-        user_text = self.resolve_text(
-            raw_text=raw_text,
-            content=content,
-            action=parsed_action,
-        )
+            parsed_action, action_error = self.parse_action(
+                action,
+            )
 
-        return LLMResponse(
-            text=user_text,
-            output=self.parse_output(
+            if action_error:
+
+                return self.parser_error_response(
+                    provider_response=provider_response,
+                    raw_text=raw_text,
+                    error=action_error,
+                )
+
+            # -----------------------------------------------------
+            # Validate interaction protocol.
+            # -----------------------------------------------------
+
+            (
+                parsed_interaction,
+                interaction_error,
+            ) = self.parse_interaction(
+                action=parsed_action,
+                interaction=interaction,
+                question=question,
+            )
+
+            if interaction_error:
+
+                return self.parser_error_response(
+                    provider_response=provider_response,
+                    raw_text=raw_text,
+                    error=interaction_error,
+                )
+
+            # -----------------------------------------------------
+            # Parse structured output.
+            # -----------------------------------------------------
+
+            output, output_error = self.parse_output(
                 provider_response=provider_response,
                 output_type=output_type,
-            ),
-            tool_calls=tool_calls,
-            metadata=self.extract_metadata(
-                provider_response,
-            ),
-            raw=provider_response,
-            action=parsed_action,
-            content=user_text,
-            interaction=parsed_interaction,
+            )
+
+            if output_error:
+
+                return self.parser_error_response(
+                    provider_response=provider_response,
+                    raw_text=raw_text,
+                    error=output_error,
+                )
+
+            # -----------------------------------------------------
+            # Resolve response text.
+            # -----------------------------------------------------
+
+            user_text = self.resolve_text(
+                raw_text=raw_text,
+                content=content,
+                action=parsed_action,
+            )
+
+            return LLMResponse(
+                text=user_text,
+                content=user_text,
+                question=question,
+                output=output,
+                tool_calls=tool_calls,
+                metadata=self.extract_metadata(
+                    provider_response,
+                ),
+                raw=provider_response,
+                action=parsed_action,
+                interaction=parsed_interaction,
+            )
+
+        except Exception as error:
+
+            return self.parser_error_response(
+                provider_response=provider_response,
+                raw_text=self.safe_extract_text(
+                    provider_response,
+                ),
+                error=(
+                    "The response could not be parsed "
+                    "successfully. "
+                    f"Parser error: {type(error).__name__}: {error}"
+                ),
+            )
+
+    def parser_error_response(
+        self,
+        *,
+        provider_response: Any,
+        raw_text: str,
+        error: str,
+    ) -> LLMResponse:
+
+        correction_message = self.build_parser_error_message(
+            error=error,
         )
+
+        if isinstance(
+            provider_response,
+            AIMessage,
+        ):
+            metadata = self.extract_metadata(
+                provider_response,
+            )
+        else:
+            metadata = {}
+
+        metadata["parser_error"] = True
+        metadata["parser_error_message"] = error
+        metadata["parser_raw_output"] = raw_text
+
+        return LLMResponse(
+            text=correction_message,
+            content=correction_message,
+            question=None,
+            output=None,
+            tool_calls=[],
+            metadata=metadata,
+            raw=provider_response,
+            action=None,
+            interaction=None,
+        )
+
+    def build_parser_error_message(
+        self,
+        *,
+        error: str,
+    ) -> str:
+
+        return (
+            "LLM RESPONSE PROTOCOL ERROR.\n\n"
+            f"{error}\n\n"
+            "Correct the response and produce a new response "
+            "using ONLY the required XML tags.\n\n"
+            "VALID ACTIONS:\n"
+            "<action>continue</action>\n"
+            "<action>final</action>\n"
+            "<action>request_user_input</action>\n\n"
+            "FOR continue:\n"
+            "<action>continue</action>"
+            "<content>Briefly describe the concrete internal step.</content>\n\n"
+            "FOR final:\n"
+            "<action>final</action>"
+            "<content>Complete answer for the user.</content>\n\n"
+            "FOR request_user_input:\n"
+            "<action>request_user_input</action>"
+            "<content>Briefly explain why user input is required.</content>"
+            "<question>One clear question for the user.</question>"
+            "<interaction>user_input</interaction>\n\n"
+            "Do not output JSON, markdown, explanations, or text "
+            "outside the required tags."
+        )
+
+    # =============================================================
+    # Text resolution
+    # =============================================================
 
     def resolve_text(
         self,
@@ -143,8 +282,6 @@ class ResponseParser:
         tag: str,
     ) -> str:
 
-        import re
-
         pattern = re.compile(
             rf"<{tag}\b[^>]*>.*?</{tag}>",
             re.IGNORECASE | re.DOTALL,
@@ -155,22 +292,51 @@ class ResponseParser:
             text,
         )
 
+    # =============================================================
+    # Action parsing
+    # =============================================================
+
     def parse_action(
         self,
         value: str | None,
-    ) -> LLMAction | None:
+    ) -> tuple[LLMAction | None, str | None]:
 
         if not value:
-            return None
+
+            return (
+                None,
+                (
+                    "The <action> tag is missing. "
+                    "A response must contain exactly one valid action: "
+                    "continue, final, or request_user_input."
+                ),
+            )
+
+        normalized = value.strip().lower()
 
         try:
-            return LLMAction(
-                value.strip().lower(),
+
+            return (
+                LLMAction(
+                    normalized,
+                ),
+                None,
             )
-        except ValueError as error:
-            raise ValueError(
-                f"Unsupported LLM action '{value}'."
-            ) from error
+
+        except Exception:
+
+            return (
+                None,
+                (
+                    f"Unsupported action '{value}'. "
+                    "The <action> tag must contain exactly one of: "
+                    "continue, final, request_user_input."
+                ),
+            )
+
+    # =============================================================
+    # Interaction parsing
+    # =============================================================
 
     def parse_interaction(
         self,
@@ -178,88 +344,225 @@ class ResponseParser:
         action: LLMAction | None,
         interaction: str | None,
         question: str | None,
-    ) -> Interaction | None:
+    ) -> tuple[Interaction | None, str | None]:
 
-        if action == LLMAction.REQUEST_CONFIRMATION:
-            return Interaction(
-                type=InteractionType.CONFIRMATION,
-                question=question or "",
+        # ---------------------------------------------------------
+        # No interaction is allowed for normal processing.
+        # ---------------------------------------------------------
+
+        if action in {
+            LLMAction.CONTINUE,
+            LLMAction.FINAL,
+        }:
+
+            if interaction:
+
+                return (
+                    None,
+                    (
+                        f"The <interaction>{interaction}"
+                        "</interaction> tag is not allowed for "
+                        f"the '{action.value}' action. "
+                        "Only request_user_input may contain an "
+                        "interaction tag."
+                    ),
+                )
+
+            if question:
+
+                return (
+                    None,
+                    (
+                        f"The <question> tag is not allowed for "
+                        f"the '{action.value}' action. "
+                        "Only request_user_input may contain "
+                        "a question."
+                    ),
+                )
+
+            return (
+                None,
+                None,
             )
 
-        if action == LLMAction.REQUEST_APPROVAL:
-            return Interaction(
-                type=InteractionType.APPROVAL,
-                question=question or "",
+        # ---------------------------------------------------------
+        # request_user_input requires:
+        #
+        # <question>...</question>
+        # <interaction>user_input</interaction>
+        # ---------------------------------------------------------
+
+        if action == LLMAction.REQUEST_USER_INPUT:
+
+            if not question:
+
+                return (
+                    None,
+                    (
+                        "The request_user_input action requires "
+                        "a non-empty <question> tag."
+                    ),
+                )
+
+            if not interaction:
+
+                return (
+                    None,
+                    (
+                        "The request_user_input action requires "
+                        "<interaction>user_input</interaction>."
+                    ),
+                )
+
+            normalized = interaction.strip().lower()
+
+            if (
+                normalized
+                != InteractionType.USER_INPUT.value
+            ):
+
+                return (
+                    None,
+                    (
+                        f"Unsupported interaction type "
+                        f"'{interaction}'. "
+                        "The only supported interaction type is "
+                        "'user_input'."
+                    ),
+                )
+
+            return (
+                Interaction(
+                    type=InteractionType.USER_INPUT,
+                ),
+                None,
             )
 
-        if not interaction:
-            return None
+        # ---------------------------------------------------------
+        # Missing/invalid action should normally already have been
+        # caught by parse_action, but keep this defensive path.
+        # ---------------------------------------------------------
 
-        try:
-            interaction_type = InteractionType(
-                interaction.strip().lower(),
-            )
-        except ValueError as error:
-            raise ValueError(
-                f"Unsupported interaction type '{interaction}'."
-            ) from error
-
-        return Interaction(
-            type=interaction_type,
-            question=question or "",
+        return (
+            None,
+            (
+                "The response does not contain a valid action. "
+                "Use continue, final, or request_user_input."
+            ),
         )
+
+    # =============================================================
+    # Structured output
+    # =============================================================
 
     def parse_output(
         self,
         *,
         provider_response: Any,
         output_type: type | None,
-    ) -> Any:
+    ) -> tuple[Any, str | None]:
 
         if output_type is None:
-            return None
 
-        if isinstance(
-            provider_response,
-            output_type,
-        ):
-            return provider_response
+            return (
+                None,
+                None,
+            )
+
+        try:
+
+            if isinstance(
+                provider_response,
+                output_type,
+            ):
+
+                return (
+                    provider_response,
+                    None,
+                )
+
+        except Exception as error:
+
+            return (
+                None,
+                (
+                    "The requested output type could not be "
+                    "validated. "
+                    f"{type(error).__name__}: {error}"
+                ),
+            )
 
         if isinstance(
             provider_response,
             AIMessage,
         ):
-            return self._parse_text(
+
+            output, error = self._parse_text(
                 text=self.extract_text(
                     provider_response,
                 ),
                 output_type=output_type,
             )
 
+            return (
+                output,
+                error,
+            )
+
         if isinstance(
             provider_response,
             dict,
         ):
-            if (
-                isinstance(
-                    output_type,
-                    type,
-                )
-                and issubclass(
-                    output_type,
-                    BaseModel,
-                )
-            ):
-                return output_type.model_validate(
+
+            try:
+
+                if (
+                    isinstance(
+                        output_type,
+                        type,
+                    )
+                    and issubclass(
+                        output_type,
+                        BaseModel,
+                    )
+                ):
+
+                    return (
+                        output_type.model_validate(
+                            provider_response,
+                        ),
+                        None,
+                    )
+
+                return (
                     provider_response,
+                    None,
                 )
 
-            return provider_response
+            except Exception as error:
 
-        raise TypeError(
-            "Unsupported structured output "
-            f"'{type(provider_response).__name__}'."
+                return (
+                    None,
+                    (
+                        "The structured output could not be "
+                        "validated. "
+                        f"{type(error).__name__}: {error}"
+                    ),
+                )
+
+        return (
+            None,
+            (
+                "Unsupported structured output "
+                f"'{type(provider_response).__name__}'. "
+                "Must return the expected structured "
+                "output format."
+            ),
         )
+
+    # =============================================================
+    # Tag extraction
+    # =============================================================
 
     def extract_action(
         self,
@@ -309,6 +612,10 @@ class ResponseParser:
 
         return value or None
 
+    # =============================================================
+    # Provider response extraction
+    # =============================================================
+
     def extract_text(
         self,
         message: AIMessage,
@@ -320,12 +627,14 @@ class ResponseParser:
             content,
             str,
         ):
+
             return content
 
         if isinstance(
             content,
             list,
         ):
+
             parts: list[str] = []
 
             for item in content:
@@ -334,6 +643,7 @@ class ResponseParser:
                     item,
                     str,
                 ):
+
                     parts.append(
                         item,
                     )
@@ -342,6 +652,7 @@ class ResponseParser:
                     item,
                     dict,
                 ):
+
                     parts.append(
                         str(
                             item.get(
@@ -352,8 +663,9 @@ class ResponseParser:
                     )
 
                 else:
+
                     parts.append(
-                        str(item)
+                        str(item),
                     )
 
             return "".join(
@@ -364,6 +676,30 @@ class ResponseParser:
             content,
         )
 
+    def safe_extract_text(
+        self,
+        provider_response: Any,
+    ) -> str:
+
+        try:
+
+            if isinstance(
+                provider_response,
+                AIMessage,
+            ):
+
+                return self.extract_text(
+                    provider_response,
+                )
+
+            return str(
+                provider_response,
+            )
+
+        except Exception:
+
+            return "<unable to extract provider response>"
+
     def extract_metadata(
         self,
         message: AIMessage,
@@ -371,23 +707,31 @@ class ResponseParser:
 
         metadata: dict[str, Any] = {}
 
-        for key, value in vars(
-            message,
-        ).items():
+        try:
 
-            if key.startswith(
-                "_",
-            ):
-                continue
+            for key, value in vars(
+                message,
+            ).items():
 
-            if key in {
-                "content",
-                "tool_calls",
-                "type",
-            }:
-                continue
+                if key.startswith(
+                    "_",
+                ):
+                    continue
 
-            metadata[key] = value
+                if key in {
+                    "content",
+                    "tool_calls",
+                    "type",
+                }:
+                    continue
+
+                metadata[key] = value
+
+        except Exception as error:
+
+            metadata["metadata_extraction_error"] = (
+                f"{type(error).__name__}: {error}"
+            )
 
         return metadata
 
@@ -398,62 +742,107 @@ class ResponseParser:
 
         tool_calls: list[ToolCall] = []
 
-        for tool in getattr(
-            message,
-            "tool_calls",
-            [],
-        ):
-            tool_calls.append(
-                ToolCall(
-                    id=tool.get(
-                        "id",
-                        "",
-                    ),
-                    name=tool.get(
-                        "name",
-                        "",
-                    ),
-                    arguments=tool.get(
-                        "args",
-                        {},
-                    ),
+        try:
+
+            for tool in getattr(
+                message,
+                "tool_calls",
+                [],
+            ):
+
+                tool_calls.append(
+                    ToolCall(
+                        id=tool.get(
+                            "id",
+                            "",
+                        ),
+                        name=tool.get(
+                            "name",
+                            "",
+                        ),
+                        arguments=tool.get(
+                            "args",
+                            {},
+                        ),
+                    )
                 )
-            )
+
+        except Exception:
+
+            return []
 
         return tool_calls
+
+    # =============================================================
+    # JSON / Pydantic parsing
+    # =============================================================
 
     def _parse_text(
         self,
         *,
         text: str,
         output_type: type,
-    ) -> Any:
+    ) -> tuple[Any, str | None]:
 
         text = text.strip()
 
         if not text:
-            return None
 
-        if (
-            isinstance(
-                output_type,
-                type,
-            )
-            and issubclass(
-                output_type,
-                BaseModel,
-            )
-        ):
-            return output_type.model_validate_json(
-                text,
+            return (
+                None,
+                (
+                    "The  returned empty structured output. "
+                    "Return the required structured response."
+                ),
             )
 
         try:
-            return json.loads(
-                text,
+
+            if (
+                isinstance(
+                    output_type,
+                    type,
+                )
+                and issubclass(
+                    output_type,
+                    BaseModel,
+                )
+            ):
+
+                return (
+                    output_type.model_validate_json(
+                        text,
+                    ),
+                    None,
+                )
+
+        except Exception as error:
+
+            return (
+                None,
+                (
+                    "The returned structured output that "
+                    "could not be validated. "
+                    f"{type(error).__name__}: {error}"
+                ),
             )
 
-        except json.JSONDecodeError as error:
-            raise ValueError(
-                "Model returned invalid JSON."
-            ) from error
+        try:
+
+            return (
+                json.loads(
+                    text,
+                ),
+                None,
+            )
+
+        except Exception as error:
+
+            return (
+                None,
+                (
+                    "Invalid JSON structured "
+                    "output. "
+                    f"{type(error).__name__}: {error}"
+                ),
+            )
