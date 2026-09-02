@@ -80,6 +80,8 @@ class ResponseParser:
 
             parsed_action, action_error = self.parse_action(
                 action,
+                interaction=interaction,
+                question=question,
             )
 
             if action_error:
@@ -299,9 +301,23 @@ class ResponseParser:
     def parse_action(
         self,
         value: str | None,
+        *,
+        interaction: str | None = None,
+        question: str | None = None,
     ) -> tuple[LLMAction | None, str | None]:
 
         if not value:
+
+            if (
+                question
+                and interaction
+                and interaction.strip().lower()
+                == InteractionType.USER_INPUT.value
+            ):
+                return (
+                    LLMAction.REQUEST_USER_INPUT,
+                    None,
+                )
 
             return (
                 None,

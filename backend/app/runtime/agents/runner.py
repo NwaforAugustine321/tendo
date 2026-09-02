@@ -322,6 +322,40 @@ class AgentRunner:
 
                             return response
 
+                        # ==================================================
+                        # PARSER ERROR
+                        # ==================================================
+                        #
+                        # ResponseParser returns parser errors as LLMResponse
+                        # objects so the reasoning model can correct itself.
+                        # These are not user-facing responses and must be
+                        # sent back into the reasoning context for another
+                        # LLM attempt.
+                        # ==================================================
+
+                        if response.metadata.get("parser_error"):
+                            logger.warning(
+                                "[RUNNER] Parser error detected at "
+                                "interaction %d. Sending parser correction "
+                                "back to the LLM.",
+                                current_step,
+                            )
+
+                            parser_error_text = (
+                                response.content
+                                or response.text
+                                or ""
+                            ).strip()
+
+                            if parser_error_text:
+                                run_context.add_message(
+                                    ChatMessage.system(
+                                        parser_error_text,
+                                    ),
+                                )
+
+                            continue
+
                         action = response.action
 
                         # ==================================================
@@ -568,6 +602,35 @@ class AgentRunner:
                             )
 
                             continue
+
+                        # --------------------------------------------------
+                        # No action, no tool calls, and no text.
+                        #
+                        # There is no user-facing response and no concrete
+                        # action to execute. Ask the reasoning model to make
+                        # the next decision instead of treating the response
+                        # as a generic invalid-action response.
+                        # --------------------------------------------------
+
+                        if (
+                            response.action is None
+                            and not response.has_tool_calls
+                            and not response.text
+                            and not response.content
+                        ):
+
+                            logger.warning(
+                                "[RUNNER] Response had no explicit action, "
+                                "no tool calls, and no text at interaction "
+                                "%d. Requesting decision completion.",
+                                current_step,
+                            )
+
+                            self._add_decision_completion_instruction(
+                                run_context,
+                            )
+
+                            break
 
                         logger.warning(
                             "[RUNNER] Response had no explicit action and "
