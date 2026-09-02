@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState } from "react";
+
 import {
   MessageBubble,
   UnderstandingCard,
@@ -6,12 +7,14 @@ import {
   ConfirmationCard,
   OperationCard,
   TextInput,
-  VoiceButton,
   EmptyState,
 } from "../atoms";
+
 import { TalkingCharacter } from "./TalkingCharacter";
 
-// How far from the bottom still counts as "following the conversation".
+/**
+ * How far from the bottom still counts as "following the conversation".
+ */
 const BOTTOM_FOLLOW_THRESHOLD = 80;
 
 function isNearBottom(el: HTMLElement) {
@@ -42,6 +45,8 @@ export type MessageItem = {
     | "operation"
     | "input";
   audioUrl?: string;
+  stream?: boolean;
+
   understanding?: {
     title?: string;
     businessName?: string;
@@ -49,18 +54,33 @@ export type MessageItem = {
     behaviors?: string[];
     note?: string;
   };
+
   options?: {
     prompt: string;
-    choices: { id: string; label: string; recommended?: boolean }[];
+    choices: {
+      id: string;
+      label: string;
+      recommended?: boolean;
+    }[];
   };
+
   confirmation?: {
     summary: string;
-    details: { label: string; value: string }[];
+    details: {
+      label: string;
+      value: string;
+    }[];
   };
+
   operation?: {
     operationType: string;
-    changes: { label: string; before: string; after: string }[];
+    changes: {
+      label: string;
+      before: string;
+      after: string;
+    }[];
   };
+
   inputSpec?: InputSpec;
 };
 
@@ -69,24 +89,34 @@ type Props = {
   isTyping: boolean;
   statusText?: string;
   connecting?: boolean;
+
   onSendText: (text: string) => void;
+
   onVoiceRecorded: (blob: Blob) => void;
   onVoiceToggle?: () => void;
+
   isListening?: boolean;
   voiceLoading?: boolean;
+
   onOptionSelect: (optionId: string) => void;
+
   onConfirm?: () => void;
   onModify?: () => void;
   onCancel?: () => void;
+
   onRevert?: (messageId: string) => void;
   onContinueFromHere?: (messageId: string) => void;
+
   showHeader?: boolean;
   headerTitle?: string;
   headerSubtitle?: string;
+
   fullScreen?: boolean;
   transparentBg?: boolean;
+
   flipCharacter?: boolean;
   characterRightOffset?: number;
+
   onWakeToggle?: () => void;
   wakeActive?: boolean;
 };
@@ -96,31 +126,44 @@ export function ConversationPage({
   isTyping,
   statusText,
   connecting = false,
+
   onSendText,
+
   onVoiceRecorded,
   onVoiceToggle,
+
   isListening = false,
   voiceLoading = false,
+
   onOptionSelect,
   onConfirm,
   onModify,
   onCancel,
   onRevert,
   onContinueFromHere,
+
   showHeader = true,
   headerTitle = "Tendo",
   headerSubtitle = "Your AI Business Assistant",
+
   fullScreen = true,
   transparentBg = false,
+
   flipCharacter = false,
   characterRightOffset = 0,
+
   onWakeToggle,
   wakeActive = false,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  // Whether the view is following the bottom of the conversation.
-  // Once the user scrolls up, auto-scroll stops until they come back down.
+
+  /**
+   * Whether the view is following the bottom of the conversation.
+   *
+   * Once the user scrolls up, auto-scroll stops until they come back down.
+   */
   const followBottomRef = useRef(true);
+
   const [displayedStatus, setDisplayedStatus] = useState("");
 
   useEffect(() => {
@@ -129,37 +172,61 @@ export function ConversationPage({
 
   useEffect(() => {
     const el = scrollRef.current;
+
     if (!el) return;
 
     const handleScroll = () => {
       followBottomRef.current = isNearBottom(el);
     };
 
-    el.addEventListener("scroll", handleScroll, { passive: true });
-    return () => el.removeEventListener("scroll", handleScroll);
+    el.addEventListener("scroll", handleScroll, {
+      passive: true,
+    });
+
+    return () => {
+      el.removeEventListener("scroll", handleScroll);
+    };
   }, []);
 
   useEffect(() => {
-    if (!scrollRef.current) return;
     const el = scrollRef.current;
+
+    if (!el) return;
+
     const observer = new ResizeObserver(() => {
-      // Reading back while streaming must not be interrupted.
+      /**
+       * Reading back while streaming must not be interrupted.
+       */
       if (!followBottomRef.current) return;
-      // Instant, because streamed text resizes the wrapper every few ms
-      // and queued smooth animations never settle.
-      el.scrollTo({ top: el.scrollHeight });
+
+      /**
+       * Instant, because streamed text resizes the wrapper every few ms
+       * and queued smooth animations never settle.
+       */
+      el.scrollTo({
+        top: el.scrollHeight,
+      });
     });
-    // Observe the inner content wrapper so that streaming text
-    // (which grows the element height) triggers auto-scroll.
-    if (el.firstElementChild) observer.observe(el.firstElementChild);
+
+    /**
+     * Observe the inner content wrapper so that streaming text
+     * (which grows the element height) triggers auto-scroll.
+     */
+    if (el.firstElementChild) {
+      observer.observe(el.firstElementChild);
+    }
+
     return () => observer.disconnect();
   }, [messages.length]);
 
   useEffect(() => {
     const el = scrollRef.current;
+
     if (!el) return;
 
-    // Sending a message always returns the view to the bottom.
+    /**
+     * Sending a message always returns the view to the bottom.
+     */
     const sentByUser = messages[messages.length - 1]?.role === "user";
 
     if (sentByUser) {
@@ -168,23 +235,36 @@ export function ConversationPage({
       return;
     }
 
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: "smooth",
+    });
   }, [messages, isTyping]);
 
   return (
     <div
-      className={`relative flex flex-col overflow-hidden bg-[#0a0a0a] ${fullScreen ? "h-dvh" : "h-full"}`}
+      className={`relative flex flex-col overflow-hidden bg-[#0a0a0a] ${
+        fullScreen ? "h-dvh" : "h-full"
+      }`}
     >
-      {/* {showHeader && (
-        <header className="relative z-10 flex flex-col items-center pt-4 pb-2 mb-4">
-          <h1 className="text-lg font-bold tracking-[-0.03em] text-white">{headerTitle}</h1>
-          <p className="mt-0.5 text-xs text-zinc-400">{headerSubtitle}</p>
-        </header>
-      )} */}
+      {/*
+      {showHeader && (
+        <header className="relative z-10 mb-4 flex flex-col items-center pb-2 pt-4">
+          <h1 className="text-lg font-bold tracking-[-0.03em] text-white">
+            {headerTitle}
+          </h1>
 
+          <p className="mt-0.5 text-xs text-zinc-400">
+            {headerSubtitle}
+          </p>
+        </header>
+      )}
+      */}
+
+      {/* Conversation */}
       <div
         ref={scrollRef}
-        className="relative z-10 flex-1 overflow-y-auto px-3 pt-4 pb-4 sm:px-5"
+        className="relative z-10 flex-1 overflow-y-auto px-3 pb-4 pt-4 sm:px-5"
       >
         {messages.length === 0 && !isTyping ? (
           <EmptyState />
@@ -203,8 +283,10 @@ export function ConversationPage({
                   />
                 );
               }
+
               if (msg.type === "input" && msg.inputSpec) {
                 const isLast = idx === messages.length - 1;
+
                 return (
                   <InputCard
                     key={msg.id}
@@ -214,6 +296,7 @@ export function ConversationPage({
                   />
                 );
               }
+
               if (msg.type === "confirmation" && msg.confirmation) {
                 return (
                   <ConfirmationCard
@@ -226,6 +309,7 @@ export function ConversationPage({
                   />
                 );
               }
+
               if (msg.type === "operation" && msg.operation) {
                 return (
                   <OperationCard
@@ -241,6 +325,7 @@ export function ConversationPage({
                   />
                 );
               }
+
               return (
                 <MessageBubble
                   key={msg.id}
@@ -255,6 +340,7 @@ export function ConversationPage({
                 />
               );
             })}
+
             {isTyping && (
               <div className="inline-flex w-fit items-center gap-2 rounded-2xl border border-zinc-800/90 bg-[#141414] px-4 py-2.5">
                 <span className="flex items-center gap-1">
@@ -262,10 +348,11 @@ export function ConversationPage({
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:150ms]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:300ms]" />
                 </span>
+
                 {displayedStatus && (
                   <span
                     key={displayedStatus}
-                    className="text-xs text-zinc-400 animate-bounce"
+                    className="animate-bounce text-xs text-zinc-400"
                   >
                     {displayedStatus}
                   </span>
@@ -276,8 +363,11 @@ export function ConversationPage({
         )}
       </div>
 
+      {/* Input */}
       <div
-        className={`relative z-10 border-t border-zinc-800/40 ${transparentBg ? "bg-transparent" : "bg-[#0a0a0a]"} px-3 py-3 sm:px-5`}
+        className={`relative z-10 border-t border-zinc-800/40 ${
+          transparentBg ? "bg-transparent" : "bg-[#0a0a0a]"
+        } px-3 py-3 sm:px-5`}
       >
         <div className="mx-auto max-w-2xl">
           {connecting && (
@@ -286,14 +376,16 @@ export function ConversationPage({
               Connecting...
             </div>
           )}
-          <div className="mb-2 flex items-center gap-2">
-            <VoiceButton
-              onRecorded={onVoiceRecorded}
-              onToggle={onVoiceToggle}
+
+          {/* Mic + text + send are now inside ONE input container */}
+          <div className="mb-2">
+            <TextInput
+              onSend={onSendText}
+              onVoiceRecorded={onVoiceRecorded}
+              onVoiceToggle={onVoiceToggle}
               isListening={isListening}
-              loading={voiceLoading}
+              voiceLoading={voiceLoading}
             />
-            <TextInput onSend={onSendText} />
           </div>
         </div>
       </div>

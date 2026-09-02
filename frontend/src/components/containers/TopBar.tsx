@@ -111,7 +111,7 @@ export function TopBar({ onMenuClick }: Props) {
                           navigate(`/onboarding?business_id=${profile.id}`);
                         }
                       } else {
-                        navigate("/app");
+                        navigate("/me");
                       }
                     }}
                     className={`flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-zinc-800 ${
@@ -175,7 +175,7 @@ export function TopBar({ onMenuClick }: Props) {
 
         <button
           type="button"
-          onClick={() => navigate("/app/profile")}
+          onClick={() => navigate("/me/profile")}
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-zinc-700 bg-zinc-800 text-zinc-400 transition-colors hover:border-zinc-600 hover:bg-zinc-700 hover:text-zinc-200"
           aria-label="Account"
         >

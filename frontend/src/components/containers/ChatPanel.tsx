@@ -353,7 +353,9 @@ export function ChatPanel({ recordId }: { recordId?: string }) {
               {creatingSession && (
                 <Loader2 size={12} className="animate-spin" />
               )}
-              {creatingSession ? "Starting…" : "Start a conversation"}
+              {creatingSession
+                ? "Starting…"
+                : "Ask Tendo anything about your business or Start a new conversation session..."}
             </button>
           </div>
         )}

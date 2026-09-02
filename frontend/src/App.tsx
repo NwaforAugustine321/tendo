@@ -1,37 +1,56 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
+
 import { AuthProvider } from "./context/auth";
+
 import { ProtectedRoute } from "./components/containers/ProtectedRoute";
+
 import { Landing } from "./pages/Landing";
 import { Login } from "./pages/auth/Login";
 import { Register } from "./pages/auth/Register";
 import { Welcome } from "./pages/auth/Welcome";
 import { ResetPassword } from "./pages/auth/ResetPassword";
 import { ForgotPassword } from "./pages/auth/ForgotPassword";
+
 import { SelectBusiness } from "./pages/SelectBusiness";
 import { Onboarding } from "./pages/Onboarding";
-import { Conversation } from "./pages/Conversation";
+
 import { WorkspaceLayout } from "./layout/WorkspaceLayout";
-import { WorkspaceHome } from "./pages/workspace/Home";
-import { Business } from "./pages/workspace/Business";
-import { Inventory } from "./pages/workspace/Inventory";
-import { Customers } from "./pages/workspace/Customers";
-import { Analytics } from "./pages/workspace/Analytics";
+
+import HomeSpace from "./pages/HomeSpace";
 import { Profile } from "./pages/workspace/Profile";
+import KnowledgeSpace from "./pages/KnowledgeSpace";
+
+import ActivitySpace from "./pages/ActivitySpace";
+import InsightSnapSpace from "./pages/InsightSpace";
+import AttentionSnapSpace from "./pages/AttentionSnapSpace";
+import ActivityDetailSpace from "./pages/ActivityDetailSpace";
+import InsightDetailSpace from "./pages/InsightDetailSpace";
+import AttentionDetailSpace from "./pages/AttentionDetailSpace";
 
 export default function App() {
   return (
     <AuthProvider>
       <Routes>
-        {/* Public */}
+        {/* ============================================================ */}
+        {/* Public routes                                                 */}
+        {/* ============================================================ */}
 
         <Route path="/" element={<Landing />} />
+
         <Route path="/login" element={<Login />} />
+
         <Route path="/forgot-password" element={<ForgotPassword />} />
+
         <Route path="/reset-password" element={<ResetPassword />} />
+
         <Route path="/register" element={<Register />} />
+
         <Route path="/welcome" element={<Welcome />} />
 
-        {/* Requires auth */}
+        {/* ============================================================ */}
+        {/* Protected setup routes                                        */}
+        {/* ============================================================ */}
+
         <Route
           path="/business-profile"
           element={
@@ -40,6 +59,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/onboarding"
           element={
@@ -49,22 +69,28 @@ export default function App() {
           }
         />
 
-        {/* Protected workspace */}
         <Route
-          path="/app"
+          path="/me"
           element={
             <ProtectedRoute>
               <WorkspaceLayout />
             </ProtectedRoute>
           }
         >
-          <Route index element={<WorkspaceHome />} />
-          <Route path="business" element={<Business />} />
-          <Route path="inventory" element={<Inventory />} />
-          <Route path="customers" element={<Customers />} />
-          <Route path="analytics" element={<Analytics />} />
+          <Route index element={<HomeSpace />} />
+
           <Route path="profile" element={<Profile />} />
-          <Route path="*" element={<WorkspaceHome />} />
+
+          <Route path="knowledge" element={<KnowledgeSpace />} />
+
+          <Route path="attention" element={<AttentionSnapSpace />} />
+
+          <Route path="insights" element={<InsightSnapSpace />} />
+
+          <Route path="activity" element={<ActivitySpace />} />
+          <Route path="activity/:id" element={<ActivityDetailSpace />} />
+          <Route path="insights/:id" element={<InsightDetailSpace />} />
+          <Route path="attention/:id" element={<AttentionDetailSpace />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -9,8 +9,8 @@ const POLL_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 
 export function Dashboard() {
   const { currentProfile } = useBusinessStore();
-  const { setDashboardSidebarVisible, setDashboardChatVisible } =
-    useWorkspaceStore();
+  //   const { setDashboardSidebarVisible, setDashboardChatVisible } =
+  //     useWorkspaceStore();
 
   const [snapshot, setSnapshot] = useState<BusinessSnapshot | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(true);

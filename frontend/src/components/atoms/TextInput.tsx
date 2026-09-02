@@ -1,56 +1,82 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useState, type KeyboardEvent } from "react";
+import { ArrowUp, Mic } from "lucide-react";
 
 type Props = {
-  onSend: (text: string) => void
-  placeholder?: string
-}
+  onSend: (text: string) => void;
+  placeholder?: string;
+  onVoiceRecorded?: (blob: Blob) => void;
+  onVoiceToggle?: () => void;
+  isListening?: boolean;
+  voiceLoading?: boolean;
+};
 
-export function TextInput({ onSend, placeholder = 'Type or tap the mic to speak...' }: Props) {
-  const [value, setValue] = useState('')
+export function TextInput({
+  onSend,
+  placeholder = "Ask Tendo anything about your business...",
+  onVoiceToggle,
+  isListening = false,
+  voiceLoading = false,
+}: Props) {
+  const [value, setValue] = useState("");
 
   const handleSend = () => {
-    const trimmed = value.trim()
-    if (!trimmed) return
-    onSend(trimmed)
-    setValue('')
-  }
+    const trimmed = value.trim();
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+    if (!trimmed) return;
+
+    onSend(trimmed);
+    setValue("");
+  };
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
     }
-  }
+  };
 
   return (
-    <div className="relative flex-1 flex items-center gap-1">
-      <div className="relative flex-1">
-        <input
-          type="text"
+    <div className="relative w-full">
+      <div className="relative rounded-2xl border border-zinc-800/70 bg-[#111111] transition-colors focus-within:border-zinc-700">
+        <textarea
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="av-input pr-10 placeholder:text-[#3ecf8e]/60"
+          rows={2}
+          className="min-h-[56px] w-full resize-none bg-transparent px-4 py-3 pr-24 text-[13px] leading-relaxed text-zinc-200 outline-none placeholder:text-zinc-600"
         />
-        <button
-          type="button"
-          onClick={handleSend}
-          disabled={!value.trim()}
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-zinc-400 transition-colors hover:text-[#3ecf8e] disabled:opacity-30 disabled:hover:text-zinc-400"
-          aria-label="Send message"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path
-              d="M5 12h14M12 5l7 7-7 7"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
+
+        {/* Mic + Send */}
+        <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1.5">
+          {onVoiceToggle && (
+            <button
+              type="button"
+              onClick={onVoiceToggle}
+              disabled={voiceLoading}
+              aria-label={isListening ? "Stop listening" : "Talk to Tendo"}
+              title={isListening ? "Stop listening" : "Talk to Tendo"}
+              className={`flex h-8 w-8 items-center justify-center rounded-full transition-all ${
+                isListening
+                  ? "bg-emerald-500/15 text-emerald-400"
+                  : "text-zinc-400 hover:bg-white/5 hover:text-emerald-400"
+              } disabled:cursor-not-allowed disabled:opacity-40`}
+            >
+              <Mic size={16} strokeWidth={2.2} />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={!value.trim()}
+            aria-label="Send message"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 text-zinc-900 transition-all hover:bg-white disabled:cursor-not-allowed disabled:opacity-20"
+          >
+            <ArrowUp size={16} strokeWidth={2.4} />
+          </button>
+        </div>
       </div>
     </div>
-  )
+  );
 }

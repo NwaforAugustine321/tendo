@@ -406,7 +406,7 @@ async def receive_event(
     """
     Unified event ingress.
 
-    This endpoint accepts user/application events.
+    This endpoint accepts user/melication events.
 
     Actual event processing is handled by the corresponding
     EventBus subscribers.

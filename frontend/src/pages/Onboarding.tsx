@@ -1,15 +1,18 @@
-import { useState, useEffect } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
-import { BusinessProfileSidebar, type BusinessProfileData } from '../components/containers'
-import { TopBar } from '../components/containers'
-import { getProfile } from '../lib/services/business'
+import { useState, useEffect } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import {
+  BusinessProfileSidebar,
+  type BusinessProfileData,
+} from "../components/containers";
+import { TopBar } from "../components/containers";
+import { getProfile } from "../lib/services/business";
 
 export function Onboarding() {
-  const [searchParams] = useSearchParams()
-  const navigate = useNavigate()
-  const businessId = searchParams.get('business_id') || ''
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const businessId = searchParams.get("business_id") || "";
 
-  const [profile, setProfile] = useState<BusinessProfileData>({})
+  const [profile, setProfile] = useState<BusinessProfileData>({});
 
   // Fetch existing profile data to prefill
   useEffect(() => {
@@ -24,11 +27,11 @@ export function Onboarding() {
             location: p.location || undefined,
             logo: p.logo_url || undefined,
             metadata: (p as any).metadata || undefined,
-          })
+          });
         }
-      })
+      });
     }
-  }, [businessId])
+  }, [businessId]);
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-[#0a0a0a] text-zinc-100">
@@ -39,35 +42,38 @@ export function Onboarding() {
             profile={profile}
             businessId={businessId}
             onProfileUpdate={(data) => {
-              setProfile((prev) => ({ ...prev, ...data }))
+              setProfile((prev) => ({ ...prev, ...data }));
             }}
-            onComplete={() => navigate('/app')}
+            onComplete={() => navigate("/me")}
             onLogoUpload={async (dataUrl) => {
-              setProfile((prev) => ({ ...prev, logo: dataUrl }))
+              setProfile((prev) => ({ ...prev, logo: dataUrl }));
 
               try {
-                const res = await fetch(dataUrl)
-                const blob = await res.blob()
-                const formData = new FormData()
-                formData.append('file', blob, 'logo.png')
+                const res = await fetch(dataUrl);
+                const blob = await res.blob();
+                const formData = new FormData();
+                formData.append("file", blob, "logo.png");
 
-                const uploadRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/upload/logo?business_id=${businessId}`, {
-                  method: 'POST',
-                  body: formData,
-                  credentials: 'include',
-                })
-                const data = await uploadRes.json()
+                const uploadRes = await fetch(
+                  `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/upload/logo?business_id=${businessId}`,
+                  {
+                    method: "POST",
+                    body: formData,
+                    credentials: "include",
+                  },
+                );
+                const data = await uploadRes.json();
 
                 if (data.url) {
-                  setProfile((prev) => ({ ...prev, logo: data.url }))
+                  setProfile((prev) => ({ ...prev, logo: data.url }));
                 }
               } catch (err) {
-                console.error('Logo upload failed:', err)
+                console.error("Logo upload failed:", err);
               }
             }}
           />
         </div>
       </div>
     </div>
-  )
+  );
 }

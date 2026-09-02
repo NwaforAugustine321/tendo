@@ -60,7 +60,7 @@ MINIO_SECURE = os.getenv(
 
 APPLICATION_BASE_URL = os.getenv(
     "APPLICATION_BASE_URL",
-    "http://app:8000",
+    "http://me:8000",
 )
 
 INGESTION_WEBHOOK_PATH = os.getenv(

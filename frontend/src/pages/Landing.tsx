@@ -1,5 +1,5 @@
-import { Link } from 'react-router-dom'
-import { Mic, Brain, ShieldCheck } from 'lucide-react'
+import { Link } from "react-router-dom";
+import { Mic, Brain, ShieldCheck } from "lucide-react";
 
 export function Landing() {
   return (
@@ -14,6 +14,7 @@ export function Landing() {
         {/* Hero */}
         <section className="relative overflow-hidden border-b border-white/[0.06]">
           <div className="landing-grid-overlay opacity-[0.55]" aria-hidden />
+
           <div className="relative mx-auto max-w-5xl px-4 pb-20 pt-16 sm:pb-24 sm:pt-20">
             {/* Nav */}
             <nav className="mb-16 flex items-center justify-between">
@@ -24,43 +25,76 @@ export function Landing() {
                     <span className="h-[5px] w-[5px] rounded-full bg-purple-600" />
                   </span>
                 </div>
-                <span className="text-[15px] font-semibold text-zinc-200">Tendo</span>
+
+                <span className="text-[15px] font-semibold text-zinc-200">
+                  Tendo
+                </span>
               </div>
+
               <div className="flex items-center gap-2">
-                <Link to="/login" className="rounded-md border border-zinc-700/90 bg-zinc-900/60 px-3 py-1.5 text-[13px] font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white">
+                <Link
+                  to="/login"
+                  className="rounded-md border border-zinc-700/90 bg-zinc-900/60 px-3 py-1.5 text-[13px] font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+                >
                   Sign in
                 </Link>
-                <Link to="/register" className="rounded-md bg-[#3ecf8e] px-3 py-1.5 text-[13px] font-semibold text-[#0a0a0a] transition hover:bg-[#5ee9b0]">
+
+                <Link
+                  to="/register"
+                  className="rounded-md bg-[#3ecf8e] px-3 py-1.5 text-[13px] font-semibold text-[#0a0a0a] transition hover:bg-[#5ee9b0]"
+                >
                   Get Started
                 </Link>
               </div>
             </nav>
 
+            {/* Hero content */}
             <div className="max-w-3xl">
               <p className="font-sans text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-400">
-                AI Business Operating System
+                Your AI Business Colleague
               </p>
+
               <h1 className="mt-4 font-sans text-[1.875rem] font-semibold leading-[1.12] tracking-[-0.02em] text-white sm:text-4xl lg:text-[2.625rem]">
-                Talk to your business. Tendo handles the rest.
+                Meet the AI that knows your business.
               </h1>
+
               <p className="mt-5 max-w-2xl text-[15px] font-normal leading-relaxed text-zinc-400 sm:text-base">
-                An AI employee that learns how your business operates. Record sales, manage inventory, track payments — through natural voice and text conversations.
+                Tendo learns how your business works, remembers what matters,
+                and helps you run it through natural conversations. Just talk to
+                Tendo like you would talk to a colleague.
               </p>
             </div>
 
+            {/* Feature chips */}
             <div className="mt-8 flex flex-wrap gap-2">
-              {['Voice & Text', 'Web & WhatsApp', 'No Setup Forms', 'Learns Over Time'].map((chip) => (
-                <span key={chip} className="landing-chip inline-flex items-center px-3 py-1 text-[11px] font-normal text-zinc-400">
+              {[
+                "Voice & Text",
+                "Learns Your Business",
+                "Remembers Context",
+                "Acts With Approval",
+              ].map((chip) => (
+                <span
+                  key={chip}
+                  className="landing-chip inline-flex items-center px-3 py-1 text-[11px] font-normal text-zinc-400"
+                >
                   {chip}
                 </span>
               ))}
             </div>
 
+            {/* CTA */}
             <div className="mt-8 flex flex-wrap gap-2 sm:items-center">
-              <Link to="/register" className="inline-flex items-center justify-center rounded-lg bg-[#3ecf8e] px-5 py-2.5 text-sm font-semibold text-[#0a0a0a] shadow-sm shadow-[#3ecf8e]/25 transition hover:bg-[#5ee9b0]">
+              <Link
+                to="/register"
+                className="inline-flex items-center justify-center rounded-lg bg-[#3ecf8e] px-5 py-2.5 text-sm font-semibold text-[#0a0a0a] shadow-sm shadow-[#3ecf8e]/25 transition hover:bg-[#5ee9b0]"
+              >
                 Start Free
               </Link>
-              <a href="#how-it-works" className="rounded-md border border-zinc-700/90 bg-zinc-900/60 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white">
+
+              <a
+                href="#how-it-works"
+                className="rounded-md border border-zinc-700/90 bg-zinc-900/60 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+              >
                 How It Works
               </a>
             </div>
@@ -68,19 +102,35 @@ export function Landing() {
             {/* Pillar cards */}
             <div className="mt-12 grid min-w-0 gap-4 border-t border-white/[0.06] pt-8 sm:mt-14 sm:grid-cols-3 sm:gap-5 sm:pt-9">
               {[
-                { Icon: Mic, title: 'Voice-first operations', body: 'Speak naturally. "I sold 5 bags of rice to Musa" — Tendo records it instantly.' },
-                { Icon: Brain, title: 'Learns your business', body: 'No forms or setup wizards. Tendo observes your operations and builds understanding over time.' },
-                { Icon: ShieldCheck, title: 'Nothing without approval', body: 'Every financial action needs your confirmation. Review, approve, or reject before anything changes.' },
+                {
+                  Icon: Mic,
+                  title: "Talk naturally",
+                  body: 'Speak or type the way you normally would. "I sold 5 bags of rice to Musa" — Tendo understands and records it.',
+                },
+                {
+                  Icon: Brain,
+                  title: "Knows your business",
+                  body: "Tendo learns your customers, products, operations, and the way your business works over time.",
+                },
+                {
+                  Icon: ShieldCheck,
+                  title: "You stay in control",
+                  body: "Tendo can prepare actions for you, but important changes and financial actions happen only with your approval.",
+                },
               ].map((p) => (
                 <div
                   key={p.title}
                   className="landing-glass min-w-0 w-full px-3 py-4 transition-[border-color,background-color] duration-300 sm:px-4"
                 >
                   <p.Icon size={24} className="shrink-0 text-[#3ecf8e]" />
+
                   <p className="mt-2 text-sm font-medium leading-snug tracking-tight text-zinc-200 sm:text-[15px]">
                     {p.title}
                   </p>
-                  <p className="mt-1.5 text-[13px] font-normal leading-snug text-zinc-400">{p.body}</p>
+
+                  <p className="mt-1.5 text-[13px] font-normal leading-snug text-zinc-400">
+                    {p.body}
+                  </p>
                 </div>
               ))}
             </div>
@@ -88,32 +138,67 @@ export function Landing() {
         </section>
 
         {/* Workflow */}
-        <section id="how-it-works" className="landing-tech-surface relative scroll-mt-14 border-t border-white/[0.07]">
+        <section
+          id="how-it-works"
+          className="landing-tech-surface relative scroll-mt-14 border-t border-white/[0.07]"
+        >
           <div className="landing-grid-overlay opacity-[0.35]" aria-hidden />
+
           <div className="relative mx-auto max-w-5xl px-4 py-16 sm:py-20">
-            <p className="font-sans text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-400">How it works</p>
+            <p className="font-sans text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-400">
+              How it works
+            </p>
+
             <h2 className="mt-2 font-sans text-2xl font-semibold tracking-tight text-white sm:text-[1.65rem]">
-              From conversation to business intelligence
+              From conversation to understanding
             </h2>
 
             <div className="relative mt-10">
-              <div className="absolute bottom-3 left-[15px] top-10 w-px bg-white/[0.1] sm:left-[19px]" aria-hidden />
+              <div
+                className="absolute bottom-3 left-[15px] top-10 w-px bg-white/[0.1] sm:left-[19px]"
+                aria-hidden
+              />
+
               <ol className="relative list-none space-y-12 sm:space-y-14">
                 {[
-                  { kicker: 'Onboard', title: 'Tell Tendo about your business', body: 'Describe what you do in your own words. Tendo creates an initial understanding — no forms required.' },
-                  { kicker: 'Operate', title: 'Record daily activities naturally', body: 'Say or type your business operations. Sales, payments, inventory — Tendo handles the bookkeeping.' },
-                  { kicker: 'Evolve', title: 'The AI gets smarter every day', body: 'With each confirmed operation, Tendo deepens its understanding of how your specific business works.' },
+                  {
+                    kicker: "Meet",
+                    title: "Tell Tendo how your business works",
+                    body: "Start with a conversation. Tell Tendo what your business does, what matters to you, and how you normally operate.",
+                  },
+                  {
+                    kicker: "Work",
+                    title: "Bring Tendo into your daily operations",
+                    body: "Talk to Tendo about sales, customers, payments, inventory, documents, and anything else happening in your business.",
+                  },
+                  {
+                    kicker: "Learn",
+                    title: "Tendo builds understanding over time",
+                    body: "Every conversation and confirmed action helps Tendo understand your business better, so it becomes more useful with time.",
+                  },
                 ].map((s, idx) => (
-                  <li key={s.kicker} className="grid grid-cols-[2.5rem_1fr] gap-4 sm:grid-cols-[2.75rem_1fr] sm:gap-6">
+                  <li
+                    key={s.kicker}
+                    className="grid grid-cols-[2.5rem_1fr] gap-4 sm:grid-cols-[2.75rem_1fr] sm:gap-6"
+                  >
                     <div className="flex justify-center pt-0.5">
                       <span className="landing-step-ring relative z-[1] flex h-8 w-8 shrink-0 items-center justify-center font-mono text-xs font-medium tabular-nums text-[#3ecf8e] sm:h-9 sm:w-9 sm:text-sm">
                         {idx + 1}
                       </span>
                     </div>
+
                     <div className="min-w-0">
-                      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#3ecf8e]">{s.kicker}</p>
-                      <p className="mt-1 text-lg font-medium tracking-tight text-zinc-100">{s.title}</p>
-                      <p className="mt-2 max-w-2xl text-sm font-normal leading-relaxed text-zinc-400 sm:text-[15px]">{s.body}</p>
+                      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#3ecf8e]">
+                        {s.kicker}
+                      </p>
+
+                      <p className="mt-1 text-lg font-medium tracking-tight text-zinc-100">
+                        {s.title}
+                      </p>
+
+                      <p className="mt-2 max-w-2xl text-sm font-normal leading-relaxed text-zinc-400 sm:text-[15px]">
+                        {s.body}
+                      </p>
                     </div>
                   </li>
                 ))}
@@ -132,12 +217,17 @@ export function Landing() {
                   <span className="h-[4px] w-[4px] rounded-full bg-purple-600" />
                 </span>
               </div>
+
               <span className="text-sm font-semibold text-zinc-200">Tendo</span>
             </div>
-            <p className="text-xs font-normal text-zinc-400">© 2026 Tendo. Built for business owners who want to operate, not configure.</p>
+
+            <p className="text-xs font-normal text-zinc-400">
+              © 2026 Tendo. Built for business owners who want to operate, not
+              configure.
+            </p>
           </div>
         </footer>
       </div>
     </div>
-  )
+  );
 }

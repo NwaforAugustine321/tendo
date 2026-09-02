@@ -1,23 +1,28 @@
 import { useLocation } from "react-router-dom";
 import { InsightsFeed } from "./InsightsFeed";
-import { Inbox } from "../../pages/workspace/inbox";
+import HomeSpace from "../../pages/HomeSpace";
 import { Dashboard } from "../../pages/workspace/Dashboard";
 import { Profile } from "../../pages/workspace/Profile";
+import KnowledgeSpace from "../../pages/KnowledgeSpace";
 
 export function WorkspaceContent() {
   const location = useLocation();
   const path = location.pathname;
 
-  if (path === "/app" || path === "/app/") {
-    return <Inbox />;
+  if (path === "/me" || path === "/me/") {
+    return <HomeSpace />;
   }
 
-  if (path.startsWith("/app/insights")) {
+  if (path.startsWith("/me/insights")) {
     return <Dashboard />;
   }
 
-  if (path.startsWith("/app/profile")) {
+  if (path.startsWith("/me/profile")) {
     return <Profile />;
+  }
+
+  if (path.startsWith("/me/knowledge")) {
+    return <KnowledgeSpace />;
   }
 
   return <InsightsFeed />;
