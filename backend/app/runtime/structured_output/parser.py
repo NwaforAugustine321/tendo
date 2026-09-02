@@ -54,19 +54,12 @@ class ResponseParser:
                 provider_response,
             )
 
-            action = self.extract_action(
-                raw_text,
-            )
-
-            content = self.extract_content(
-                raw_text,
-            )
-
-            question = self.extract_question(
-                raw_text,
-            )
-
-            interaction = self.extract_interaction(
+            (
+                action,
+                content,
+                question,
+                interaction,
+            ) = self.extract_protocol(
                 raw_text,
             )
 
@@ -231,7 +224,7 @@ class ResponseParser:
             "<action>request_user_input</action>"
             "<content>Briefly explain why user input is required.</content>"
             "<question>One clear question for the user.</question>"
-            "<interaction>user_input</interaction>\n\n"
+            "<question>...</question>\n\n"
             "Do not output JSON, markdown, explanations, or text "
             "outside the required tags."
         )
@@ -248,11 +241,13 @@ class ResponseParser:
         action: LLMAction | None,
     ) -> str:
 
-        if action is None:
-            return raw_text.strip()
-
         if content:
             return content.strip()
+
+        if action is None:
+            return self.extract_text_outside_tags(
+                raw_text,
+            )
 
         return self.extract_text_outside_tags(
             raw_text,
@@ -307,25 +302,9 @@ class ResponseParser:
     ) -> tuple[LLMAction | None, str | None]:
 
         if not value:
-
-            if (
-                question
-                and interaction
-                and interaction.strip().lower()
-                == InteractionType.USER_INPUT.value
-            ):
-                return (
-                    LLMAction.REQUEST_USER_INPUT,
-                    None,
-                )
-
             return (
                 None,
-                (
-                    "The <action> tag is missing. "
-                    "A response must contain exactly one valid action: "
-                    "continue, final, or request_user_input."
-                ),
+                None,
             )
 
         normalized = value.strip().lower()
@@ -349,6 +328,164 @@ class ResponseParser:
                     "continue, final, request_user_input."
                 ),
             )
+
+    def extract_protocol(
+        self,
+        text: str,
+    ) -> tuple[
+        str | None,
+        str | None,
+        str | None,
+        str | None,
+    ]:
+        """
+        Resolve the protocol from the complete LLM response.
+
+        Priority:
+        1. request_user_input with a non-empty question.
+        2. continue with content.
+        3. final with content.
+        4. Any valid continue/final action.
+        5. No action, but preserve meaningful content.
+        """
+
+        blocks = self.extract_action_blocks(text)
+
+        request_block = None
+        continue_block = None
+        final_block = None
+
+        for block in blocks:
+            action = block["action"]
+
+            if action == LLMAction.REQUEST_USER_INPUT.value:
+                question = block["question"]
+
+                if question:
+                    request_block = block
+                    break
+
+            elif action == LLMAction.CONTINUE.value:
+                if continue_block is None:
+                    continue_block = block
+
+            elif action == LLMAction.FINAL.value:
+                if final_block is None:
+                    final_block = block
+
+        if request_block is not None:
+            return (
+                request_block["action"],
+                request_block["content"],
+                request_block["question"],
+                request_block["interaction"],
+            )
+
+        if continue_block is not None and continue_block["content"]:
+            return (
+                continue_block["action"],
+                continue_block["content"],
+                None,
+                None,
+            )
+
+        if final_block is not None and final_block["content"]:
+            return (
+                final_block["action"],
+                final_block["content"],
+                None,
+                None,
+            )
+
+        # A valid action without content is not enough to expose the
+        # action as the response. Fall back to meaningful untagged or
+        # standalone content, which may already be the final answer.
+        content = self.extract_content(text)
+
+        if content:
+            return (
+                None,
+                content,
+                None,
+                None,
+            )
+
+        return (
+            None,
+            self.extract_text_outside_tags(text),
+            None,
+            None,
+        )
+
+    def extract_action_blocks(
+        self,
+        text: str,
+    ) -> list[dict[str, str | None]]:
+        """
+        Extract complete action protocol blocks instead of pairing
+        unrelated tags from different parts of the response.
+        """
+
+        pattern = re.compile(
+            r"<action\b[^>]*>\s*"
+            r"(.*?)"
+            r"\s*</action>",
+            re.IGNORECASE | re.DOTALL,
+        )
+
+        blocks: list[dict[str, str | None]] = []
+        matches = list(pattern.finditer(text))
+
+        for index, match in enumerate(matches):
+            action = match.group(1).strip().lower()
+
+            block_end = (
+                matches[index + 1].start()
+                if index + 1 < len(matches)
+                else len(text)
+            )
+            block_text = text[match.end():block_end]
+
+            content_match = re.search(
+                r"<content\b[^>]*>\s*(.*?)\s*</content>",
+                block_text,
+                re.IGNORECASE | re.DOTALL,
+            )
+
+            question_match = re.search(
+                r"<question\b[^>]*>\s*(.*?)\s*</question>",
+                block_text,
+                re.IGNORECASE | re.DOTALL,
+            )
+
+            interaction_match = re.search(
+                r"<interaction\b[^>]*>\s*(.*?)\s*</interaction>",
+                block_text,
+                re.IGNORECASE | re.DOTALL,
+            )
+
+            blocks.append(
+                {
+                    "action": action or None,
+                    "content": (
+                        content_match.group(1).strip()
+                        if content_match
+                        else None
+                    ),
+                    "question": (
+                        question_match.group(1).strip()
+                        if question_match
+                        else None
+                    ),
+                    "interaction": (
+                        interaction_match.group(1).strip()
+                        if interaction_match
+                        else None
+                    ),
+                },
+            )
+
+        return blocks
 
     # =============================================================
     # Interaction parsing
@@ -402,10 +539,15 @@ class ResponseParser:
             )
 
         # ---------------------------------------------------------
-        # request_user_input requires:
+        # request_user_input requires only:
         #
+        # <action>request_user_input</action>
+        # <content>...</content>
         # <question>...</question>
-        # <interaction>user_input</interaction>
+        #
+        # <interaction> is NOT part of the LLM XML protocol.
+        # The internal Interaction object is created here for runtime
+        # compatibility.
         # ---------------------------------------------------------
 
         if action == LLMAction.REQUEST_USER_INPUT:
@@ -420,33 +562,6 @@ class ResponseParser:
                     ),
                 )
 
-            if not interaction:
-
-                return (
-                    None,
-                    (
-                        "The request_user_input action requires "
-                        "<interaction>user_input</interaction>."
-                    ),
-                )
-
-            normalized = interaction.strip().lower()
-
-            if (
-                normalized
-                != InteractionType.USER_INPUT.value
-            ):
-
-                return (
-                    None,
-                    (
-                        f"Unsupported interaction type "
-                        f"'{interaction}'. "
-                        "The only supported interaction type is "
-                        "'user_input'."
-                    ),
-                )
-
             return (
                 Interaction(
                     type=InteractionType.USER_INPUT,
@@ -455,9 +570,15 @@ class ResponseParser:
             )
 
         # ---------------------------------------------------------
-        # Missing/invalid action should normally already have been
-        # caught by parse_action, but keep this defensive path.
+        # No action is valid when the parser has fallen back to
+        # meaningful response content.
         # ---------------------------------------------------------
+
+        if action is None:
+            return (
+                None,
+                None,
+            )
 
         return (
             None,
@@ -513,11 +634,15 @@ class ResponseParser:
             AIMessage,
         ):
 
-            if self.extract_action(
-                self.extract_text(
-                    provider_response,
-                ),
-            ):
+            protocol_action, _, protocol_question, _ = (
+                self.extract_protocol(
+                    self.extract_text(
+                        provider_response,
+                    ),
+                )
+            )
+
+            if protocol_action or protocol_question:
 
                 return (
                     None,
