@@ -78,8 +78,7 @@ class AgentRunner:
                     user_request=run_context.user_request,
                 )
 
-            await self._emit_progress(
-                run_context=run_context,
+            await run_context.presence_state(
                 event=StatusEvent(
                     status=Status.STARTING,
                 ),
@@ -185,8 +184,8 @@ class AgentRunner:
 
                         if run_context.context_threshold_reached:
 
-                            await self._emit_progress(
-                                run_context=run_context,
+                            await run_context.presence_state(
+
                                 event=StatusEvent(
                                     status=Status.ANALYZING,
                                 ),
@@ -198,8 +197,8 @@ class AgentRunner:
                                 run_context=run_context,
                             )
 
-                        await self._emit_progress(
-                            run_context=run_context,
+                        await run_context.presence_state(
+
                             event=StatusEvent(
                                 status=Status.PLANNING,
                             ),
@@ -219,8 +218,8 @@ class AgentRunner:
                             tools_enabled=True,
                         )
 
-                        await self._emit_progress(
-                            run_context=run_context,
+                        await run_context.presence_state(
+
                             event=StatusEvent(
                                 status=Status.REASONING,
                             ),
@@ -433,8 +432,8 @@ class AgentRunner:
                                 ),
                             )
 
-                            await self._emit_progress(
-                                run_context=run_context,
+                            await run_context.presence_state(
+
                                 event=StatusEvent(
                                     status=Status.GENERATING,
                                 ),
@@ -518,8 +517,8 @@ class AgentRunner:
                                 ),
                             )
 
-                            await self._emit_progress(
-                                run_context=run_context,
+                            await run_context.presence_state(
+
                                 event=StatusEvent(
                                     status=Status.GENERATING,
                                 ),
@@ -571,8 +570,8 @@ class AgentRunner:
                                     run_context,
                                 )
 
-                                await self._emit_progress(
-                                    run_context=run_context,
+                                await run_context.presence_state(
+
                                     event=StatusEvent(
                                         status=Status.REASONING,
                                     ),
@@ -631,8 +630,8 @@ class AgentRunner:
                                 run_context,
                             )
 
-                            await self._emit_progress(
-                                run_context=run_context,
+                            await run_context.presence_state(
+
                                 event=StatusEvent(
                                     status=Status.REASONING,
                                 ),
@@ -703,8 +702,8 @@ class AgentRunner:
                             current_step,
                         )
 
-                        await self._emit_progress(
-                            run_context=run_context,
+                        await run_context.presence_state(
+
                             event=StatusEvent(
                                 status=Status.RETRYING,
                             ),
@@ -718,16 +717,16 @@ class AgentRunner:
                     current_step,
                 )
 
-                await self._emit_progress(
-                    run_context=run_context,
+                await run_context.presence_state(
+
                     event=StatusEvent(
                         status=Status.ANALYZING,
                     ),
                     iteration=current_step,
                 )
 
-            await self._emit_progress(
-                run_context=run_context,
+            await run_context.presence_state(
+
                 event=StatusEvent(
                     status=Status.GENERATING,
                 ),
@@ -792,49 +791,52 @@ class AgentRunner:
                         "Memory reflection failed.",
                     )
 
-    def _notify_presence_state(
-        self,
-        *,
-        run_context: RunContext,
-        status: Status,
-        iteration: int = 0,
-    ) -> None:
-        tracker = run_context.presence_tracker
+    # def _presence_state(
+    #     self,
+    #     *,
+    #     run_context: RunContext,
+    #     status: StatusEvent,
+    #     iteration: int = 0,
+    # ) -> None:
 
-        if tracker is None:
-            return
+    #     _status = status.status
 
-        state = tracker.state
+    #     tracker = run_context.presence_tracker
 
-        if state is None:
-            return
+    #     if tracker is None:
+    #         return
 
-        state.status = status.value
-        state.stage = status.value
-        state.iteration = iteration
+    #     state = tracker.state
 
-        tracker.notify_state_event(
-            state=state.snapshot(),
-        )
+    #     if state is None:
+    #         return
 
-    async def _emit_progress(
-        self,
-        *,
-        run_context: RunContext,
-        event: StatusEvent,
-        iteration: int = 0,
-    ) -> None:
+    #     state.status = _status.value
+    #     state.stage = _status.value
+    #     state.iteration = iteration
 
-        # await run_context.emitter.emit(
-        #     EventType.PROGRESS,
-        #     event,
-        # )
+    #     tracker.notify_state_event(
+    #         state=state.snapshot(),
+    #     )
 
-        self._notify_presence_state(
-            run_context=run_context,
-            status=event.status,
-            iteration=iteration,
-        )
+    # async def _emit_progress(
+    #     self,
+    #     *,
+    #     run_context: RunContext,
+    #     event: StatusEvent,
+    #     iteration: int = 0,
+    # ) -> None:
+
+    #     # await run_context.emitter.emit(
+    #     #     EventType.PROGRESS,
+    #     #     event,
+    #     # )
+
+    #     self._notify_presence_state(
+    #         run_context=run_context,
+    #         status=event.status,
+    #         iteration=iteration,
+    #     )
 
     async def _execute_tools(
         self,
@@ -845,8 +847,8 @@ class AgentRunner:
         pending_tools: list[str],
     ) -> None:
 
-        await self._emit_progress(
-            run_context=run_context,
+        await run_context.presence_state(
+
             event=StatusEvent(
                 status=Status.USING_TOOL,
             ),
@@ -1239,8 +1241,8 @@ class AgentRunner:
         reason: str = "max_iterations",
     ) -> LLMResponse:
 
-        await self._emit_progress(
-            run_context=run_context,
+        await run_context.presence_state(
+
             event=StatusEvent(
                 status=Status.FINALIZING,
             ),
@@ -1337,8 +1339,8 @@ class AgentRunner:
                 tools_enabled=False,
             )
 
-            await self._emit_progress(
-                run_context=run_context,
+            await run_context.presence_state(
+
                 event=StatusEvent(
                     status=Status.REASONING,
                 ),

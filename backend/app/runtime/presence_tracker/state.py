@@ -12,7 +12,7 @@ class PresenceState:
     stage: str = ""
     message: str = ""
     elapsed_seconds: float = 0.0
-    max_response_length: int = 160
+    max_response_length: int = 200
     iteration: int = 0
     reasoning_step: int = 0
     completed_steps: list[str] = field(

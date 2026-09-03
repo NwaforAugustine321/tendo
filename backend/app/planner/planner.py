@@ -27,12 +27,10 @@ from app.communication.events import ApplicationEvent
 from app.communication.event_bus import get_event_bus
 from app.communication.events import EventDelivery
 from app.tools.db.db_tool import get_db_tool
-from app.runtime.presence_tracker.manager import PresenceTracker
-from app.runtime.presence_tracker.llm_adapter import PresenceLLM
-from app.runtime.presence_tracker.interface import PresenceOutputDispatcher
-from app.runtime.presence_tracker.consumers.voice_presence_consumer import LiveKitPresenceConsumer
-from app.runtime.presence_tracker.consumers.application_consumer import (
-    ApplicationPresenceConsumer,
+from app.runtime.response_queue.consumers.voice_agent_consumer import (
+    VoiceAgentResponseConsumer)
+from app.runtime.response_queue.consumers.text_agent_consumer import (
+    TextAgentResponseConsumer,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,18 +77,6 @@ def _get_llm() -> LangChainLLM:
         )
 
     return _llm_instance
-
-
-_presence_llm_instance: PresenceLLM | None = None
-
-
-def _get_presence_llm() -> PresenceLLM:
-    global _presence_llm_instance
-
-    if _presence_llm_instance is None:
-        _presence_llm_instance = PresenceLLM()
-
-    return _presence_llm_instance
 
 
 def _create_callbacks(
@@ -156,44 +142,45 @@ async def _presence_callback(
     )
 
 
-def _create_presence_tracker_factory(
-    *,
-    user_id: str,
-    vc_session: Any,
-):
-    presence_llm = _get_presence_llm()
+# def _create_presence_tracker_factory(
+#     *,
+#     user_id: str,
+#     session: Any,
+# ):
+#     presence_llm = _get_presence_llm()
 
-    def factory() -> PresenceTracker:
-        consumers = []
+#     def factory() -> PresenceTracker:
+#         consumers = []
 
-        if user_id:
-            consumers.append(
-                ApplicationPresenceConsumer(
-                    callback=lambda text, generation: _presence_callback(
-                        text,
-                        generation,
-                        user_id=user_id,
-                    ),
-                )
-            )
+#         if user_id:
+#             consumers.append(
+#                 ApplicationPresenceConsumer(
+#                     callback=lambda text, generation: _presence_callback(
+#                         text,
+#                         generation,
+#                         user_id=user_id,
+#                     ),
+#                 )
 
-        if vc_session is not None:
-            consumers.append(
-                LiveKitPresenceConsumer(
-                    session=vc_session,
-                )
-            )
+#             )
 
-        output = PresenceOutputDispatcher(
-            consumers=consumers,
-        )
+#         if session is not None:
+#             consumers.append(
+#                 LiveKitPresenceConsumer(
+#                     session=session,
+#                 )
+#             )
 
-        return PresenceTracker(
-            llm=presence_llm,
-            output=output,
-        )
+#         output = PresenceOutputDispatcher(
+#             consumers=consumers,
+#         )
 
-    return factory
+#         return PresenceTracker(
+#             llm=presence_llm,
+#             output=output,
+#         )
+
+#     return factory
 
 
 class ToolLoggingMiddleware(AgentMiddleware):
@@ -1033,10 +1020,20 @@ class Planner:
             middleware=[
                 ToolLoggingMiddleware(),
             ],
-            presence_tracker_factory=_create_presence_tracker_factory(
-                user_id=self._user_id,
-                vc_session=self._session.get("vc_session"),
-            ),
+
+            response_consumers=[
+                TextAgentResponseConsumer(
+                    callback=lambda text, generation: _presence_callback(
+                        text,
+                        generation,
+                        user_id=self._user_id,
+                    ),
+                ),
+
+                VoiceAgentResponseConsumer(
+                    session=self._session.get("vc_session"),
+                )
+            ]
         )
 
         self._session = agent.create_session(

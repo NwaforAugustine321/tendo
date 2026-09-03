@@ -1,7 +1,6 @@
-
 from __future__ import annotations
 
-from typing import Iterable, Protocol
+from typing import Protocol
 
 from .state import PresenceState
 
@@ -16,17 +15,6 @@ class PresenceLLM(Protocol):
         ...
 
 
-class PresenceConsumer(Protocol):
-
-    async def send(
-        self,
-        *,
-        text: str,
-        generation: int,
-    ) -> None:
-        ...
-
-
 class PresenceOutput(Protocol):
 
     async def deliver(
@@ -36,36 +24,6 @@ class PresenceOutput(Protocol):
         generation: int,
     ) -> None:
         ...
-
-
-class PresenceOutputDispatcher:
-
-    def __init__(
-        self,
-        *,
-        consumers: Iterable[PresenceConsumer],
-    ) -> None:
-        self._consumers = list(
-            consumers,
-        )
-
-    async def deliver(
-        self,
-        *,
-        text: str,
-        generation: int,
-    ) -> None:
-        for consumer in self._consumers:
-            try:
-                await consumer.send(
-                    text=text,
-                    generation=generation,
-                )
-
-            except Exception:
-                # One consumer must never prevent the remaining
-                # consumers from receiving the presence output.
-                continue
 
 
 class PresenceTrackerInterface(Protocol):

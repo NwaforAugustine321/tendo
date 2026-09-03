@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -8,6 +9,10 @@ from app.runtime.conversation.context import ConversationContext
 from app.runtime.events.emitter import Emitter
 from app.lib.i18n import I18N
 from app.runtime.presence_tracker.manager import PresenceTracker
+from app.runtime.response_queue.queue import ResponseQueue
+from app.runtime.events.events import (
+    StatusEvent,
+)
 
 if TYPE_CHECKING:
     from .agent import Agent
@@ -24,6 +29,7 @@ class RunContext:
     user_request: str = ""
     emitter: Emitter | None = None
     presence_tracker: PresenceTracker | None = None
+    response_queue: ResponseQueue | None = None
 
     _messages: list[ChatMessage] = field(
         default_factory=list,
@@ -31,6 +37,33 @@ class RunContext:
 
     _context_tokens: int = 0
     _context_threshold_reached: bool = False
+
+    async def presence_state(
+        self,
+        *,
+        event: StatusEvent,
+        iteration: int = 0,
+    ) -> None:
+
+        status = event.status
+
+        tracker = self.presence_tracker
+
+        if tracker is None:
+            return
+
+        state = tracker.state
+
+        if state is None:
+            return
+
+        state.status = status.value
+        state.stage = status.value
+        state.iteration = iteration
+
+        tracker.notify_state_event(
+            state=state.snapshot(),
+        )
 
     def refresh_context_threshold(
         self,

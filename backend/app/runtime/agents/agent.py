@@ -1,7 +1,6 @@
-
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from app.runtime.context_manager.manager import (
     ContextManager,
@@ -52,8 +51,8 @@ from app.runtime.guardrails.guards.strategies.strategy import (
     PromptLeakageDetectionMode,
 )
 
-from app.runtime.presence_tracker.interface import (
-    PresenceTrackerInterface,
+from app.runtime.response_queue.interface import (
+    ResponseConsumer,
 )
 
 from ..tools.default import (
@@ -76,6 +75,7 @@ from app.runtime.guardrails.guards.strategies.semantic_prompt_leakage_detector i
 from app.lib.i18n import (
     _get_i18n,
 )
+
 
 if TYPE_CHECKING:
 
@@ -103,8 +103,6 @@ class Agent:
     - Guardrails
     - Tool context
 
-    Presence tracking is supplied through a factory so that
-    each AgentSession can receive its own mutable tracker.
     """
 
     def __init__(
@@ -132,10 +130,7 @@ class Agent:
         prompt_detector_strategy: PromptLeakageDetectionMode = (
             PromptLeakageDetectionMode.HYBRID
         ),
-        presence_tracker_factory: Callable[
-            [],
-            PresenceTrackerInterface,
-        ] | None = None,
+        response_consumers: list[ResponseConsumer] | None = None,
     ) -> None:
 
         self._name = name
@@ -160,8 +155,8 @@ class Agent:
             prompt_detector_strategy
         )
 
-        self._presence_tracker_factory = (
-            presence_tracker_factory
+        self._response_consumers = list(
+            response_consumers or [],
         )
 
         self._llm = llm
@@ -394,6 +389,13 @@ class Agent:
 
         return self._output_type
 
+    @property
+    def response_consumers(
+        self,
+    ) -> list[ResponseConsumer]:
+
+        return self._response_consumers
+
     def create_runner(
         self,
         run_context: RunContext,
@@ -457,19 +459,12 @@ class Agent:
         """
         Create a new conversation session.
 
-        Each AgentSession receives its own PresenceTracker
-        instance when a tracker factory has been configured.
+        The Agent supplies its configured response consumers to the
+        session. The AgentSession owns the ResponseQueue and the
+        mutable runtime state.
         """
 
         from .session import AgentSession
-
-        presence_tracker = None
-
-        if self._presence_tracker_factory is not None:
-
-            presence_tracker = (
-                self._presence_tracker_factory()
-            )
 
         return AgentSession(
             agent=self,
@@ -478,5 +473,5 @@ class Agent:
             max_iteration=self._max_iteration,
             max_reasoning_step=self._max_reasoning_step,
             i18n=self._i18n,
-            presence_tracker=presence_tracker,
+            response_consumers=self._response_consumers,
         )

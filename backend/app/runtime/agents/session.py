@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from uuid import uuid4
@@ -39,6 +38,18 @@ from app.runtime.presence_tracker.manager import (
     PresenceTracker,
 )
 
+from app.runtime.presence_tracker.llm_adapter import (
+    PresenceLLM,
+)
+
+from app.runtime.response_queue.queue import (
+    ResponseQueue,
+)
+
+from app.runtime.response_queue.interface import (
+    ResponseConsumer,
+)
+
 from .activity import AgentActivity
 
 from .agent import Agent
@@ -67,7 +78,7 @@ class AgentSession:
         conversation_context: ConversationContext | None = None,
         emitter: Emitter | None = None,
         context_monitor: ContextMonitor | None = None,
-        presence_tracker: PresenceTracker | None = None,
+        response_consumers: list[ResponseConsumer] | None = None,
     ) -> None:
         self._id = (
             session_id
@@ -100,7 +111,15 @@ class AgentSession:
 
         self._prompt_state = PromptState()
 
-        self._presence_tracker = presence_tracker
+        self._response_queue = ResponseQueue(
+            consumers=response_consumers,
+        )
+
+        self._presence_tracker = PresenceTracker(
+            llm=PresenceLLM(),
+            output=self._response_queue,
+        )
+
         self._i18n = i18n
         self._max_iteration = max_iteration
         self._max_reasoning_step = max_reasoning_step
@@ -112,6 +131,7 @@ class AgentSession:
             max_reasoning_step=max_reasoning_step,
             i18n=i18n,
             presence_tracker=self._presence_tracker,
+            response_queue=self._response_queue,
         )
 
         self._user_task_builder = UserTaskPromptBuilder()
@@ -163,8 +183,14 @@ class AgentSession:
     @property
     def presence_tracker(
         self,
-    ) -> PresenceTracker | None:
+    ) -> PresenceTracker:
         return self._presence_tracker
+
+    @property
+    def response_queue(
+        self,
+    ) -> ResponseQueue:
+        return self._response_queue
 
     @property
     def current_activity(
@@ -252,6 +278,7 @@ class AgentSession:
             max_reasoning_step=self._max_reasoning_step,
             i18n=self._i18n,
             presence_tracker=self._presence_tracker,
+            response_queue=self._response_queue,
         )
 
         self._current_activity = None
@@ -264,5 +291,6 @@ class AgentSession:
 
         self._current_activity = None
 
-        if self._presence_tracker is not None:
-            await self._presence_tracker.aclose()
+        await self._presence_tracker.aclose()
+
+        await self._response_queue.aclose()

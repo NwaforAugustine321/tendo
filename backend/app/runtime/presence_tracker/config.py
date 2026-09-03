@@ -14,10 +14,10 @@ class PresenceTrackerConfig:
         120.0,
     )
 
-    silence_threshold: float = 8.0
-    minimum_response_interval: float = 5.0
+    silence_threshold: float = 5.0
+    minimum_response_interval: float = 3.0
 
-    max_response_length: int = 160
+    max_response_length: int = 200
     max_concurrent_generations: int = 1
 
     cancel_on_user_input: bool = True

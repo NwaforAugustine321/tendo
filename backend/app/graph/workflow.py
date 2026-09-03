@@ -74,6 +74,7 @@ async def planner_node(state: State, config: RunnableConfig, runtime: Runtime):
         )
 
     response = await planner.run(user_message=user_message, messages=messages)
+
     writer(response or "")
 
     if response:

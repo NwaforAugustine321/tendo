@@ -20,9 +20,6 @@ class PresenceTracker:
         output: PresenceOutput,
         config: PresenceTrackerConfig | None = None,
     ) -> None:
-        # Injected once when the tracker is created.
-        # The same LLM instance is reused for the entire
-        # lifetime of this PresenceTracker.
         self._llm = llm
         self._output = output
 
@@ -205,29 +202,31 @@ class PresenceTracker:
             return
 
         if state is not None:
-            self._state = state.snapshot()
+            # Status changes update the current runtime state, but they do
+            # not create a new Presence run. Preserve the original runtime
+            # clock so elapsed time continues from start().
+            started_at = self._state.started_at
 
-            self._state.elapsed_seconds = (
-                self._state.elapsed
-            )
+            self._state = state.snapshot()
+            self._state.started_at = started_at
+            self._state.elapsed_seconds = self._state.elapsed
 
         self._last_state_event_at = monotonic()
 
-        # Every runtime state transition starts a fresh presence generation.
-        # Invalidate and cancel any generation based on the previous state so
-        # stale conversational output can never win over the current state.
-        self._generation += 1
-
-        self._cancel_task(
-            self._generation_task,
-        )
-        self._generation_task = None
-
-        # Fire-and-forget. PresenceLLM runs independently and never blocks
-        # the main runner.
-        self._trigger_generation(
-            force=True,
-        )
+        # A state event changes the context available to the next presence
+        # generation. It must NOT reset the pacing signals:
+        #
+        #   - elapsed runtime
+        #   - response backoff / minimum response interval
+        #   - interval progression (40s -> 60s -> 90s -> 120s -> ...)
+        #
+        # Do not invalidate an already-running generation here. In a voice
+        # agent, frequent runtime status events are normal and forcing a new
+        # generation for each one would cause overlapping/repeated speech.
+        #
+        # The next generation will take a snapshot of the latest state when
+        # the existing pacing rules allow it.
+        self._evaluate_presence()
 
     def stop(self) -> None:
         if not self._started:
@@ -433,8 +432,7 @@ class PresenceTracker:
         generation: int,
     ) -> None:
         try:
-            # Reuse the injected LLM instance.
-            # No LLM/client is created here.
+
             text = await self._llm.generate(
                 state=state,
             )

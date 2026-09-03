@@ -224,10 +224,6 @@ class PromptBuilder:
             if message.content
         ]
 
-        # for msg in execution_messages:
-        #     print(f'{msg.role} ->>>>>: {msg.content}')
-        #     print('\n\n')
-
         state.stable_messages = messages
 
         state.prepared = True
@@ -261,9 +257,8 @@ class PromptBuilder:
         if agent.memory is None:
             return ""
 
-        await self._context.run_context.emitter.emit(
-            EventType.PROGRESS,
-            StatusEvent(
+        await self._context.run_context.presence_state(
+            event=StatusEvent(
                 status=Status.RETRIEVING,
             ),
         )
@@ -275,9 +270,8 @@ class PromptBuilder:
                 self._context.run_context,
             )
 
-        await self._context.run_context.emitter.emit(
-            EventType.PROGRESS,
-            StatusEvent(
+        await self._context.run_context.presence_state(
+            event=StatusEvent(
                 status=Status.REASONING,
             ),
         )
@@ -295,9 +289,8 @@ class PromptBuilder:
         if agent.rag is None:
             return ""
 
-        await self._context.run_context.emitter.emit(
-            EventType.PROGRESS,
-            StatusEvent(
+        await self._context.run_context.presence_state(
+            event=StatusEvent(
                 status=Status.RETRIEVING,
             ),
         )
@@ -308,9 +301,8 @@ class PromptBuilder:
                 self._context.run_context,
             )
 
-        await self._context.run_context.emitter.emit(
-            EventType.PROGRESS,
-            StatusEvent(
+        await self._context.run_context.presence_state(
+            event=StatusEvent(
                 status=Status.REASONING,
             ),
         )

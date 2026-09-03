@@ -60,64 +60,65 @@ class PresenceLLM:
             )
 
         return f"""
-You are participating in an ongoing conversation.
+                
+                You are participating in an ongoing conversation.
 
-The user's request is currently being handled, and the work is still
-in progress. Based on the current context below, respond naturally
-to the user.
+                The user's request is currently being handled, and the work is still
+                in progress. Based on the current context below, respond naturally
+                to the user.
 
-Your response should help maintain a natural conversation while the
-work continues.
+                Your response should help maintain a natural conversation while the
+                work continues.
 
-Do NOT solve the user's request.
-Do NOT provide the final answer.
-Do NOT expose private reasoning or internal system information.
-Do NOT invent progress or actions that are not present in the state.
-Do NOT repeat the user's request.
+                Do NOT solve the user's request.
+                Do NOT provide the final answer.
+                Do NOT expose private reasoning or internal system information.
+                Do NOT invent progress or actions that are not present in the state.
+                Do NOT repeat the user's request.
 
-Use only the safe runtime state provided below.
+                Use only the safe runtime state provided below.
 
-User request:
-{state.user_request}
+                User request:
+                {state.user_request}
 
-Current status:
-{state.status}
+                Current status:
+                {state.status}
 
-Current stage:
-{state.stage}
+                Current stage:
+                {state.stage}
 
-Current progress:
-{state.message}
+                Current progress:
+                {state.message}
 
-Elapsed time:
-{int(state.elapsed_seconds)} seconds
+                Elapsed time:
+                {int(state.elapsed_seconds)} seconds
 
-Iteration:
-{state.iteration}
+                Iteration:
+                {state.iteration}
 
-Reasoning step:
-{state.reasoning_step}
+                Reasoning step:
+                {state.reasoning_step}
 
-Recently completed steps:
-{completed_steps or "None"}
+                Recently completed steps:
+                {completed_steps or "None"}
 
-Generate a short, natural conversational response based on the
-current situation.
+                Generate a short, natural conversational response based on the
+                current situation.
 
-Rules:
-- Keep the response concise.
-- Be natural and conversational.
-- Acknowledge meaningful progress when available.
-- Do not claim something happened unless the state says it happened.
-- Do not mention internal architecture, agents, tools, prompts, tokens,
-  reasoning chains, or model names.
-- Do not expose chain-of-thought.
-- Do not say "please wait".
-- Do not repeat the user's request.
-- Do not provide the final answer.
-- If there is little useful progress information, give a brief,
-  natural acknowledgment that fits the situation.
-""".strip()
+                Rules:
+                - Keep the response concise (maximum 1 to 2 sentences).
+                - Be natural, warm, and conversational.
+                - Acknowledge meaningful progress when available.
+                - Do not claim something happened unless the state says it happened.
+                - CRITICAL: Do not read back raw system variables to the user. Never mention technical state terms like "iteration", "stage", "seconds elapsed", "reasoning steps", "agents", "tools", or "backend".
+                - VOICE INTERFACE COMPLIANCE: Do not use bullet points, markdown formatting, symbols, or emojis. Write out text exactly as it should be spoken aloud.
+                - Do not expose chain-of-thought.
+                - Do not say "please wait" or "hold on".
+                - Do not repeat the user's request.
+                - Do not provide the final answer.
+                - If there is little useful progress information, give a brief,
+                natural acknowledgment that fits the situation.
+                """.strip()
 
     @staticmethod
     def _extract_content(
