@@ -28,7 +28,6 @@ from app.runtime.prompts.context import PromptContext
 from app.runtime.toolsets.executor import ToolExecutor
 from app.runtime.toolsets.tool_use_call import ToolUseCall
 from app.runtime.utils.tag_parser import extract_json
-
 from .activity import AgentActivity
 from .session import AgentSession
 
@@ -72,11 +71,19 @@ class AgentRunner:
 
         try:
 
-            await run_context.emitter.emit(
-                EventType.PROGRESS,
-                StatusEvent(
+            presence_tracker = run_context.presence_tracker
+
+            if presence_tracker is not None:
+                presence_tracker.start(
+                    user_request=run_context.user_request,
+                )
+
+            await self._emit_progress(
+                run_context=run_context,
+                event=StatusEvent(
                     status=Status.STARTING,
                 ),
+                iteration=0,
             )
 
             await run_context.middleware.dispatch(
@@ -178,11 +185,12 @@ class AgentRunner:
 
                         if run_context.context_threshold_reached:
 
-                            await run_context.emitter.emit(
-                                EventType.PROGRESS,
-                                StatusEvent(
+                            await self._emit_progress(
+                                run_context=run_context,
+                                event=StatusEvent(
                                     status=Status.ANALYZING,
                                 ),
+                                iteration=current_step,
                             )
 
                             await self._optimize_context(
@@ -190,11 +198,12 @@ class AgentRunner:
                                 run_context=run_context,
                             )
 
-                        await run_context.emitter.emit(
-                            EventType.PROGRESS,
-                            StatusEvent(
+                        await self._emit_progress(
+                            run_context=run_context,
+                            event=StatusEvent(
                                 status=Status.PLANNING,
                             ),
+                            iteration=current_step,
                         )
 
                         await run_context.middleware.dispatch(
@@ -210,11 +219,12 @@ class AgentRunner:
                             tools_enabled=True,
                         )
 
-                        await run_context.emitter.emit(
-                            EventType.PROGRESS,
-                            StatusEvent(
+                        await self._emit_progress(
+                            run_context=run_context,
+                            event=StatusEvent(
                                 status=Status.REASONING,
                             ),
+                            iteration=current_step,
                         )
 
                         activity = AgentActivity(
@@ -423,11 +433,12 @@ class AgentRunner:
                                 ),
                             )
 
-                            await run_context.emitter.emit(
-                                EventType.PROGRESS,
-                                StatusEvent(
+                            await self._emit_progress(
+                                run_context=run_context,
+                                event=StatusEvent(
                                     status=Status.GENERATING,
                                 ),
+                                iteration=current_step,
                             )
 
                             # CRITICAL: return immediately. Do not allow the
@@ -507,11 +518,12 @@ class AgentRunner:
                                 ),
                             )
 
-                            await run_context.emitter.emit(
-                                EventType.PROGRESS,
-                                StatusEvent(
+                            await self._emit_progress(
+                                run_context=run_context,
+                                event=StatusEvent(
                                     status=Status.GENERATING,
                                 ),
+                                iteration=current_step,
                             )
 
                             return response
@@ -559,11 +571,12 @@ class AgentRunner:
                                     run_context,
                                 )
 
-                                await run_context.emitter.emit(
-                                    EventType.PROGRESS,
-                                    StatusEvent(
+                                await self._emit_progress(
+                                    run_context=run_context,
+                                    event=StatusEvent(
                                         status=Status.REASONING,
                                     ),
+                                    iteration=current_step,
                                 )
 
                                 continue
@@ -618,11 +631,12 @@ class AgentRunner:
                                 run_context,
                             )
 
-                            await run_context.emitter.emit(
-                                EventType.PROGRESS,
-                                StatusEvent(
+                            await self._emit_progress(
+                                run_context=run_context,
+                                event=StatusEvent(
                                     status=Status.REASONING,
                                 ),
+                                iteration=current_step,
                             )
 
                             continue
@@ -689,11 +703,12 @@ class AgentRunner:
                             current_step,
                         )
 
-                        await run_context.emitter.emit(
-                            EventType.PROGRESS,
-                            StatusEvent(
+                        await self._emit_progress(
+                            run_context=run_context,
+                            event=StatusEvent(
                                 status=Status.RETRYING,
                             ),
+                            iteration=current_step,
                         )
 
                         continue
@@ -703,18 +718,20 @@ class AgentRunner:
                     current_step,
                 )
 
-                await run_context.emitter.emit(
-                    EventType.PROGRESS,
-                    StatusEvent(
+                await self._emit_progress(
+                    run_context=run_context,
+                    event=StatusEvent(
                         status=Status.ANALYZING,
                     ),
+                    iteration=current_step,
                 )
 
-            await run_context.emitter.emit(
-                EventType.PROGRESS,
-                StatusEvent(
+            await self._emit_progress(
+                run_context=run_context,
+                event=StatusEvent(
                     status=Status.GENERATING,
                 ),
+                iteration=current_step,
             )
 
             response = await self._force_final_response(
@@ -738,6 +755,9 @@ class AgentRunner:
             raise
 
         finally:
+
+            if run_context.presence_tracker is not None:
+                run_context.presence_tracker.stop()
 
             await run_context.emitter.emit(
                 EventType.PROGRESS,
@@ -772,6 +792,50 @@ class AgentRunner:
                         "Memory reflection failed.",
                     )
 
+    def _notify_presence_state(
+        self,
+        *,
+        run_context: RunContext,
+        status: Status,
+        iteration: int = 0,
+    ) -> None:
+        tracker = run_context.presence_tracker
+
+        if tracker is None:
+            return
+
+        state = tracker.state
+
+        if state is None:
+            return
+
+        state.status = status.value
+        state.stage = status.value
+        state.iteration = iteration
+
+        tracker.notify_state_event(
+            state=state.snapshot(),
+        )
+
+    async def _emit_progress(
+        self,
+        *,
+        run_context: RunContext,
+        event: StatusEvent,
+        iteration: int = 0,
+    ) -> None:
+
+        # await run_context.emitter.emit(
+        #     EventType.PROGRESS,
+        #     event,
+        # )
+
+        self._notify_presence_state(
+            run_context=run_context,
+            status=event.status,
+            iteration=iteration,
+        )
+
     async def _execute_tools(
         self,
         *,
@@ -781,9 +845,9 @@ class AgentRunner:
         pending_tools: list[str],
     ) -> None:
 
-        await run_context.emitter.emit(
-            EventType.PROGRESS,
-            StatusEvent(
+        await self._emit_progress(
+            run_context=run_context,
+            event=StatusEvent(
                 status=Status.USING_TOOL,
             ),
         )
@@ -1175,9 +1239,9 @@ class AgentRunner:
         reason: str = "max_iterations",
     ) -> LLMResponse:
 
-        await run_context.emitter.emit(
-            EventType.PROGRESS,
-            StatusEvent(
+        await self._emit_progress(
+            run_context=run_context,
+            event=StatusEvent(
                 status=Status.FINALIZING,
             ),
         )
@@ -1273,9 +1337,9 @@ class AgentRunner:
                 tools_enabled=False,
             )
 
-            await run_context.emitter.emit(
-                EventType.PROGRESS,
-                StatusEvent(
+            await self._emit_progress(
+                run_context=run_context,
+                event=StatusEvent(
                     status=Status.REASONING,
                 ),
             )
@@ -1303,8 +1367,6 @@ class AgentRunner:
             finally:
 
                 session.clear_activity()
-
-            print('respons>>>>> final ', response)
 
             if response is None:
 

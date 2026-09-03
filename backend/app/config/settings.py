@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     nvidia_api_key: str = ""
     nvidia_embedding_model: str = "nvidia/llama-nemotron-embed-vl-1b-v2"
     nvidia_rerank_model: str = "nv-rerank-qa-mistral-4b:1"
+    nvidia_model: str = ""
 
     # Storage
     bucket_name: str = ""

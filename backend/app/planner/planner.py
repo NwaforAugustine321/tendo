@@ -27,6 +27,13 @@ from app.communication.events import ApplicationEvent
 from app.communication.event_bus import get_event_bus
 from app.communication.events import EventDelivery
 from app.tools.db.db_tool import get_db_tool
+from app.runtime.presence_tracker.manager import PresenceTracker
+from app.runtime.presence_tracker.llm_adapter import PresenceLLM
+from app.runtime.presence_tracker.interface import PresenceOutputDispatcher
+from app.runtime.presence_tracker.consumers.voice_presence_consumer import LiveKitPresenceConsumer
+from app.runtime.presence_tracker.consumers.application_consumer import (
+    ApplicationPresenceConsumer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +64,33 @@ planner_system_prompt = (
 
 
 emitter = DefaultEmitter()
+
+_llm_instance: LangChainLLM | None = None
+
+
+def _get_llm() -> LangChainLLM:
+
+    global _llm_instance
+
+    if _llm_instance is None:
+
+        _llm_instance = LangChainLLM(
+            model=get_client(),
+        )
+
+    return _llm_instance
+
+
+_presence_llm_instance: PresenceLLM | None = None
+
+
+def _get_presence_llm() -> PresenceLLM:
+    global _presence_llm_instance
+
+    if _presence_llm_instance is None:
+        _presence_llm_instance = PresenceLLM()
+
+    return _presence_llm_instance
 
 
 def _create_callbacks(
@@ -93,29 +127,74 @@ def _create_callbacks(
     ]
 
 
-# ============================================================================
-# SHARED LLM
-# ============================================================================
+async def _presence_callback(
+    text: str,
+    generation: int,
+    *,
+    user_id: str,
+) -> None:
+    if not user_id:
+        return
 
-_llm_instance: LangChainLLM | None = None
+    payload = {
+        "type": "agent.progress",
+        "payload": {
+            "status": 'progress',
+            "message": text,
+        },
+        "user_id": user_id,
+        "event": "agent.progress",
+    }
+
+    await get_event_bus().publish(
+        ApplicationEvent(
+            event="agent.progress",
+            source="agent",
+            delivery=EventDelivery.APP,
+            data=payload,
+        ),
+    )
 
 
-def _get_llm() -> LangChainLLM:
+def _create_presence_tracker_factory(
+    *,
+    user_id: str,
+    vc_session: Any,
+):
+    presence_llm = _get_presence_llm()
 
-    global _llm_instance
+    def factory() -> PresenceTracker:
+        consumers = []
 
-    if _llm_instance is None:
+        if user_id:
+            consumers.append(
+                ApplicationPresenceConsumer(
+                    callback=lambda text, generation: _presence_callback(
+                        text,
+                        generation,
+                        user_id=user_id,
+                    ),
+                )
+            )
 
-        _llm_instance = LangChainLLM(
-            model=get_client(),
+        if vc_session is not None:
+            consumers.append(
+                LiveKitPresenceConsumer(
+                    session=vc_session,
+                )
+            )
+
+        output = PresenceOutputDispatcher(
+            consumers=consumers,
         )
 
-    return _llm_instance
+        return PresenceTracker(
+            llm=presence_llm,
+            output=output,
+        )
 
+    return factory
 
-# ============================================================================
-# TOOL LOGGING
-# ============================================================================
 
 class ToolLoggingMiddleware(AgentMiddleware):
     """
@@ -954,6 +1033,10 @@ class Planner:
             middleware=[
                 ToolLoggingMiddleware(),
             ],
+            presence_tracker_factory=_create_presence_tracker_factory(
+                user_id=self._user_id,
+                vc_session=self._session.get("vc_session"),
+            ),
         )
 
         self._session = agent.create_session(

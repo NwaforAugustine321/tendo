@@ -23,9 +23,6 @@ def get_client(config: dict | None = {}, callbacks=None):
 
 def get_guard_client():
     return ChatNVIDIA(
-        # model="meta/llama-3.1-8b-instruct",
-        # model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
-        # model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         model="nvidia/llama-3.1-nemotron-safety-guard-8b-v3",
         api_key=settings.nvidia_api_key,
         timeout=None,
@@ -95,11 +92,7 @@ def _create_client(config: dict | None = {}, callbacks=None, provider=None):
     elif _provider == "nvidia":
 
         return ChatNVIDIA(
-            # model=settings.nvidia_model,
-            model="nvidia/nemotron-3-super-120b-a12b",
-
-            # model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-            # model="google/gemma-4-31b-it",
+            model=settings.nvidia_model,
             api_key=settings.nvidia_api_key,
             callbacks=cb,
             timeout=None,
@@ -109,8 +102,6 @@ def _create_client(config: dict | None = {}, callbacks=None, provider=None):
             reasoning_budget=150,
             chat_template_kwargs={
                 "enable_thinking": True,
-                # "low_effort":True,
-                # "reasoning_budget":150
             }
 
 

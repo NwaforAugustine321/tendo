@@ -26,8 +26,8 @@ python -m uvicorn app.main:asgi_app --reload
 # kill running app
 kill -9 $(lsof -t -i:8000)
 cloudflared tunnel --protocol quic --url http://localhost:5173
-python3  voice_worker.py dev
-python -m app.livekit.worker dev
+python -m app.voice_agent.worker dev
+
 https://merchandise-ranges-methods-lots.trycloudflare.com/api/integrations/webhook/whatsapp
 ```
 

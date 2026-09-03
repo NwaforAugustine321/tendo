@@ -1,59 +1,91 @@
+
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from app.runtime.context_manager.manager import (
     ContextManager,
 )
+
 from app.runtime.conversation.provider import (
     ConversationProvider,
 )
+
 from app.runtime.events.emitter import (
     Emitter,
 )
+
 from app.runtime.guardrails.manager import (
     GuardrailManager,
 )
+
 from app.runtime.llm.llm import (
     LLM,
 )
+
 from app.runtime.memory.provider import (
     MemoryProvider,
 )
+
 from app.runtime.middlewares.middleware import (
     AgentMiddleware,
     MiddlewareManager,
 )
+
 from app.runtime.prompts.default_template import (
     DefaultPromptTemplate,
 )
+
 from app.runtime.prompts.template import (
     PromptTemplate,
 )
+
 from app.runtime.rag.provider import (
     RAGProvider,
 )
+
 from app.runtime.toolsets.tool_context import (
     ToolContext,
 )
 
-from app.runtime.guardrails.guards.strategies.strategy import PromptLeakageDetectionMode
+from app.runtime.guardrails.guards.strategies.strategy import (
+    PromptLeakageDetectionMode,
+)
+
+from app.runtime.presence_tracker.interface import (
+    PresenceTrackerInterface,
+)
 
 from ..tools.default import (
     create_memory_tool,
     create_rag_tool,
 )
-from app.runtime.guardrails.guards.prompt_leakage_detector import PromptLeakageSafetyGuardrail
-from app.runtime.guardrails.guards.strategies.manual_prompt_leakage_detector import ManualPromptLeakageStrategy
-from app.runtime.guardrails.guards.strategies.semantic_prompt_leakage_detector import SemanticLeakageSearchStrategy
-from app.lib.i18n import _get_i18n
+
+from app.runtime.guardrails.guards.prompt_leakage_detector import (
+    PromptLeakageSafetyGuardrail,
+)
+
+from app.runtime.guardrails.guards.strategies.manual_prompt_leakage_detector import (
+    ManualPromptLeakageStrategy,
+)
+
+from app.runtime.guardrails.guards.strategies.semantic_prompt_leakage_detector import (
+    SemanticLeakageSearchStrategy,
+)
+
+from app.lib.i18n import (
+    _get_i18n,
+)
 
 if TYPE_CHECKING:
+
     from .runner import AgentRunner
+
     from .session import AgentSession
 
 
 class Agent:
+
     """
     Immutable Agent configuration.
 
@@ -70,6 +102,9 @@ class Agent:
     - Middleware
     - Guardrails
     - Tool context
+
+    Presence tracking is supplied through a factory so that
+    each AgentSession can receive its own mutable tracker.
     """
 
     def __init__(
@@ -94,24 +129,54 @@ class Agent:
         enable_runtime_rag: bool | None = False,
         enable_runtime_mem: bool | None = False,
         enable_self_reflection: bool = True,
-        prompt_detector_strategy: PromptLeakageDetectionMode = PromptLeakageDetectionMode.HYBRID
+        prompt_detector_strategy: PromptLeakageDetectionMode = (
+            PromptLeakageDetectionMode.HYBRID
+        ),
+        presence_tracker_factory: Callable[
+            [],
+            PresenceTrackerInterface,
+        ] | None = None,
     ) -> None:
 
         self._name = name
+
         self._description = description
+
         self._instructions = instructions
-        self._enable_self_reflection = enable_self_reflection
-        self._enable_runtime_mem = enable_runtime_mem
-        self._enable_runtime_rag = enable_runtime_rag
-        self._prompt_detector_strategy = prompt_detector_strategy
+
+        self._enable_self_reflection = (
+            enable_self_reflection
+        )
+
+        self._enable_runtime_mem = (
+            enable_runtime_mem
+        )
+
+        self._enable_runtime_rag = (
+            enable_runtime_rag
+        )
+
+        self._prompt_detector_strategy = (
+            prompt_detector_strategy
+        )
+
+        self._presence_tracker_factory = (
+            presence_tracker_factory
+        )
 
         self._llm = llm
 
         self._memory = memory
+
         self._conversation = conversation
+
         self._rag = rag
+
         self._max_iteration = max_iteration
-        self._max_reasoning_step = max_reasoning_step
+
+        self._max_reasoning_step = (
+            max_reasoning_step
+        )
 
         self._i18n = _get_i18n()
 
@@ -139,9 +204,7 @@ class Agent:
                 ),
             )
 
-        #
         # Create ToolContext once.
-        #
 
         self._tool_context = ToolContext.from_tools(
             runtime_tools,
@@ -151,43 +214,54 @@ class Agent:
 
         self._output_type = output_type
 
-        #
         # Prepare the LLM once.
-        #
 
         self._llm.prepare(
             tool_context=self._tool_context,
             output_type=self._output_type,
         )
 
-        self._semantic_leakage_strategy = SemanticLeakageSearchStrategy()
-        self._manual_leakage_strategy = ManualPromptLeakageStrategy()
+        self._semantic_leakage_strategy = (
+            SemanticLeakageSearchStrategy()
+        )
+
+        self._manual_leakage_strategy = (
+            ManualPromptLeakageStrategy()
+        )
 
         self._semantic_leakage_strategy.queue_index(
             [
                 {
-                    "id": 'internl.default',
-                    "content": self._i18n.get('slices.governance_policy'),
-                    "source": 'internal:[default]'
+                    "id": "internl.default",
+                    "content": self._i18n.get(
+                        "slices.governance_policy"
+                    ),
+                    "source": "internal:[default]",
                 },
                 {
                     "id": name,
                     "content": instructions,
-                    "source": f'agent:[{name}]'
+                    "source": f"agent:[{name}]",
                 },
             ]
         )
 
-        self._prompt_guard = PromptLeakageSafetyGuardrail(
-            mode=self._prompt_detector_strategy,
-            manual=self._manual_leakage_strategy,
-            semantic=self._semantic_leakage_strategy
+        self._prompt_guard = (
+            PromptLeakageSafetyGuardrail(
+                mode=self._prompt_detector_strategy,
+                manual=self._manual_leakage_strategy,
+                semantic=self._semantic_leakage_strategy,
+            )
         )
 
         self._guardrails = (
             guardrails
             if guardrails is not None
-            else GuardrailManager(guardrails=[self._prompt_guard])
+            else GuardrailManager(
+                guardrails=[
+                    self._prompt_guard,
+                ]
+            )
         )
 
         self._prompt_template = (
@@ -328,12 +402,14 @@ class Agent:
         Create a runner for the current execution.
 
         Tools are owned by the Agent and ToolContext.
+
         RunContext is supplied only to the execution layer.
         """
 
         from app.runtime.toolsets.executor import (
             ToolExecutor,
         )
+
         from .runner import AgentRunner
 
         return AgentRunner(
@@ -362,6 +438,7 @@ class Agent:
             from app.runtime.toolsets.executor import (
                 ToolExecutor,
             )
+
             from .runner import AgentRunner
 
             self._runner = AgentRunner(
@@ -379,9 +456,20 @@ class Agent:
     ) -> AgentSession:
         """
         Create a new conversation session.
+
+        Each AgentSession receives its own PresenceTracker
+        instance when a tracker factory has been configured.
         """
 
         from .session import AgentSession
+
+        presence_tracker = None
+
+        if self._presence_tracker_factory is not None:
+
+            presence_tracker = (
+                self._presence_tracker_factory()
+            )
 
         return AgentSession(
             agent=self,
@@ -389,5 +477,6 @@ class Agent:
             emitter=emitter,
             max_iteration=self._max_iteration,
             max_reasoning_step=self._max_reasoning_step,
-            i18n=self._i18n
+            i18n=self._i18n,
+            presence_tracker=presence_tracker,
         )
