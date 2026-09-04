@@ -32,6 +32,11 @@ from app.runtime.response_queue.consumers.voice_agent_consumer import (
 from app.runtime.response_queue.consumers.text_agent_consumer import (
     TextAgentResponseConsumer,
 )
+from ..webhooks.contracts import (
+    HOOKS,
+    WebhookEvent,
+    WebhookType
+)
 
 logger = logging.getLogger(__name__)
 
@@ -122,19 +127,17 @@ async def _voice_agent_response_callback(
     session_id: str
 ) -> None:
 
-    if kind == Kind.PRESENCE_STATE:
-        event_type = "voice.presence"
+    print('>>>>dadta>>>', user_id, business_id, session_id, text)
 
-    elif kind == Kind.RESPONSE:
-        event_type = "voice.response"
+    VALID_TYPES = {item.value for item in WebhookType}
 
-    else:
+    if kind not in VALID_TYPES:
         return
 
     await webhook_client.send(
-        hook="voice",
+        hook=HOOKS.VOICE_AGENT,
         event=WebhookEvent(
-            type=event_type,
+            type=kind,
             event_id=f"{session_id}:{sequence}",
             request_id=request_id,
             payload={
@@ -1016,14 +1019,15 @@ class Planner:
             ],
 
             response_consumers=[
-                # TextAgentResponseConsumer(
-                #     callback=lambda text, generation: _presence_callback(
-                #         text,
-                #         generation,
-                #         user_id=self._user_id,
-                #     ),
-                # ),
                 TextAgentResponseConsumer(
+                    callback=lambda text, kind, sequence: _presence_callback(
+                        text=text,
+                        kind=kind,
+                        sequence=sequence,
+                        user_id=self._user_id,
+                    ),
+                ),
+                VoiceAgentResponseConsumer(
                     callback=lambda text, kind, sequence: _voice_agent_response_callback(
                         text=text,
                         sequence=sequence,

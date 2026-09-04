@@ -33,6 +33,7 @@ class TextAgentResponseConsumer(ResponseConsumer):
 
             await self._callback(
                 text,
+                kind,
                 sequence,
             )
 

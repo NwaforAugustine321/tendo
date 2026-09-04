@@ -6,6 +6,10 @@ import logging
 from app.planner.planner import Planner
 from ..client import WebhookClientInterface
 from ..contracts import WebhookEvent
+from ..contracts import (
+    WebhookType,
+    HOOKS
+)
 
 
 logger = logging.getLogger(__name__)
@@ -27,6 +31,7 @@ class VoiceAgentWebHookHandler:
     ) -> None:
 
         payload = event.payload
+        print('my payload webhook >>>', payload)
 
         user_message = payload.get(
             "text",
@@ -80,7 +85,7 @@ class VoiceAgentWebHookHandler:
         payload = event.payload
 
         response_event = WebhookEvent(
-            type="voice.response",
+            type=WebhookType.VOICE_RESPONSE,
             event_id=event.event_id,
             request_id=event.request_id,
             payload={
@@ -101,6 +106,6 @@ class VoiceAgentWebHookHandler:
         )
 
         await self._webhook_client.send(
-            hook="voice.agent",
+            hook=HOOKS.VOICE_AGENT,
             event=response_event,
         )

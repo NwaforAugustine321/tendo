@@ -41,6 +41,10 @@ from app.webhooks.client import (
     WebhookClient,
     WebhookConfig,
 )
+from app.webhooks.contracts import (
+    HOOKS,
+    WebhookType
+)
 from app.webhooks.dispatcher import WebhookDispatcher
 from app.webhooks.handlers.voice_agent_webhook_handler import VoiceAgentWebHookHandler
 
@@ -141,10 +145,10 @@ async def lifespan(
 
     webhook_client = WebhookClient(
         hooks={
-            "voice.agent": WebhookConfig(
-                url="http://localhost:8001/webhooks/webhook",
+            f"{HOOKS.VOICE_AGENT}": WebhookConfig(
+                url=settings.voice_agent_webhook_url,
                 secret=settings.webhook_internal_secret,
-                timeout=60.0,
+                timeout=settings.webhook_default_timeout,
             ),
         },
     )
@@ -155,12 +159,12 @@ async def lifespan(
 
     webhook_dispatcher = WebhookDispatcher(
         handlers={
-            "voice.transcript": (
+            WebhookType.VOICE_TRANSCRIPT: (
                 voice_agent_webhook_handler.handle
             ),
         },
         events={
-            "voice.transcript",
+            WebhookType.VOICE_TRANSCRIPT,
         },
     )
 
@@ -430,7 +434,9 @@ app.include_router(
 )
 
 app.include_router(
+
     webhook_router,
+    prefix="/api"
 )
 
 

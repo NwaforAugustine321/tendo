@@ -16,7 +16,10 @@ class Settings(BaseSettings):
     livekit_api_key: str = ""
     livekit_api_secret: str = ""
 
-    nvidia_api_key: str = ""
+    nvidia_api_key: str
+    webhook_internal_secret: str
+    main_server_webhook_url: str
+    webhook_default_timeout: int = 60.0
 
     model_config = {
         "env_file": ".env",

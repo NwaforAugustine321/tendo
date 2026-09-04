@@ -24,7 +24,7 @@ def configure(
     dispatcher = webhook_dispatcher
 
 
-@router.post("/webhook")
+@router.post("/receiver")
 async def webhook(
     event: WebhookEvent,
 ) -> None:

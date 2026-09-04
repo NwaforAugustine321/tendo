@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     ollama_base_url: str = ""
 
     webhook_internal_secret: str
+    voice_agent_webhook_url: str
+    webhook_default_timeout: int = 60.0
 
     # Msty (local OpenAI-compatible)
     msty_model: str = ""

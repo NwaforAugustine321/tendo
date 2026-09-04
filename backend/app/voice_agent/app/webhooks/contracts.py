@@ -3,13 +3,17 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+from enum import StrEnum, Enum
 
 
-WebhookType = Literal[
-    "voice.transcript",
-    "voice.presence",
-    "voice.response",
-]
+class HOOKS(StrEnum):
+    VOICE_AGENT = "voice.agent"
+
+
+class WebhookType(StrEnum):
+    VOICE_TRANSCRIPT = "voice.transcript"
+    VOICE_PRESENCE = "voice.presence"
+    VOICE_RESPONSE = "voice.response"
 
 
 class WebhookEvent(BaseModel):

@@ -15,6 +15,10 @@ from livekit.agents import (
 
 from ..webhooks.contracts import WebhookEvent
 from ..webhooks.client import WebhookClientInterface
+from ..webhooks.contracts import (
+    WebhookType,
+    HOOKS
+)
 
 
 logger = logging.getLogger(__name__)
@@ -27,10 +31,16 @@ class VoiceSessionHandlers:
         *,
         webhook_client: WebhookClientInterface,
         session_id: str,
+        user_id=str,
+        business_id=str,
+        room_name=str
     ) -> None:
 
         self._webhook_client = webhook_client
         self._session_id = session_id
+        self._user_id = user_id
+        self._business_id = business_id
+        self._room_name = room_name
 
     def register(
         self,
@@ -52,12 +62,15 @@ class VoiceSessionHandlers:
                 return
 
             webhook_event = WebhookEvent(
-                type="voice.transcript",
+                type=WebhookType.VOICE_TRANSCRIPT,
                 event_id=str(uuid4()),
                 request_id=str(uuid4()),
                 payload={
                     "session_id": self._session_id,
                     "text": transcript,
+                    "user_id": self._user_id,
+                    "business_id": self._business_id,
+                    "room_name": self._room_name,
                 },
             )
 
@@ -163,7 +176,7 @@ class VoiceSessionHandlers:
         try:
 
             await self._webhook_client.send(
-                hook="main_app",
+                hook=HOOKS.VOICE_AGENT,
                 event=event,
             )
 

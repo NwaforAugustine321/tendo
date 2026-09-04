@@ -1,8 +1,6 @@
-
 from __future__ import annotations
 
 import asyncio
-
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -14,6 +12,7 @@ from app.api.routes.webhook import (
 )
 from app.api.routes.webhook import router as webhook_router
 from app.agent.worker import server
+from app.webhooks.contracts import WebhookType
 from app.webhooks.dispatcher import WebhookDispatcher
 from app.webhooks.transports.voice_transport import (
     LiveKitWebhookTransport,
@@ -24,12 +23,12 @@ livekit_transport = LiveKitWebhookTransport()
 
 webhook_dispatcher = WebhookDispatcher(
     handlers={
-        "voice.presence": livekit_transport.send,
-        "voice.response": livekit_transport.send,
+        WebhookType.VOICE_PRESENCE: livekit_transport.send,
+        WebhookType.VOICE_RESPONSE: livekit_transport.send,
     },
     events={
-        "voice.presence",
-        "voice.response",
+        WebhookType.VOICE_PRESENCE,
+        WebhookType.VOICE_RESPONSE,
     },
 )
 
@@ -46,14 +45,49 @@ async def lifespan(
 
     agent_task = asyncio.create_task(
         server.run(),
+        name="livekit-agent-server",
     )
 
     try:
         yield
+
     finally:
-        server.shutdown()
-        await agent_task
-        await livekit_transport.close()
+        try:
+            try:
+                await asyncio.wait_for(
+                    server.drain(),
+                    timeout=5.0,
+                )
+            except asyncio.TimeoutError:
+                pass
+            except Exception:
+                pass
+
+            try:
+                await server.aclose()
+            except Exception:
+                pass
+
+            if not agent_task.done():
+                try:
+                    await asyncio.wait_for(
+                        agent_task,
+                        timeout=5.0,
+                    )
+                except asyncio.TimeoutError:
+                    agent_task.cancel()
+
+                    try:
+                        await agent_task
+                    except asyncio.CancelledError:
+                        pass
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    pass
+
+        finally:
+            await livekit_transport.close()
 
 
 app = FastAPI(
@@ -73,14 +107,16 @@ app.add_middleware(
 
 app.include_router(
     router,
+    prefix="/api",
 )
 
 app.include_router(
     webhook_router,
+    prefix="/api",
 )
 
 
-@app.get("/health")
+@app.get("/api/health")
 async def health() -> dict[str, str]:
     return {
         "status": "ok",

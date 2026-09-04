@@ -3,7 +3,7 @@ import { request } from "../services/http";
 import type { VoiceInitResponse, VoiceSessionStatus } from "./types";
 
 const VOICE_AGENT_API_URL =
-  import.meta.env.VITE_VOICE_AGENT_URL ?? "http://localhost:8001";
+  import.meta.env.VITE_VOICE_AGENT_URL ?? "http://localhost:8001/api";
 
 export async function initAgent(
   businessId: string,

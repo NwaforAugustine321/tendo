@@ -235,6 +235,9 @@ class VoiceSessionService:
         handlers = VoiceSessionHandlers(
             webhook_client=self._webhook_client,
             session_id=data.session_id,
+            user_id=data.user_id,
+            business_id=data.business_id,
+            oom_name=data.room_name
         )
 
         handlers.register(session)

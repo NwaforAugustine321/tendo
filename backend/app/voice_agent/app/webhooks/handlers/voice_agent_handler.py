@@ -4,6 +4,10 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from ...webhooks.contracts import WebhookEvent
+from ...webhooks.contracts import (
+    WebhookType,
+    HOOKS
+)
 
 
 logger = logging.getLogger(__name__)
@@ -24,16 +28,12 @@ class VoiceCommandHandlers:
         event: WebhookEvent,
     ) -> None:
 
+        print('handler doing it thing >>>', event)
+
         if event.type not in {
-            "voice.presence",
-            "voice.response",
+            WebhookType.VOICE_PRESENCE,
+            WebhookType.VOICE_RESPONSE,
         }:
-            logger.warning(
-                "[VoiceCommandHandlers] Unsupported event type: "
-                "event_id=%s type=%s",
-                event.event_id,
-                event.type,
-            )
             return
 
         text = event.payload.get("text")

@@ -61,6 +61,8 @@ class VoiceCommandReceiver:
         data: rtc.DataPacket,
     ) -> None:
 
+        print('command receiver doing it thing >>>',  data)
+
         try:
 
             event = WebhookEvent.model_validate_json(

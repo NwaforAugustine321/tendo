@@ -15,6 +15,11 @@ from ..config import settings
 from ..webhooks.client import (
     WebhookClient, WebhookConfig
 )
+from ..webhooks.contracts import (
+    WebhookType,
+    HOOKS
+)
+
 
 from .commands import VoiceCommandReceiver
 from .metadata import VoiceSessionMetadataParser
@@ -172,10 +177,10 @@ async def tendo_session(
 
     webhook_client = WebhookClient(
         hooks={
-            "voice": WebhookConfig(
-                url="http://localhost:8000/webhooks/webhook",
-                secret="your-webhook-secret",
-                timeout=30.0,
+            HOOKS.VOICE_AGENT: WebhookConfig(
+                url=settings.main_server_webhook_url,
+                secret=settings.webhook_internal_secret,
+                timeout=settings.webhook_default_timeout
             ),
         },
     )
