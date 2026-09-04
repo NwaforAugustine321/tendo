@@ -13,13 +13,13 @@ from app.config.settings import settings
 from app.lib.auth_dependency import get_current_user
 from app.services.voice import voice_service
 
-router = APIRouter()
+router = APIRouter(prefix="/voice")
 
 logger = logging.getLogger(__name__)
 
 
 @router.post(
-    "/voice/init/agent",
+    "/init/agent",
 )
 async def start_voice_agent(
     request: Request,

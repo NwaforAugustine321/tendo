@@ -2,7 +2,7 @@
  * Voice client — mic capture, audio playback, and voice protocol.
  */
 
-import { WSClient } from "./ws";
+import { WSClient } from "../ws";
 
 type VoiceCallbacks = {
   onTranscript: (text: string) => void;

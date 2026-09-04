@@ -1,30 +1,45 @@
 import { Calendar, StickyNote, Mic, MicOff } from "lucide-react";
-import { useVoiceStore } from "../../store/voice";
+
+import { useVoiceAgentStore } from "../../lib/voice-agent/store";
+
 import { SpeakingIndicator } from "../SpeakingIndicator";
 
-/**
- * Right sidebar rail — thin vertical strip with icon buttons.
- * The mic icon starts voice communication with Tendo.
- */
-
 const RAIL_ITEMS = [
-  { id: "calendar", icon: <Calendar size={18} />, label: "Calendar" },
-  { id: "notes", icon: <StickyNote size={18} />, label: "Notes" },
+  {
+    id: "calendar",
+    icon: <Calendar size={18} />,
+    label: "Calendar",
+  },
+  {
+    id: "notes",
+    icon: <StickyNote size={18} />,
+    label: "Notes",
+  },
 ];
 
 export function RightRail() {
-  const { connectionState, micActive, agentSpeaking, statusText, toggleMic } =
-    useVoiceStore();
+  const {
+    connectionState,
+    micActive,
+    agentSpeaking,
+    statusText,
+    startAgent,
+    stopMic,
+  } = useVoiceAgentStore();
 
   const isActive = micActive || agentSpeaking;
 
   const handleMicClick = async () => {
-    await toggleMic();
+    if (micActive) {
+      stopMic();
+      return;
+    }
+
+    await startAgent();
   };
 
-  // When speaking: show speaking text. When listening: show listening.
-  // Only show progress statusText during processing (not speaking/listening).
   let displayStatus = "";
+
   if (agentSpeaking) {
     displayStatus = "Tendo is speaking...";
   } else if (statusText) {
@@ -33,9 +48,15 @@ export function RightRail() {
     displayStatus = "Listening...";
   }
 
+  const micDisabled =
+    connectionState === "disconnected" ||
+    connectionState === "initializing" ||
+    connectionState === "connecting" ||
+    connectionState === "waiting_for_agent" ||
+    connectionState === "error";
+
   return (
     <>
-      {/* Speaking indicator — top right when voice is active */}
       <SpeakingIndicator
         active={isActive}
         speaking={agentSpeaking}
@@ -43,7 +64,7 @@ export function RightRail() {
       />
 
       <aside
-        className="hidden md:flex h-full w-[52px] flex-col items-center border-l border-zinc-800/60 bg-[#0f0f0f] py-3 gap-2"
+        className="hidden h-full w-[52px] flex-col items-center gap-2 border-l border-zinc-800/60 bg-[#0f0f0f] py-3 md:flex"
         aria-label="Side panel"
       >
         {RAIL_ITEMS.map((item) => (
@@ -58,18 +79,17 @@ export function RightRail() {
           </button>
         ))}
 
-        {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Mic button — toggles voice communication */}
         <button
           type="button"
           onClick={handleMicClick}
+          disabled={micDisabled}
           className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
             micActive
               ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
               : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
-          }`}
+          } ${micDisabled ? "cursor-not-allowed opacity-40" : ""}`}
           aria-label={
             micActive
               ? "Stop voice communication"

@@ -6,11 +6,13 @@ type RequestOptions = {
   method?: string;
   body?: unknown;
   headers?: Record<string, string>;
-  silent?: boolean; // Don't show toast on error
+  silent?: boolean;
+  baseUrl?: string;
 };
 
 export class ApiError extends Error {
   status: number;
+
   constructor(message: string, status: number) {
     super(message);
     this.status = status;
@@ -21,10 +23,18 @@ export async function request<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const { method = "GET", body, headers = {}, silent = false } = options;
+  const {
+    method = "GET",
+    body,
+    headers = {},
+    silent = false,
+    baseUrl = BASE_URL,
+  } = options;
+
+  const url = path.startsWith("http") ? path : `${baseUrl}${path}`;
 
   try {
-    const res = await fetch(`${BASE_URL}${path}`, {
+    const res = await fetch(url, {
       method,
       credentials: "include",
       headers: {
@@ -35,31 +45,44 @@ export async function request<T>(
     });
 
     if (!res.ok) {
-      // Auto-logout on 401 (token expired) — skip auth and voice endpoints
       if (
         res.status === 401 &&
         !path.includes("/auth/") &&
         !path.includes("/voice/")
       ) {
         const { useAuthStore } = await import("../../store/auth");
+
         useAuthStore.getState().clear();
         window.location.href = "/login";
+
         throw new ApiError("Session expired", 401);
       }
 
       const data = await res
         .json()
         .catch(() => ({ message: "Something went wrong" }));
+
       const message = data.message || data.detail || "Something went wrong";
-      if (!silent) toast.error(message);
+
+      if (!silent) {
+        toast.error(message);
+      }
+
       throw new ApiError(message, res.status);
     }
 
     return res.json();
   } catch (err) {
-    if (err instanceof ApiError) throw err;
+    if (err instanceof ApiError) {
+      throw err;
+    }
+
     const message = "Could not connect to server";
-    if (!silent) toast.error(message);
+
+    if (!silent) {
+      toast.error(message);
+    }
+
     throw new ApiError(message, 0);
   }
 }
