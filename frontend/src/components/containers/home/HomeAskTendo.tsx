@@ -19,7 +19,6 @@ export function HomeAskTendo() {
   const { presence, clear: clearPresence } = useAgentSessionStatus([
     "voice.presence",
     "text.presence",
-    "message",
   ]);
 
   const micActive = useVoiceAgentStore((state) => state.micActive);

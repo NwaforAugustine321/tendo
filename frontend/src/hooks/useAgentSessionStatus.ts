@@ -67,14 +67,8 @@ export function useAgentSessionStatus(
     }
 
     let nextPresence = presence;
-    let shouldReset = false;
 
     for (const event of newEvents) {
-      if (event.event === "message") {
-        shouldReset = true;
-        continue;
-      }
-
       const type = getEventType(event);
 
       if (type !== "voice.presence" && type !== "text.presence") {
@@ -94,6 +88,7 @@ export function useAgentSessionStatus(
           text,
           event: type,
         };
+
         continue;
       }
 
@@ -102,6 +97,7 @@ export function useAgentSessionStatus(
           text,
           event: type,
         };
+
         continue;
       }
 
@@ -111,20 +107,12 @@ export function useAgentSessionStatus(
       };
     }
 
-    if (shouldReset) {
-      setPresence({
-        text: "",
-        event: null,
-      });
-    } else if (
-      nextPresence.text !== presence.text ||
-      nextPresence.event !== presence.event
-    ) {
+    if (nextPresence !== presence) {
       setPresence(nextPresence);
     }
 
     processedCountRef.current = receivedEvents.length;
-  }, [receivedEvents, presence]);
+  }, [receivedEvents]);
 
   const clear = () => {
     setPresence({
@@ -140,11 +128,7 @@ export function useAgentSessionStatus(
   const clearEvent = (eventName: string) => {
     clearReceivedEvent(eventName);
 
-    if (
-      eventName === "voice.presence" ||
-      eventName === "text.presence" ||
-      eventName === "message"
-    ) {
+    if (eventName === "voice.presence" || eventName === "text.presence") {
       setPresence({
         text: "",
         event: null,

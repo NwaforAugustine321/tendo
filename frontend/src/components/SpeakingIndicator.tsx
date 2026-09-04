@@ -13,7 +13,6 @@ export function SpeakingIndicator({ active }: Props) {
   const { presence, clear } = useAgentSessionStatus([
     "voice.presence",
     "text.presence",
-    "message",
   ]);
 
   const [pos, setPos] = useState({ x: 0, y: 0 });
