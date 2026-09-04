@@ -28,8 +28,6 @@ class VoiceCommandHandlers:
         event: WebhookEvent,
     ) -> None:
 
-        print('handler doing it thing >>>', event)
-
         if event.type not in {
             WebhookType.VOICE_PRESENCE,
             WebhookType.VOICE_RESPONSE,

@@ -49,14 +49,6 @@ class VoiceCommandReceiver:
             data: rtc.DataPacket,
         ) -> None:
 
-            print(
-                "topic>>>",
-                self._TOPIC,
-                "data>>>",
-                data,
-                flush=True,
-            )
-
             if data.topic != self._TOPIC:
                 return
 
@@ -64,15 +56,12 @@ class VoiceCommandReceiver:
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
-        print('register successfully here>>>', flush=True)
         self._registered = True
 
     async def _handle(
         self,
         data: rtc.DataPacket,
     ) -> None:
-
-        print('command receiver doing it thing >>>',  data)
 
         try:
 

@@ -37,6 +37,9 @@ from ..webhooks.contracts import (
     WebhookEvent,
     WebhookType
 )
+from ..webhooks.factory import get_webhook_client
+
+from ..runtime.response_queue.interface import Kind
 
 logger = logging.getLogger(__name__)
 
@@ -128,17 +131,23 @@ async def _voice_agent_response_callback(
     agent_identity: str
 ) -> None:
 
-    VALID_TYPES = {item.value for item in WebhookType}
+    if kind == Kind.RESPONSE.value:
+        event_type = WebhookType.VOICE_RESPONSE
 
-    if kind not in VALID_TYPES:
+    elif kind == Kind.PRESENCE_STATE:
+        event_type = WebhookType.VOICE_PRESENCE
+
+    else:
         return
+
     room_name = f"tendo-{business_id}"
-    await webhook_client.send(
+
+    await get_webhook_client().send(
         hook=HOOKS.VOICE_AGENT,
         event=WebhookEvent(
-            type=kind,
+            type=event_type,
             event_id=f"{session_id}:{sequence}",
-            request_id=request_id,
+            request_id=f"{session_id}",
             payload={
                 "room": room_name,
                 "business_id": business_id,

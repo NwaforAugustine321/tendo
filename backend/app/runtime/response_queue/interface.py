@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Protocol
-from enum import Enum
+from enum import Enum, StrEnum
 
 
 class ResponseConsumer(Protocol):
@@ -41,7 +41,7 @@ class ResponseQueueInterface(Protocol):
         ...
 
 
-class Kind(str, Enum):
+class Kind(StrEnum):
     RESPONSE = "response"
 
     PRESENCE_STATE = "presence_state"

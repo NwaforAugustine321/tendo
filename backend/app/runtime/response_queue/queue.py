@@ -70,7 +70,6 @@ class ResponseQueue(ResponseQueueInterface):
             kind=kind,
         )
 
-        # A real response always supersedes Presence state.
         if kind == Kind.RESPONSE:
             await self._interrupt_presence()
 
@@ -86,13 +85,6 @@ class ResponseQueue(ResponseQueueInterface):
         text: str,
         generation: int,
     ) -> None:
-        """
-        PresenceOutput-compatible delivery method.
-
-        PresenceTracker does not need to know that this object
-        is a ResponseQueue. It only needs the generic deliver()
-        contract.
-        """
         await self.submit(
             text=text,
             kind=Kind.PRESENCE_STATE,

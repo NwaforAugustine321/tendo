@@ -36,7 +36,7 @@ from app.routes.webhooks import (
 from app.routes.webhooks import (
     configure as configure_webhook,
 )
-
+from app.webhooks.factory import get_webhook_client
 from app.webhooks.client import (
     WebhookClient,
     WebhookConfig,
@@ -142,16 +142,7 @@ async def lifespan(
     # ------------------------------------------------------------------------
     # Webhook System
     # ------------------------------------------------------------------------
-
-    webhook_client = WebhookClient(
-        hooks={
-            f"{HOOKS.VOICE_AGENT}": WebhookConfig(
-                url=settings.voice_agent_webhook_url,
-                secret=settings.webhook_internal_secret,
-                timeout=settings.webhook_default_timeout,
-            ),
-        },
-    )
+    webhook_client = get_webhook_client()
 
     voice_agent_webhook_handler = VoiceAgentWebHookHandler(
         webhook_client=webhook_client,

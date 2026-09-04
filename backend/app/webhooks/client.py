@@ -73,7 +73,6 @@ class WebhookClient(WebhookClientInterface):
                 f"Webhook send hook is not configured: {hook}"
             )
 
-        print('event sending....', event)
         response = await self._client.post(
             webhook.url,
             json=event.model_dump(mode="json"),
