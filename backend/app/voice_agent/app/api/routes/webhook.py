@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from ...webhooks.contracts import WebhookEvent
+from app.webhooks.contracts import WebhookEvent
 from app.webhooks.dispatcher import WebhookDispatcher
 
 

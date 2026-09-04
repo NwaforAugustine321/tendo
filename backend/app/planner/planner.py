@@ -113,6 +113,41 @@ def _create_callbacks(
     ]
 
 
+async def _voice_agent_response_callback(
+    text: str,
+    kind: str,
+    sequence: int,
+    business_id: str,
+    user_id: str,
+    session_id: str
+) -> None:
+
+    if kind == Kind.PRESENCE_STATE:
+        event_type = "voice.presence"
+
+    elif kind == Kind.RESPONSE:
+        event_type = "voice.response"
+
+    else:
+        return
+
+    await webhook_client.send(
+        hook="voice",
+        event=WebhookEvent(
+            type=event_type,
+            event_id=f"{session_id}:{sequence}",
+            request_id=request_id,
+            payload={
+                "room_name": room_name,
+                "business_id": business_id,
+                "session_id": session_id,
+                "user_id": user_id,
+                "text": text,
+            },
+        ),
+    )
+
+
 async def _presence_callback(
     text: str,
     generation: int,
@@ -140,47 +175,6 @@ async def _presence_callback(
             data=payload,
         ),
     )
-
-
-# def _create_presence_tracker_factory(
-#     *,
-#     user_id: str,
-#     session: Any,
-# ):
-#     presence_llm = _get_presence_llm()
-
-#     def factory() -> PresenceTracker:
-#         consumers = []
-
-#         if user_id:
-#             consumers.append(
-#                 ApplicationPresenceConsumer(
-#                     callback=lambda text, generation: _presence_callback(
-#                         text,
-#                         generation,
-#                         user_id=user_id,
-#                     ),
-#                 )
-
-#             )
-
-#         if session is not None:
-#             consumers.append(
-#                 LiveKitPresenceConsumer(
-#                     session=session,
-#                 )
-#             )
-
-#         output = PresenceOutputDispatcher(
-#             consumers=consumers,
-#         )
-
-#         return PresenceTracker(
-#             llm=presence_llm,
-#             output=output,
-#         )
-
-#     return factory
 
 
 class ToolLoggingMiddleware(AgentMiddleware):
@@ -1022,17 +1016,27 @@ class Planner:
             ],
 
             response_consumers=[
+                # TextAgentResponseConsumer(
+                #     callback=lambda text, generation: _presence_callback(
+                #         text,
+                #         generation,
+                #         user_id=self._user_id,
+                #     ),
+                # ),
                 TextAgentResponseConsumer(
-                    callback=lambda text, generation: _presence_callback(
-                        text,
-                        generation,
+                    callback=lambda text, kind, sequence: _voice_agent_response_callback(
+                        text=text,
+                        sequence=sequence,
+                        kind=kind,
                         user_id=self._user_id,
+                        business_id=self._business_id,
+                        session_id=self._session_id,
                     ),
                 ),
 
-                VoiceAgentResponseConsumer(
-                    session=self._session.get("vc_session"),
-                )
+                # VoiceAgentResponseConsumer(
+                #     callback=_voice_response_callback,
+                # )
             ]
         )
 

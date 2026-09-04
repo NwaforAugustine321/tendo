@@ -12,7 +12,9 @@ from livekit.agents import (
 )
 
 from ..config import settings
-from ..webhooks.client import WebhookClient
+from ..webhooks.client import (
+    WebhookClient, WebhookConfig
+)
 
 from .commands import VoiceCommandReceiver
 from .metadata import VoiceSessionMetadataParser
@@ -168,7 +170,15 @@ async def tendo_session(
 
     stt, tts = resources.get()
 
-    webhook_client = WebhookClient()
+    webhook_client = WebhookClient(
+        hooks={
+            "voice": WebhookConfig(
+                url="http://localhost:8000/webhooks/webhook",
+                secret="your-webhook-secret",
+                timeout=30.0,
+            ),
+        },
+    )
 
     session_service = VoiceSessionService(
         stt=stt,

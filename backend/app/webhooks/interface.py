@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from app.contracts import WebhookEvent
+from .contracts import WebhookEvent
 
 
 class WebhookClientInterface(ABC):

@@ -2,8 +2,6 @@
 
 from pydantic_settings import BaseSettings
 
-from app.webhooks.settings import WebhookSettings
-
 
 class Settings(BaseSettings):
     supabase_url: str
@@ -19,12 +17,6 @@ class Settings(BaseSettings):
     livekit_api_secret: str = ""
 
     nvidia_api_key: str = ""
-
-    webhook: WebhookSettings = WebhookSettings(
-        secret="",
-        send_hooks={},
-        receive_hooks={},
-    )
 
     model_config = {
         "env_file": ".env",

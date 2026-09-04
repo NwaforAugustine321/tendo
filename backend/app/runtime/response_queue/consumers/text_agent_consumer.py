@@ -30,7 +30,7 @@ class TextAgentResponseConsumer(ResponseConsumer):
     ) -> None:
 
         if kind == Kind.PRESENCE_STATE:
-            print('text respond >>>', text)
+
             await self._callback(
                 text,
                 sequence,

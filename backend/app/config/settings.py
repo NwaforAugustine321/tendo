@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     ollama_model: str = ""
     ollama_base_url: str = ""
 
+    webhook_internal_secret: str
+
     # Msty (local OpenAI-compatible)
     msty_model: str = ""
     msty_base_url: str = ""

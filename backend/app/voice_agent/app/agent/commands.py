@@ -10,7 +10,7 @@ from livekit import rtc
 
 from ..webhooks.contracts import WebhookEvent
 
-from ..webhooks.handlers.voice import VoiceCommandHandlers
+from ..webhooks.handlers.voice_agent_handler import VoiceCommandHandlers
 
 
 logger = logging.getLogger(__name__)

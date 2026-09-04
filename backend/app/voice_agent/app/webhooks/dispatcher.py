@@ -4,7 +4,6 @@ from __future__ import annotations
 from collections.abc import Awaitable
 from typing import Protocol
 
-from app.config.settings import settings
 from .contracts import WebhookEvent
 
 
@@ -23,16 +22,11 @@ class WebhookDispatcher:
         self,
         *,
         handlers: dict[str, WebhookHandler],
+        events: set[str],
     ) -> None:
 
         self._handlers = handlers
-
-        self._events = set().union(
-            *(
-                hook.events
-                for hook in settings.webhook.receive_hooks.values()
-            )
-        )
+        self._events = events
 
     async def dispatch(
         self,

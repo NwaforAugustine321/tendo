@@ -1,40 +1,53 @@
+
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 
 import httpx
 
-from ..config.settings import settings
 from .contracts import WebhookEvent
-
 from .interface import WebhookClientInterface
 
 
 logger = logging.getLogger(__name__)
 
 
+class WebhookConfig:
+
+    def __init__(
+        self,
+        *,
+        url: str,
+        secret: str,
+        timeout: float = 30.0,
+    ) -> None:
+
+        self.url = url
+        self.secret = secret
+        self.timeout = timeout
+
+
 class WebhookClient(WebhookClientInterface):
 
-    def __init__(self) -> None:
-        self._hooks = settings.webhook.send_hooks
-        self._secret = settings.webhook.secret
-        self._timeout = settings.webhook.timeout
+    def __init__(
+        self,
+        *,
+        hooks: Mapping[str, WebhookConfig],
+    ) -> None:
+
+        self._hooks = hooks
         self._client: httpx.AsyncClient | None = None
 
     async def start(self) -> None:
+
         if self._client is not None:
             return
 
-        self._client = httpx.AsyncClient(
-            timeout=self._timeout,
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "X-Webhook-Secret": self._secret,
-            },
-        )
+        self._client = httpx.AsyncClient()
 
     async def close(self) -> None:
+
         if self._client is None:
             return
 
@@ -47,6 +60,7 @@ class WebhookClient(WebhookClientInterface):
         hook: str,
         event: WebhookEvent,
     ) -> None:
+
         if self._client is None:
             raise RuntimeError(
                 "WebhookClient has not been started."
@@ -59,15 +73,15 @@ class WebhookClient(WebhookClientInterface):
                 f"Webhook send hook is not configured: {hook}"
             )
 
-        if event.type not in webhook.events:
-            raise ValueError(
-                f"Webhook event '{event.type}' is not registered "
-                f"for send hook '{hook}'."
-            )
-
         response = await self._client.post(
             webhook.url,
             json=event.model_dump(mode="json"),
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "X-Webhook-Secret": webhook.secret,
+            },
+            timeout=webhook.timeout,
         )
 
         response.raise_for_status()

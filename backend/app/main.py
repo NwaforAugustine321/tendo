@@ -1,4 +1,3 @@
-"""Application entrypoint."""
 
 from __future__ import annotations
 
@@ -31,6 +30,19 @@ from app.routes.snapshot import router as snapshot_router
 from app.routes.snaps import router as snaps_router
 from app.routes.upload import router as upload_router
 from app.routes.voice import router as voice_router
+from app.routes.webhooks import (
+    router as webhook_router,
+)
+from app.routes.webhooks import (
+    configure as configure_webhook,
+)
+
+from app.webhooks.client import (
+    WebhookClient,
+    WebhookConfig,
+)
+from app.webhooks.dispatcher import WebhookDispatcher
+from app.webhooks.handlers.voice_agent_webhook_handler import VoiceAgentWebHookHandler
 
 import app.communication.ws.chat_handler
 
@@ -124,12 +136,47 @@ async def lifespan(
     )
 
     # ------------------------------------------------------------------------
+    # Webhook System
+    # ------------------------------------------------------------------------
+
+    webhook_client = WebhookClient(
+        hooks={
+            "voice.agent": WebhookConfig(
+                url="http://localhost:8001/webhooks/webhook",
+                secret=settings.webhook_internal_secret,
+                timeout=60.0,
+            ),
+        },
+    )
+
+    voice_agent_webhook_handler = VoiceAgentWebHookHandler(
+        webhook_client=webhook_client,
+    )
+
+    webhook_dispatcher = WebhookDispatcher(
+        handlers={
+            "voice.transcript": (
+                voice_agent_webhook_handler.handle
+            ),
+        },
+        events={
+            "voice.transcript",
+        },
+    )
+
+    configure_webhook(
+        webhook_dispatcher=webhook_dispatcher,
+    )
+
+    # ------------------------------------------------------------------------
     # Background Job System
     # ------------------------------------------------------------------------
 
     background_job_system = None
 
     try:
+
+        await webhook_client.start()
 
         background_job_system = (
             create_background_job_system()
@@ -170,6 +217,18 @@ async def lifespan(
 
         app.state.event_manager = (
             event_manager
+        )
+
+        app.state.webhook_client = (
+            webhook_client
+        )
+
+        app.state.webhook_dispatcher = (
+            webhook_dispatcher
+        )
+
+        app.state.voice_agent_handler = (
+            voice_agent_webhook_handler
         )
 
         app.state.background_job_system = (
@@ -256,6 +315,20 @@ async def lifespan(
                 logger.exception(
                     "Failed to stop background job system.",
                 )
+
+        # --------------------------------------------------------------------
+        # Close Webhook Client
+        # --------------------------------------------------------------------
+
+        try:
+
+            await webhook_client.close()
+
+        except Exception:
+
+            logger.exception(
+                "Failed to close webhook client.",
+            )
 
         # --------------------------------------------------------------------
         # Close EventBus
@@ -354,6 +427,10 @@ app.include_router(
 app.include_router(
     voice_router,
     prefix="/api",
+)
+
+app.include_router(
+    webhook_router,
 )
 
 

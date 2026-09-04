@@ -758,13 +758,6 @@ class AgentRunner:
             if run_context.presence_tracker is not None:
                 run_context.presence_tracker.stop()
 
-            await run_context.emitter.emit(
-                EventType.PROGRESS,
-                StatusEvent(
-                    status=Status.COMPLETED,
-                ),
-            )
-
             await run_context.middleware.dispatch(
                 MiddlewareEvent.AFTER_RUN,
                 run_context,
@@ -790,53 +783,6 @@ class AgentRunner:
                     logger.exception(
                         "Memory reflection failed.",
                     )
-
-    # def _presence_state(
-    #     self,
-    #     *,
-    #     run_context: RunContext,
-    #     status: StatusEvent,
-    #     iteration: int = 0,
-    # ) -> None:
-
-    #     _status = status.status
-
-    #     tracker = run_context.presence_tracker
-
-    #     if tracker is None:
-    #         return
-
-    #     state = tracker.state
-
-    #     if state is None:
-    #         return
-
-    #     state.status = _status.value
-    #     state.stage = _status.value
-    #     state.iteration = iteration
-
-    #     tracker.notify_state_event(
-    #         state=state.snapshot(),
-    #     )
-
-    # async def _emit_progress(
-    #     self,
-    #     *,
-    #     run_context: RunContext,
-    #     event: StatusEvent,
-    #     iteration: int = 0,
-    # ) -> None:
-
-    #     # await run_context.emitter.emit(
-    #     #     EventType.PROGRESS,
-    #     #     event,
-    #     # )
-
-    #     self._notify_presence_state(
-    #         run_context=run_context,
-    #         status=event.status,
-    #         iteration=iteration,
-    #     )
 
     async def _execute_tools(
         self,
