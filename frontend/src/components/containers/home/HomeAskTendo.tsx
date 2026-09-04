@@ -1,86 +1,81 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, LoaderCircle } from "lucide-react";
+
 import { useAgentSessionStatus } from "../../../hooks/useAgentSessionStatus";
 import { useVoiceAgentStore } from "../../../lib/voice-agent/store";
 import { useWorkspaceStore } from "../../../store/workspace";
 
-const BOTTOM_FOLLOW_THRESHOLD = 80;
-
 type InteractionMode = "text" | "voice";
-
-function getPresenceText(event: {
-  event: string;
-  data: Record<string, unknown>;
-}): string {
-  const data = event.data;
-
-  if (data?.type !== "voice.presence" && data?.type !== "text.presence") {
-    return "";
-  }
-
-  const payload = data.payload;
-
-  if (!payload || typeof payload !== "object") {
-    return "";
-  }
-
-  const message = (payload as Record<string, unknown>).message;
-
-  return typeof message === "string" ? message.trim() : "";
-}
 
 export function HomeAskTendo() {
   const [value, setValue] = useState("");
   const [interactionMode, setInteractionMode] =
     useState<InteractionMode>("text");
-  const [textRequestActive, setTextRequestActive] = useState(false);
+  const [initializing, setInitializing] = useState(false);
 
-  const wasTypingRef = useRef(false);
+  const wasSpeakingRef = useRef(false);
   const wasMicActiveRef = useRef(false);
 
-  const { events: presenceEvents, clear: clearPresence } =
-    useAgentSessionStatus(["voice.presence", "text.presence"]);
+  const { presence, clear: clearPresence } = useAgentSessionStatus([
+    "voice.presence",
+    "text.presence",
+    "message",
+  ]);
 
   const micActive = useVoiceAgentStore((state) => state.micActive);
-
   const agentSpeaking = useVoiceAgentStore((state) => state.agentSpeaking);
-
   const micLoading = useVoiceAgentStore((state: any) => state.micLoading);
-
   const stopMic = useVoiceAgentStore((state) => state.stopMic);
 
-  let latestPresence = "";
+  const latestPresence = presence.text;
 
-  for (let index = presenceEvents.length - 1; index >= 0; index -= 1) {
-    const text = getPresenceText(presenceEvents[index]);
-
-    if (text) {
-      latestPresence = text;
-      break;
-    }
-  }
-
+  /*
+   * A new presence replaces the initial
+   * Reasoning... state.
+   */
   useEffect(() => {
-    if (wasTypingRef.current && !latestPresence) {
-      setTextRequestActive(false);
+    if (latestPresence) {
+      setInitializing(false);
     }
-
-    wasTypingRef.current = Boolean(latestPresence);
   }, [latestPresence]);
 
+  /*
+   * When speaking finishes, the current
+   * response is complete.
+   *
+   * Clear the response status. If voice is
+   * still active, the status falls back to
+   * Listening...
+   */
+  useEffect(() => {
+    if (wasSpeakingRef.current && !agentSpeaking) {
+      clearPresence();
+      setInitializing(false);
+    }
+
+    wasSpeakingRef.current = agentSpeaking;
+  }, [agentSpeaking, clearPresence]);
+
+  /*
+   * Voice lifecycle.
+   *
+   * Activating the microphone means the user
+   * is ready to speak, so the status is
+   * Listening..., not Reasoning....
+   */
   useEffect(() => {
     const wasMicActive = wasMicActiveRef.current;
 
     if (!wasMicActive && micActive) {
-      setTextRequestActive(false);
       clearPresence();
       setInteractionMode("voice");
+      setInitializing(false);
     }
 
     if (wasMicActive && !micActive) {
-      setTextRequestActive(false);
       clearPresence();
       setInteractionMode("text");
+      setInitializing(false);
     }
 
     wasMicActiveRef.current = micActive;
@@ -96,7 +91,7 @@ export function HomeAskTendo() {
     clearPresence();
 
     setInteractionMode("text");
-    setTextRequestActive(true);
+    setInitializing(true);
     setValue("");
 
     useWorkspaceStore.getState().setPendingChatMessage(message);
@@ -104,28 +99,38 @@ export function HomeAskTendo() {
 
   const handleVoiceToggle = () => {
     clearPresence();
-    setTextRequestActive(false);
 
     if (micActive) {
       stopMic();
       setInteractionMode("text");
+      setInitializing(false);
     } else {
       setInteractionMode("voice");
+      setInitializing(false);
     }
 
     window.dispatchEvent(new CustomEvent("tendo:voice-toggle"));
   };
 
+  /*
+   * Status priority:
+   *
+   * 1. Speaking...
+   * 2. Current presence
+   * 3. Reasoning... for an active request
+   * 4. Listening... while voice is active
+   * 5. Nothing in text mode
+   */
   let displayedStatus = "";
 
   if (agentSpeaking) {
     displayedStatus = "Speaking...";
   } else if (latestPresence) {
     displayedStatus = latestPresence;
-  } else if (micActive) {
-    displayedStatus = "Listening...";
-  } else if (textRequestActive) {
+  } else if (initializing) {
     displayedStatus = "Reasoning...";
+  } else if (interactionMode === "voice" && micActive) {
+    displayedStatus = "Listening...";
   }
 
   return (

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useEventReceiver, type RuntimeEvent } from "./useEmitReceiver";
 
@@ -23,17 +23,21 @@ function getEventType(event: RuntimeEvent): string | null {
 }
 
 function getPresenceText(event: RuntimeEvent): string {
-  const data: any = event.data;
+  const data = event.data;
 
-  if (data?.type === "voice.presence" || data?.type === "text.presence") {
-    const message = data?.payload?.message;
-
-    if (typeof message === "string") {
-      return message;
-    }
+  if (data?.type !== "voice.presence" && data?.type !== "text.presence") {
+    return "";
   }
 
-  return "";
+  const payload = data.payload;
+
+  if (!payload || typeof payload !== "object") {
+    return "";
+  }
+
+  const message = (payload as Record<string, unknown>).message;
+
+  return typeof message === "string" ? message : "";
 }
 
 export function useAgentSessionStatus(
@@ -48,7 +52,7 @@ export function useAgentSessionStatus(
     clearEvent: clearReceivedEvent,
   } = useEventReceiver(events);
 
-  const presenceRef = useRef<RuntimePresence>({
+  const [presence, setPresence] = useState<RuntimePresence>({
     text: "",
     event: null,
   });
@@ -62,7 +66,15 @@ export function useAgentSessionStatus(
       return;
     }
 
+    let nextPresence = presence;
+    let shouldReset = false;
+
     for (const event of newEvents) {
+      if (event.event === "message") {
+        shouldReset = true;
+        continue;
+      }
+
       const type = getEventType(event);
 
       if (type !== "voice.presence" && type !== "text.presence") {
@@ -75,44 +87,50 @@ export function useAgentSessionStatus(
         continue;
       }
 
-      const current = presenceRef.current.text;
+      const current = nextPresence.text;
 
       if (!current) {
-        presenceRef.current = {
+        nextPresence = {
           text,
           event: type,
         };
-
         continue;
       }
 
       if (text.startsWith(current)) {
-        presenceRef.current = {
+        nextPresence = {
           text,
           event: type,
         };
-
         continue;
       }
 
-      presenceRef.current = {
+      nextPresence = {
         text: current + text,
         event: type,
       };
     }
 
-    processedCountRef.current = receivedEvents.length;
-  }, [receivedEvents]);
+    if (shouldReset) {
+      setPresence({
+        text: "",
+        event: null,
+      });
+    } else if (
+      nextPresence.text !== presence.text ||
+      nextPresence.event !== presence.event
+    ) {
+      setPresence(nextPresence);
+    }
 
-  const presence = useMemo<RuntimePresence>(() => {
-    return presenceRef.current;
-  }, [receivedEvents]);
+    processedCountRef.current = receivedEvents.length;
+  }, [receivedEvents, presence]);
 
   const clear = () => {
-    presenceRef.current = {
+    setPresence({
       text: "",
       event: null,
-    };
+    });
 
     processedCountRef.current = 0;
 
@@ -122,11 +140,15 @@ export function useAgentSessionStatus(
   const clearEvent = (eventName: string) => {
     clearReceivedEvent(eventName);
 
-    if (eventName === "voice.presence" || eventName === "text.presence") {
-      presenceRef.current = {
+    if (
+      eventName === "voice.presence" ||
+      eventName === "text.presence" ||
+      eventName === "message"
+    ) {
+      setPresence({
         text: "",
         event: null,
-      };
+      });
 
       processedCountRef.current = 0;
     }
