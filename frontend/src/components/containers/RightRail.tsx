@@ -20,14 +20,30 @@ const RAIL_ITEMS = [
 export function RightRail() {
   const {
     connectionState,
+    businessId,
     micActive,
     agentSpeaking,
     statusText,
+    initAgent,
     startAgent,
     stopMic,
   } = useVoiceAgentStore();
 
   const isActive = micActive || agentSpeaking;
+
+  const canUseMic =
+    connectionState === "ready" ||
+    connectionState === "listening" ||
+    connectionState === "speaking";
+
+  const canRetry =
+    connectionState === "error" || connectionState === "disconnected";
+
+  const micDisabled =
+    connectionState === "initializing" ||
+    connectionState === "connecting" ||
+    connectionState === "waiting_for_agent" ||
+    connectionState === "reconnecting";
 
   const handleMicClick = async () => {
     if (micActive) {
@@ -35,25 +51,51 @@ export function RightRail() {
       return;
     }
 
-    await startAgent();
+    if (canUseMic) {
+      await startAgent();
+      return;
+    }
+
+    if (canRetry && businessId) {
+      try {
+        await initAgent(businessId);
+
+        const state = useVoiceAgentStore.getState();
+
+        if (state.connectionState === "ready" && state.agentReady) {
+          await startAgent();
+        }
+      } catch {
+        return;
+      }
+    }
   };
 
   let displayStatus = "";
 
-  if (agentSpeaking) {
+  if (connectionState === "initializing") {
+    displayStatus = "Initializing voice...";
+  } else if (connectionState === "connecting") {
+    displayStatus = "Connecting...";
+  } else if (connectionState === "waiting_for_agent") {
+    displayStatus = "Starting agent...";
+  } else if (agentSpeaking) {
     displayStatus = "Tendo is speaking...";
-  } else if (statusText) {
-    displayStatus = statusText;
+  } else if (connectionState === "error") {
+    displayStatus = statusText || "Voice connection failed";
+  } else if (connectionState === "reconnecting") {
+    displayStatus = "Reconnecting...";
   } else if (micActive) {
     displayStatus = "Listening...";
+  } else if (statusText) {
+    displayStatus = statusText;
   }
 
-  const micDisabled =
-    connectionState === "disconnected" ||
-    connectionState === "initializing" ||
-    connectionState === "connecting" ||
-    connectionState === "waiting_for_agent" ||
-    connectionState === "error";
+  const micLabel = micActive
+    ? "Stop voice communication"
+    : canRetry
+      ? "Retry voice connection"
+      : "Start voice communication with Tendo";
 
   return (
     <>
@@ -83,23 +125,23 @@ export function RightRail() {
 
         <button
           type="button"
-          onClick={handleMicClick}
-          disabled={micDisabled}
+          onClick={() => {
+            void handleMicClick();
+          }}
+          disabled={micDisabled || !businessId}
           className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
             micActive
               ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
-              : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
-          } ${micDisabled ? "cursor-not-allowed opacity-40" : ""}`}
-          aria-label={
-            micActive
-              ? "Stop voice communication"
-              : "Start voice communication with Tendo"
-          }
-          title={
-            micActive
-              ? "Stop voice communication"
-              : "Start voice communication with Tendo"
-          }
+              : canRetry
+                ? "text-zinc-300 hover:bg-white/10 hover:text-white"
+                : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+          } ${
+            micDisabled || !businessId
+              ? "cursor-not-allowed opacity-40"
+              : "cursor-pointer"
+          }`}
+          aria-label={micLabel}
+          title={micLabel}
         >
           {micActive ? <MicOff size={20} /> : <Mic size={20} />}
         </button>

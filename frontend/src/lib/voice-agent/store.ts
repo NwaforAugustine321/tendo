@@ -1,7 +1,6 @@
 import { create } from "zustand";
 
 import {
-  getAgentSessionStatus,
   initAgent,
   startAgent as startAgentApi,
   stopAgent as stopAgentApi,
@@ -13,6 +12,7 @@ import type { VoiceConnectionState, VoiceSession } from "./types";
 
 type VoiceStore = {
   connectionState: VoiceConnectionState;
+  businessId: string | null;
   session: VoiceSession | null;
   errorMessage: string;
   agentReady: boolean;
@@ -34,6 +34,7 @@ type VoiceStore = {
 
 let client: LiveKitVoiceClient | null = null;
 let lifecycleVersion = 0;
+let startVersion = 0;
 
 function createClient(
   set: (
@@ -42,42 +43,59 @@ function createClient(
 ): LiveKitVoiceClient {
   return new LiveKitVoiceClient({
     onConnected: () => {
-      set({
-        connectionState: "waiting_for_agent",
-        statusText: "Connecting to agent...",
+      set((state) => {
+        if (state.connectionState === "stopping") {
+          return {};
+        }
+
+        return {
+          connectionState: "ready",
+          statusText: "Ready",
+          errorMessage: "",
+        };
       });
     },
 
     onDisconnected: () => {
-      set((state) => ({
-        connectionState:
-          state.connectionState === "stopping"
-            ? "disconnected"
-            : "reconnecting",
-        agentReady: false,
-        micActive: false,
-        agentSpeaking: false,
-        statusText:
-          state.connectionState === "stopping"
-            ? "Disconnected"
-            : "Reconnecting...",
-      }));
+      set((state) => {
+        if (state.connectionState === "stopping") {
+          return {
+            connectionState: "disconnected",
+            agentReady: false,
+            micActive: false,
+            agentSpeaking: false,
+            statusText: "Disconnected",
+          };
+        }
+
+        return {
+          connectionState: "error",
+          agentReady: false,
+          micActive: false,
+          agentSpeaking: false,
+          errorMessage: "Voice connection disconnected.",
+          statusText: "Voice connection disconnected.",
+        };
+      });
     },
 
     onAgentReady: () => {
-      set({
+      set((state) => ({
         agentReady: true,
-        connectionState: "ready",
-        statusText: "Ready",
-      });
+        connectionState: state.micActive ? "listening" : "ready",
+        statusText: state.micActive ? "Listening..." : "Ready",
+        errorMessage: "",
+      }));
     },
 
     onAgentLeft: () => {
       set({
         agentReady: false,
         agentSpeaking: false,
-        connectionState: "reconnecting",
-        statusText: "Agent disconnected",
+        micActive: false,
+        connectionState: "error",
+        errorMessage: "Voice agent disconnected.",
+        statusText: "Voice agent disconnected.",
       });
     },
 
@@ -112,67 +130,16 @@ function createClient(
         connectionState: "error",
         errorMessage: error,
         statusText: error,
+        micActive: false,
+        agentSpeaking: false,
       });
     },
   });
 }
 
-async function waitForAgent(
-  businessId: string,
-  sessionId: string,
-  version: number,
-  timeout = 30000,
-): Promise<void> {
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < timeout) {
-    if (version !== lifecycleVersion) {
-      throw new Error("Voice initialization was cancelled.");
-    }
-
-    if (client?.isAgentReady()) {
-      return;
-    }
-
-    try {
-      const status = await getAgentSessionStatus(businessId, sessionId);
-
-      if (version !== lifecycleVersion) {
-        throw new Error("Voice initialization was cancelled.");
-      }
-
-      if (
-        status.session_status === "JS_FAILED" ||
-        status.session_status === "JS_CANCELED"
-      ) {
-        throw new Error(status.session_error || "Voice agent failed to start.");
-      }
-
-      if (
-        status.agent_state === "listening" ||
-        status.agent_state === "speaking"
-      ) {
-        return;
-      }
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message === "Voice initialization was cancelled."
-      ) {
-        throw error;
-      }
-
-      throw error;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-
-  throw new Error("Voice agent did not become ready.");
-}
-
 export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
   connectionState: "disconnected",
+  businessId: null,
   session: null,
   errorMessage: "",
   agentReady: false,
@@ -188,20 +155,20 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
 
     const current = get();
 
-    if (
-      current.session?.business_id === businessId &&
-      current.agentReady &&
-      client?.isConnected()
-    ) {
+    if (current.session?.business_id === businessId && client?.isConnected()) {
       return;
     }
 
     const version = ++lifecycleVersion;
 
     set({
+      businessId,
       connectionState: "initializing",
       errorMessage: "",
       agentReady: false,
+      micActive: false,
+      userSpeaking: false,
+      agentSpeaking: false,
       statusText: "Initializing voice...",
     });
 
@@ -212,42 +179,36 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
         return;
       }
 
-      client?.disconnect();
+      const previousClient = client;
 
-      client = createClient(set);
+      client = null;
+
+      previousClient?.disconnect();
+
+      const nextClient = createClient(set);
+
+      client = nextClient;
 
       set({
+        businessId: session.business_id,
         session,
         connectionState: "connecting",
+        agentReady: false,
+        micActive: false,
+        errorMessage: "",
         statusText: "Connecting...",
       });
 
-      await client.connect(session.url, session.token);
+      await nextClient.connect(session.url, session.token);
 
       if (version !== lifecycleVersion) {
-        return;
-      }
-
-      await startAgentApi(session.business_id, session.session_id);
-
-      if (version !== lifecycleVersion) {
-        return;
-      }
-
-      set({
-        connectionState: "waiting_for_agent",
-        statusText: "Starting agent...",
-      });
-
-      await waitForAgent(session.business_id, session.session_id, version);
-
-      if (version !== lifecycleVersion) {
+        nextClient.disconnect();
         return;
       }
 
       set({
         connectionState: "ready",
-        agentReady: true,
+        agentReady: false,
         statusText: "Ready",
         errorMessage: "",
       });
@@ -260,15 +221,14 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
       client = null;
 
       const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to initialize voice agent.";
+        error instanceof Error ? error.message : "Failed to initialize voice.";
 
       set({
+        businessId,
         connectionState: "error",
-        session: null,
         agentReady: false,
         micActive: false,
+        userSpeaking: false,
         agentSpeaking: false,
         errorMessage: message,
         statusText: message,
@@ -281,42 +241,76 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
   startAgent: async () => {
     const state = get();
 
-    if (!state.session) {
-      throw new Error("Voice agent is not initialized.");
-    }
-
-    if (!client?.isConnected()) {
-      throw new Error("Voice connection is not ready.");
-    }
-
-    if (!state.agentReady) {
-      throw new Error("Voice agent is not ready.");
-    }
-
     if (state.micActive) {
       return;
     }
 
-    set({
-      connectionState: "listening",
-      statusText: "Starting microphone...",
-      errorMessage: "",
-    });
+    if (!state.session) {
+      return;
+    }
+
+    if (!client?.isConnected()) {
+      return;
+    }
+
+    const version = ++startVersion;
+    const activeClient = client;
+    const session = state.session;
 
     try {
-      await client.startMic();
+      set({
+        connectionState: "waiting_for_agent",
+        errorMessage: "",
+        statusText: "Starting agent...",
+      });
+
+      if (!activeClient.isAgentReady()) {
+        await startAgentApi(session.business_id, session.session_id);
+
+        if (version !== startVersion) {
+          return;
+        }
+      }
+
+      if (!activeClient.isConnected()) {
+        throw new Error("Voice connection is no longer available.");
+      }
+
+      set({
+        connectionState: "listening",
+        statusText: "Starting microphone...",
+        errorMessage: "",
+      });
+
+      await activeClient.startMic();
+
+      if (version !== startVersion) {
+        activeClient.stopMic();
+        return;
+      }
 
       set({
         micActive: true,
         connectionState: "listening",
         statusText: "Listening...",
+        errorMessage: "",
       });
     } catch (error) {
+      if (version !== startVersion) {
+        return;
+      }
+
       const message =
-        error instanceof Error ? error.message : "Failed to start microphone.";
+        error instanceof Error ? error.message : "Failed to start voice agent.";
+
+      activeClient.stopMic();
 
       set({
         connectionState: "error",
+        agentReady: false,
+        micActive: false,
+        userSpeaking: false,
+        agentSpeaking: false,
         errorMessage: message,
         statusText: message,
       });
@@ -326,18 +320,29 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
   },
 
   stopMic: () => {
+    const state = get();
+
+    if (!state.micActive) {
+      return;
+    }
+
     client?.stopMic();
+
+    const agentReady = state.agentReady && client?.isConnected();
 
     set({
       micActive: false,
       userSpeaking: false,
       agentSpeaking: false,
-      connectionState: get().agentReady ? "ready" : "disconnected",
-      statusText: get().agentReady ? "Ready" : "Disconnected",
+      connectionState: agentReady ? "ready" : "error",
+      statusText: agentReady ? "Ready" : "Voice agent unavailable.",
     });
   },
 
   stopAgent: async () => {
+    lifecycleVersion += 1;
+    startVersion += 1;
+
     const state = get();
 
     if (!state.session) {
@@ -346,6 +351,9 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
 
       set({
         connectionState: "disconnected",
+        businessId: null,
+        session: null,
+        errorMessage: "",
         agentReady: false,
         micActive: false,
         userSpeaking: false,
@@ -356,14 +364,13 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
       return;
     }
 
-    const version = ++lifecycleVersion;
+    const session = state.session;
+    const version = lifecycleVersion;
 
     set({
       connectionState: "stopping",
       statusText: "Stopping...",
     });
-
-    const session = state.session;
 
     try {
       await stopAgentApi(session.business_id, session.session_id);
@@ -377,6 +384,7 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
 
       set({
         connectionState: "disconnected",
+        businessId: null,
         session: null,
         errorMessage: "",
         agentReady: false,
@@ -393,11 +401,9 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
       return false;
     }
 
-    if (!client?.isConnected()) {
-      return false;
-    }
+    const state = get();
 
-    if (!get().agentReady) {
+    if (!state.agentReady || !client?.isConnected()) {
       return false;
     }
 
@@ -412,12 +418,14 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
 
   reset: () => {
     lifecycleVersion += 1;
+    startVersion += 1;
 
     client?.disconnect();
     client = null;
 
     set({
       connectionState: "disconnected",
+      businessId: null,
       session: null,
       errorMessage: "",
       agentReady: false,

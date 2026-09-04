@@ -22,34 +22,40 @@ async def start_agent(
         auth_service.authenticate,
     ),
 ) -> dict[str, Any]:
-    body: dict[str, Any] = await request.json()
+    body = await request.json()
 
-    business_id = body.get(
-        "business_id",
-        "",
-    )
+    if not isinstance(body, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid request body.",
+        )
 
-    session_id = body.get(
-        "session_id",
-        "",
-    )
+    business_id = body.get("business_id")
+    session_id = body.get("session_id")
+    user_id = user.get("user_id")
 
-    if not business_id:
+    if not isinstance(business_id, str) or not business_id:
         raise HTTPException(
             status_code=400,
             detail="Business ID is required.",
         )
 
-    if not session_id:
+    if not isinstance(session_id, str) or not session_id:
         raise HTTPException(
             status_code=400,
             detail="Session ID is required.",
         )
 
+    if not isinstance(user_id, str) or not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authenticated user.",
+        )
+
     try:
         return await voice_agent_service.start(
             business_id=business_id,
-            user_id=user["user_id"],
+            user_id=user_id,
             session_id=session_id,
         )
 
@@ -57,6 +63,9 @@ async def start_agent(
         raise
 
     except Exception as exc:
+        print(
+            f"Failed to start voice agent: {exc}",
+        )
         raise HTTPException(
             status_code=500,
             detail="Failed to start voice agent.",

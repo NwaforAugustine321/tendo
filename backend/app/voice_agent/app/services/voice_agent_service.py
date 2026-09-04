@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from fastapi import HTTPException
-
 from livekit import api
 from livekit.protocol import agent as agent_protocol
 
 from app.config.settings import settings
 from ..db.mongo_client import get_client
-
 
 VOICE_SESSIONS_COLLECTION = "voice_sessions"
 
@@ -18,6 +17,7 @@ AGENT_NAME = "tendo-voice"
 
 AGENT_STATE_ATTRIBUTE = "lk.agent.state"
 
+logger = logging.getLogger(__name__)
 
 _livekit: api.LiveKitAPI | None = None
 
@@ -26,6 +26,11 @@ def get_livekit() -> api.LiveKitAPI:
     global _livekit
 
     if _livekit is None:
+        logger.info(
+            "[VoiceService] Creating LiveKit API client: url=%s",
+            settings.livekit_url,
+        )
+
         _livekit = api.LiveKitAPI(
             url=settings.livekit_url,
             api_key=settings.livekit_api_key,
@@ -40,9 +45,30 @@ class VoiceService:
     def __init__(self) -> None:
         self._livekit: api.LiveKitAPI = get_livekit()
 
-    # ================================================================
-    # MONGODB
-    # ================================================================
+    @staticmethod
+    def _status_name(
+        status: agent_protocol.JobStatus | int | None,
+    ) -> str | None:
+        if status is None:
+            return None
+
+        if isinstance(status, int):
+            try:
+                return agent_protocol.JobStatus.Name(status)
+            except ValueError:
+                return str(status)
+
+        return status.name
+
+    @staticmethod
+    def _is_status(
+        status: agent_protocol.JobStatus | int | None,
+        expected: agent_protocol.JobStatus,
+    ) -> bool:
+        if status is None:
+            return False
+
+        return int(status) == int(expected)
 
     async def get_voice_session(
         self,
@@ -102,7 +128,7 @@ class VoiceService:
         *,
         business_id: str,
         user_id: str,
-        session_status: agent_protocol.JobStatus | None,
+        session_status: agent_protocol.JobStatus | int | None,
         agent_state: str | None,
         agent_id: str | None,
         session_error: str | None,
@@ -118,10 +144,8 @@ class VoiceService:
             },
             {
                 "$set": {
-                    "session_status": (
-                        session_status.name
-                        if session_status is not None
-                        else None
+                    "session_status": self._status_name(
+                        session_status,
                     ),
                     "agent_state": agent_state,
                     "agent_id": agent_id,
@@ -155,44 +179,48 @@ class VoiceService:
             },
         )
 
-    # ================================================================
-    # LIVEKIT DISPATCH
-    # ================================================================
-
     async def _list_dispatches(
         self,
         *,
         room: str,
     ) -> list[agent_protocol.AgentDispatch]:
-        response = await self._livekit.agent_dispatch.list_dispatch(
-            api.ListAgentDispatchRequest(
-                room=room,
-            )
+        return await self._livekit.agent_dispatch.list_dispatch(
+            room_name=room,
         )
 
-        return list(response.agent_dispatches)
-
-    async def _find_active_dispatch(
+    async def _find_active_dispatches(
         self,
         *,
         room: str,
-    ) -> agent_protocol.AgentDispatch | None:
+    ) -> list[agent_protocol.AgentDispatch]:
         dispatches = await self._list_dispatches(
             room=room,
         )
+
+        active: list[agent_protocol.AgentDispatch] = []
 
         for dispatch in dispatches:
             if dispatch.agent_name != AGENT_NAME:
                 continue
 
-            for job in dispatch.state.jobs:
-                if job.state.status in (
-                    agent_protocol.JobStatus.JS_PENDING,
-                    agent_protocol.JobStatus.JS_RUNNING,
-                ):
-                    return dispatch
+            if dispatch.state.deleted_at:
+                continue
 
-        return None
+            for job in dispatch.state.jobs:
+                if (
+                    self._is_status(
+                        job.state.status,
+                        agent_protocol.JobStatus.JS_PENDING,
+                    )
+                    or self._is_status(
+                        job.state.status,
+                        agent_protocol.JobStatus.JS_RUNNING,
+                    )
+                ):
+                    active.append(dispatch)
+                    break
+
+        return active
 
     async def _find_latest_dispatch(
         self,
@@ -206,7 +234,10 @@ class VoiceService:
         matching_dispatches = [
             dispatch
             for dispatch in dispatches
-            if dispatch.agent_name == AGENT_NAME
+            if (
+                dispatch.agent_name == AGENT_NAME
+                and not dispatch.state.deleted_at
+            )
         ]
 
         if not matching_dispatches:
@@ -222,46 +253,51 @@ class VoiceService:
         *,
         room: str,
     ) -> agent_protocol.AgentDispatch | None:
-        """
-        Return the active dispatch when one exists.
-
-        If there is no active dispatch, return the latest dispatch.
-        This prevents an older completed dispatch from being selected
-        when a newer active dispatch exists.
-        """
-
-        active_dispatch = await self._find_active_dispatch(
-            room=room,
-        )
-
-        if active_dispatch is not None:
-            return active_dispatch
-
         return await self._find_latest_dispatch(
             room=room,
         )
 
-    # ================================================================
-    # LIVEKIT JOB
-    # ================================================================
-
-    @staticmethod
-    def _get_latest_job(
-        dispatch: agent_protocol.AgentDispatch,
-    ) -> agent_protocol.Job | None:
-        jobs = list(dispatch.state.jobs)
-
-        if not jobs:
-            return None
-
-        return max(
-            jobs,
-            key=lambda job: job.state.updated_at,
+    async def _delete_active_dispatches(
+        self,
+        *,
+        room: str,
+    ) -> None:
+        active_dispatches = await self._find_active_dispatches(
+            room=room,
         )
 
-    # ================================================================
-    # LIVEKIT AGENT STATE
-    # ================================================================
+        if not active_dispatches:
+            return
+
+        for dispatch in active_dispatches:
+            logger.warning(
+                "[VoiceService] Removing existing active dispatch: "
+                "room=%s dispatch_id=%s",
+                room,
+                dispatch.id,
+            )
+
+            try:
+                await self._livekit.agent_dispatch.delete_dispatch(
+                    dispatch_id=dispatch.id,
+                    room_name=room,
+                )
+
+                logger.info(
+                    "[VoiceService] Existing dispatch removed: "
+                    "room=%s dispatch_id=%s",
+                    room,
+                    dispatch.id,
+                )
+
+            except Exception:
+                logger.exception(
+                    "[VoiceService] Failed to remove existing dispatch: "
+                    "room=%s dispatch_id=%s",
+                    room,
+                    dispatch.id,
+                )
+                raise
 
     async def _get_agent_state(
         self,
@@ -269,17 +305,23 @@ class VoiceService:
         room: str,
         job: agent_protocol.Job,
     ) -> str | None:
-        """
-        AgentSession state is published by the LiveKit agent
-        participant through the `lk.agent.state` attribute.
-
-        The value is not part of JobState.
-        """
-
         participant_identity = job.state.participant_identity
 
         if not participant_identity:
+            logger.info(
+                "[VoiceService] No participant identity yet: "
+                "room=%s job=%s",
+                room,
+                job.id,
+            )
             return None
+
+        logger.info(
+            "[VoiceService] Looking up agent participant: "
+            "room=%s identity=%s",
+            room,
+            participant_identity,
+        )
 
         try:
             participant = await self._livekit.room.get_participant(
@@ -288,19 +330,34 @@ class VoiceService:
                     identity=participant_identity,
                 )
             )
-        except Exception:
+
+        except Exception as exc:
+            logger.info(
+                "[VoiceService] Agent participant not available yet: "
+                "room=%s identity=%s error=%s",
+                room,
+                participant_identity,
+                exc,
+            )
             return None
 
-        return participant.attributes.get(
+        agent_state = participant.attributes.get(
             AGENT_STATE_ATTRIBUTE,
         )
 
-    # ================================================================
-    # JSON SERIALIZATION
-    # ================================================================
+        logger.info(
+            "[VoiceService] Agent participant found: "
+            "room=%s identity=%s state=%s",
+            room,
+            participant_identity,
+            agent_state,
+        )
 
-    @staticmethod
+        return agent_state
+
+    @classmethod
     def _serialize_job(
+        cls,
         job: agent_protocol.Job | None,
     ) -> dict[str, Any] | None:
         if job is None:
@@ -311,10 +368,8 @@ class VoiceService:
         return {
             "id": job.id,
             "dispatch_id": job.dispatch_id,
-            "status": (
-                state.status.name
-                if state.status is not None
-                else None
+            "status": cls._status_name(
+                state.status,
             ),
             "error": state.error or None,
             "started_at": state.started_at or None,
@@ -343,9 +398,19 @@ class VoiceService:
             "deleted_at": dispatch.state.deleted_at or None,
         }
 
-    # ================================================================
-    # SYNCHRONIZE SESSION STATE
-    # ================================================================
+    @staticmethod
+    def _get_latest_job(
+        dispatch: agent_protocol.AgentDispatch,
+    ) -> agent_protocol.Job | None:
+        jobs = list(dispatch.state.jobs)
+
+        if not jobs:
+            return None
+
+        return max(
+            jobs,
+            key=lambda job: job.state.updated_at,
+        )
 
     async def _sync_voice_session(
         self,
@@ -355,14 +420,6 @@ class VoiceService:
         room: str,
         dispatch: agent_protocol.AgentDispatch | None,
     ) -> dict[str, Any]:
-        """
-        Synchronize MongoDB with the current LiveKit session state.
-
-        LiveKit remains the source of truth.
-
-        MongoDB stores only the latest application-facing snapshot.
-        """
-
         if dispatch is None:
             await self._clear_voice_session_state(
                 business_id=business_id,
@@ -389,7 +446,9 @@ class VoiceService:
             )
 
             return {
-                "dispatch": self._serialize_dispatch(dispatch),
+                "dispatch": self._serialize_dispatch(
+                    dispatch,
+                ),
                 "job": None,
                 "session_status": None,
                 "agent_state": None,
@@ -399,9 +458,21 @@ class VoiceService:
 
         session_status = job.state.status
 
+        logger.info(
+            "[VoiceService] Syncing dispatch: "
+            "room=%s dispatch_id=%s job_id=%s status=%s",
+            room,
+            dispatch.id,
+            job.id,
+            self._status_name(session_status),
+        )
+
         agent_state: str | None = None
 
-        if session_status == agent_protocol.JobStatus.JS_RUNNING:
+        if self._is_status(
+            session_status,
+            agent_protocol.JobStatus.JS_RUNNING,
+        ):
             agent_state = await self._get_agent_state(
                 room=room,
                 job=job,
@@ -410,6 +481,18 @@ class VoiceService:
         agent_id = job.state.agent_id or None
 
         session_error = job.state.error or None
+
+        logger.info(
+            "[VoiceService] Session state: "
+            "business_id=%s user_id=%s status=%s "
+            "agent_state=%s agent_id=%s error=%s",
+            business_id,
+            user_id,
+            self._status_name(session_status),
+            agent_state,
+            agent_id,
+            session_error,
+        )
 
         await self._update_voice_session_state(
             business_id=business_id,
@@ -421,21 +504,19 @@ class VoiceService:
         )
 
         return {
-            "dispatch": self._serialize_dispatch(dispatch),
-            "job": self._serialize_job(job),
-            "session_status": (
-                session_status.name
-                if session_status is not None
-                else None
+            "dispatch": self._serialize_dispatch(
+                dispatch,
+            ),
+            "job": self._serialize_job(
+                job,
+            ),
+            "session_status": self._status_name(
+                session_status,
             ),
             "agent_state": agent_state,
             "agent_id": agent_id,
             "session_error": session_error,
         }
-
-    # ================================================================
-    # START
-    # ================================================================
 
     async def start(
         self,
@@ -452,17 +533,23 @@ class VoiceService:
 
         room = voice_session["room"]
 
-        active_dispatch = await self._find_active_dispatch(
+        logger.info(
+            "[VoiceService] START requested: "
+            "business_id=%s user_id=%s session_id=%s room=%s",
+            business_id,
+            user_id,
+            session_id,
+            room,
+        )
+
+        await self._delete_active_dispatches(
             room=room,
         )
 
-        if active_dispatch is not None:
-            return await self._sync_voice_session(
-                business_id=business_id,
-                user_id=user_id,
-                room=room,
-                dispatch=active_dispatch,
-            )
+        await self._clear_voice_session_state(
+            business_id=business_id,
+            user_id=user_id,
+        )
 
         metadata = json.dumps(
             {
@@ -471,10 +558,15 @@ class VoiceService:
                 "user_id": user_id,
                 "room": room,
             },
-            separators=(
-                ",",
-                ":",
-            ),
+            separators=(",", ":"),
+        )
+
+        logger.info(
+            "[VoiceService] Creating agent dispatch: "
+            "agent=%s room=%s metadata=%s",
+            AGENT_NAME,
+            room,
+            metadata,
         )
 
         dispatch = await self._livekit.agent_dispatch.create_dispatch(
@@ -485,16 +577,46 @@ class VoiceService:
             )
         )
 
-        return await self._sync_voice_session(
-            business_id=business_id,
-            user_id=user_id,
-            room=room,
-            dispatch=dispatch,
+        logger.info(
+            "[VoiceService] Agent dispatch created: "
+            "dispatch_id=%s room=%s agent=%s jobs=%s",
+            dispatch.id,
+            dispatch.room,
+            dispatch.agent_name,
+            len(dispatch.state.jobs),
         )
 
-    # ================================================================
-    # STOP
-    # ================================================================
+        await self._update_voice_session_state(
+            business_id=business_id,
+            user_id=user_id,
+            session_status=(
+                self._get_latest_job(dispatch).state.status
+                if self._get_latest_job(dispatch) is not None
+                else agent_protocol.JobStatus.JS_PENDING
+            ),
+            agent_state=None,
+            agent_id=None,
+            session_error=None,
+        )
+
+        return {
+            "dispatch": self._serialize_dispatch(
+                dispatch,
+            ),
+            "job": self._serialize_job(
+                self._get_latest_job(dispatch),
+            ),
+            "session_status": (
+                self._status_name(
+                    self._get_latest_job(dispatch).state.status,
+                )
+                if self._get_latest_job(dispatch) is not None
+                else "JS_PENDING"
+            ),
+            "agent_state": None,
+            "agent_id": None,
+            "session_error": None,
+        }
 
     async def stop(
         self,
@@ -511,11 +633,25 @@ class VoiceService:
 
         room = voice_session["room"]
 
-        active_dispatch = await self._find_active_dispatch(
+        logger.info(
+            "[VoiceService] STOP requested: "
+            "business_id=%s user_id=%s session_id=%s room=%s",
+            business_id,
+            user_id,
+            session_id,
+            room,
+        )
+
+        active_dispatches = await self._find_active_dispatches(
             room=room,
         )
 
-        if active_dispatch is None:
+        if not active_dispatches:
+            logger.info(
+                "[VoiceService] No active dispatch to stop: room=%s",
+                room,
+            )
+
             await self._clear_voice_session_state(
                 business_id=business_id,
                 user_id=user_id,
@@ -530,14 +666,22 @@ class VoiceService:
                 "session_error": None,
             }
 
-        deleted_dispatch = (
-            await self._livekit.agent_dispatch.delete_dispatch(
-                api.DeleteAgentDispatchRequest(
-                    dispatch_id=active_dispatch.id,
-                    room=room,
+        deleted_dispatch: agent_protocol.AgentDispatch | None = None
+
+        for dispatch in active_dispatches:
+            logger.info(
+                "[VoiceService] Deleting dispatch: "
+                "room=%s dispatch_id=%s",
+                room,
+                dispatch.id,
+            )
+
+            deleted_dispatch = (
+                await self._livekit.agent_dispatch.delete_dispatch(
+                    dispatch_id=dispatch.id,
+                    room_name=room,
                 )
             )
-        )
 
         await self._clear_voice_session_state(
             business_id=business_id,
@@ -549,19 +693,15 @@ class VoiceService:
                 deleted_dispatch,
             ),
             "job": self._serialize_job(
-                self._get_latest_job(
-                    deleted_dispatch,
-                )
+                self._get_latest_job(deleted_dispatch)
+                if deleted_dispatch is not None
+                else None,
             ),
             "session_status": None,
             "agent_state": None,
             "agent_id": None,
             "session_error": None,
         }
-
-    # ================================================================
-    # SESSION STATUS
-    # ================================================================
 
     async def session_status(
         self,
@@ -588,6 +728,15 @@ class VoiceService:
             )
 
         room = voice_session["room"]
+
+        logger.info(
+            "[VoiceService] STATUS requested: "
+            "business_id=%s user_id=%s session_id=%s room=%s",
+            business_id,
+            user_id,
+            session_id,
+            room,
+        )
 
         dispatch = await self._find_dispatch(
             room=room,

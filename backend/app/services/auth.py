@@ -9,6 +9,8 @@ from app.lib.errors import AuthError
 logger = logging.getLogger(__name__)
 
 COOKIE_NAME = "tendo_session"
+
+
 COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 
 
