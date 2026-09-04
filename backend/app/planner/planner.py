@@ -161,29 +161,28 @@ async def _voice_agent_response_callback(
 
 
 async def _presence_callback(
-    text: str,
-    generation: int,
     *,
+    text: str,
     user_id: str,
-    agent_identity: str
 ) -> None:
     if not user_id:
         return
 
     payload = {
-        "type": "agent.progress",
+        "type": "text.presence",
         "payload": {
             "status": 'progress',
             "message": text,
-            "agent_identity": agent_identity
         },
         "user_id": user_id,
-        "event": "agent.progress",
+        "event": "text.presence",
     }
+
+    print('you sending me >>', payload)
 
     await get_event_bus().publish(
         ApplicationEvent(
-            event="agent.progress",
+            event="text.presence",
             source="agent",
             delivery=EventDelivery.APP,
             data=payload,
@@ -1039,10 +1038,7 @@ class Planner:
                 TextAgentResponseConsumer(
                     callback=lambda text, kind, sequence: _presence_callback(
                         text=text,
-                        kind=kind,
-                        sequence=sequence,
                         user_id=self._user_id,
-                        agent_identity=agent.name
                     ),
                 ),
                 VoiceAgentResponseConsumer(

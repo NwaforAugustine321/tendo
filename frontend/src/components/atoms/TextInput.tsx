@@ -1,5 +1,5 @@
 import { useState, type KeyboardEvent } from "react";
-import { ArrowUp, Mic } from "lucide-react";
+import { ArrowUp, LoaderCircle, Mic, MicOff } from "lucide-react";
 
 type Props = {
   onSend: (text: string) => void;
@@ -35,6 +35,12 @@ export function TextInput({
     }
   };
 
+  const micLabel = voiceLoading
+    ? "Starting voice communication"
+    : isListening
+      ? "Stop voice communication"
+      : "Start voice communication with Tendo";
+
   return (
     <div className="relative w-full">
       <div className="relative rounded-2xl border border-zinc-800/70 bg-[#111111] transition-colors focus-within:border-zinc-700">
@@ -47,22 +53,33 @@ export function TextInput({
           className="min-h-[56px] w-full resize-none bg-transparent px-4 py-3 pr-24 text-[13px] leading-relaxed text-zinc-200 outline-none placeholder:text-zinc-600"
         />
 
-        {/* Mic + Send */}
         <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1.5">
           {onVoiceToggle && (
             <button
               type="button"
               onClick={onVoiceToggle}
               disabled={voiceLoading}
-              aria-label={isListening ? "Stop listening" : "Talk to Tendo"}
-              title={isListening ? "Stop listening" : "Talk to Tendo"}
+              aria-label={micLabel}
+              title={micLabel}
               className={`flex h-8 w-8 items-center justify-center rounded-full transition-all ${
-                isListening
-                  ? "bg-emerald-500/15 text-emerald-400"
-                  : "text-zinc-400 hover:bg-white/5 hover:text-emerald-400"
-              } disabled:cursor-not-allowed disabled:opacity-40`}
+                voiceLoading
+                  ? "text-zinc-400"
+                  : isListening
+                    ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
+                    : "text-emerald-400 hover:bg-emerald-500/10"
+              } disabled:cursor-not-allowed disabled:opacity-60`}
             >
-              <Mic size={16} strokeWidth={2.2} />
+              {voiceLoading ? (
+                <LoaderCircle
+                  size={16}
+                  strokeWidth={2.2}
+                  className="animate-spin"
+                />
+              ) : isListening ? (
+                <MicOff size={16} strokeWidth={2.2} />
+              ) : (
+                <Mic size={16} strokeWidth={2.2} />
+              )}
             </button>
           )}
 

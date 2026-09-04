@@ -61,7 +61,10 @@ class PresenceLLM:
 
         return f"""
                 
-                You are participating in an ongoing conversation.
+                You are participating in an ongoing conversation. 
+                
+                You only generate status of current user's request
+                and progress, not the final answer.
 
                 The user's request is currently being handled, and the work is still
                 in progress. Based on the current context below, respond naturally
@@ -69,7 +72,8 @@ class PresenceLLM:
 
                 Your response should help maintain a natural conversation while the
                 work continues.
-
+                
+                Do Not generate greating message or acknowledgment.
                 Do NOT solve the user's request.
                 Do NOT provide the final answer.
                 Do NOT expose private reasoning or internal system information.

@@ -1,26 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useAgentSessionStatus } from "../hooks/useAgentSessionStatus";
+import { useVoiceAgentStore } from "../lib/voice-agent/store";
+
 type Props = {
   active: boolean;
-  speaking: boolean;
-  statusText?: string;
 };
 
-function useStreamText(text: string, _speed = 12) {
-  return text;
-}
+export function SpeakingIndicator({ active }: Props) {
+  const { agentSpeaking } = useVoiceAgentStore();
 
-const NUM_BARS = 16;
-const IDLE_BARS = Array.from({ length: NUM_BARS }, () => 0.25);
+  const { presence, clear } = useAgentSessionStatus([
+    "voice.presence",
+    "text.presence",
+  ]);
 
-export function SpeakingIndicator({ active, speaking, statusText }: Props) {
-  const [bars, setBars] = useState(IDLE_BARS);
   const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [pulse, setPulse] = useState(0);
+
   const dragging = useRef(false);
   const offset = useRef({ x: 0, y: 0 });
-  const elRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const streamedText = useStreamText(statusText || "");
+  const wasSpeaking = useRef(false);
 
   useEffect(() => {
     if (intervalRef.current) {
@@ -28,17 +29,16 @@ export function SpeakingIndicator({ active, speaking, statusText }: Props) {
       intervalRef.current = null;
     }
 
-    if (speaking) {
-      intervalRef.current = setInterval(() => {
-        setBars((prev) => prev.map(() => 0.25 + Math.random() * 0.75));
-      }, 120);
-    } else if (active) {
-      intervalRef.current = setInterval(() => {
-        setBars((prev) => prev.map(() => 0.2 + Math.random() * 0.2));
-      }, 300);
-    } else {
-      setBars(IDLE_BARS);
+    if (!active) {
+      setPulse(0);
+      clear();
+      wasSpeaking.current = false;
+      return;
     }
+
+    intervalRef.current = setInterval(() => {
+      setPulse(Math.random());
+    }, 120);
 
     return () => {
       if (intervalRef.current) {
@@ -46,86 +46,246 @@ export function SpeakingIndicator({ active, speaking, statusText }: Props) {
         intervalRef.current = null;
       }
     };
-  }, [speaking, active]);
+  }, [active, clear]);
+
+  /*
+   * When speaking finishes, remove the previous response/presence
+   * so the indicator returns to Listening...
+   */
+  useEffect(() => {
+    if (wasSpeaking.current && !agentSpeaking) {
+      clear();
+    }
+
+    wasSpeaking.current = agentSpeaking;
+  }, [agentSpeaking, clear]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     dragging.current = true;
-    offset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
+    offset.current = {
+      x: e.clientX - pos.x,
+      y: e.clientY - pos.y,
+    };
+
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!dragging.current) return;
+
     setPos({
       x: e.clientX - offset.current.x,
       y: e.clientY - offset.current.y,
     });
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e: React.PointerEvent) => {
     dragging.current = false;
+
+    if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    }
   };
 
   if (!active) return null;
 
-  const halfBars = Math.floor(NUM_BARS / 2);
+  const presenceText = presence.text.trim();
+
+  /*
+   * Strict display priority:
+   *
+   * 1. Speaking
+   * 2. Presence/status text
+   * 3. Listening
+   */
+  let displayText = "Listening...";
+
+  if (agentSpeaking) {
+    displayText = "Speaking...";
+  } else if (presenceText) {
+    displayText = presenceText;
+  }
+
+  const orbScale = 1 + pulse * 0.045;
+  const glowScale = 1 + pulse * 0.16;
+
+  const glowOpacity = 0.16 + pulse * 0.14;
+  const whiteOpacity = 0.78 + pulse * 0.18;
 
   return (
     <div
-      ref={elRef}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      className="fixed top-4 right-14 z-50 flex flex-col items-center gap-1.5 cursor-grab active:cursor-grabbing select-none touch-none"
-      style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
+      className="fixed left-10 top-20 z-50 h-[125px] w-[180px] cursor-grab select-none touch-none active:cursor-grabbing"
+      style={{
+        transform: `translate3d(${pos.x}px, ${pos.y}px, 0)`,
+      }}
     >
-      <div className="flex items-center gap-3 rounded-full bg-zinc-900/90 px-5 py-2 shadow-lg backdrop-blur-sm border border-zinc-700/50 min-w-[200px] justify-center">
-        <div className="flex items-center justify-center gap-[3px] h-5 flex-1">
-          {bars.slice(0, halfBars).map((height, i) => (
+      <div className="absolute left-1/2 top-[42px] h-[82px] w-[82px] -translate-x-1/2 -translate-y-1/2">
+        <div
+          className="pointer-events-none absolute -inset-10 rounded-full"
+          style={{
+            background: `radial-gradient(
+              circle,
+              rgba(0,131,255,${glowOpacity}) 0%,
+              rgba(79,194,255,${0.1 + pulse * 0.08}) 32%,
+              rgba(188,238,255,${0.06 + pulse * 0.05}) 48%,
+              rgba(255,255,255,0) 74%
+            )`,
+            filter: "blur(13px)",
+            transform: `scale(${glowScale})`,
+            transition: "transform 120ms ease-out",
+          }}
+        />
+
+        <div
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[96px] w-[96px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-sky-300/20"
+          style={{
+            transform: `translate(-50%, -50%) scale(${1.04 + pulse * 0.18})`,
+            opacity: 0.16 + pulse * 0.1,
+            transition: "transform 120ms ease-out, opacity 120ms ease-out",
+          }}
+        />
+
+        <div
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[108px] w-[108px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-sky-400/10"
+          style={{
+            transform: `translate(-50%, -50%) scale(${1.06 + pulse * 0.25})`,
+            opacity: 0.1 + pulse * 0.08,
+            transition: "transform 120ms ease-out, opacity 120ms ease-out",
+          }}
+        />
+
+        <div
+          className="absolute inset-0"
+          style={{
+            transform: `scale(${orbScale})`,
+            transition: "transform 120ms ease-out",
+          }}
+        >
+          <div
+            className="relative h-full w-full overflow-hidden rounded-full"
+            style={{
+              background: `radial-gradient(
+                circle at 62% 25%,
+                rgba(255,255,255,${0.94 + pulse * 0.06}) 0%,
+                rgba(241,252,255,${0.88 + pulse * 0.08}) 20%,
+                rgba(207,243,255,${0.84 + pulse * 0.08}) 40%,
+                rgba(91,199,255,${0.86 + pulse * 0.08}) 63%,
+                rgba(0,131,255,${0.94 + pulse * 0.06}) 100%
+              )`,
+              boxShadow: `
+                0 0 ${20 + pulse * 14}px rgba(0,131,255,${0.24 + pulse * 0.18}),
+                0 0 ${42 + pulse * 24}px rgba(0,131,255,${0.1 + pulse * 0.12}),
+                inset 0 0 ${18 + pulse * 10}px rgba(255,255,255,${
+                  0.16 + pulse * 0.14
+                })
+              `,
+              filter: `brightness(${1 + pulse * 0.1})`,
+              transition:
+                "background 120ms ease-out, box-shadow 120ms ease-out, filter 120ms ease-out",
+            }}
+          >
             <div
-              key={`l-${i}`}
-              className="w-[3px] rounded-full bg-emerald-400"
+              className="absolute inset-[-20%]"
               style={{
-                height: `${height * 100}%`,
-                transition: "height 120ms ease-out",
+                background: `radial-gradient(
+                  ellipse at 56% 38%,
+                  rgba(255,255,255,${whiteOpacity}) 0%,
+                  rgba(255,255,255,${0.7 + pulse * 0.18}) 22%,
+                  rgba(255,255,255,${0.2 + pulse * 0.12}) 46%,
+                  rgba(255,255,255,0) 70%
+                )`,
+                transform: `translate3d(
+                  ${pulse * 5 - 2.5}px,
+                  ${pulse * -4}px,
+                  0
+                ) scale(${1 + pulse * 0.08})`,
+                transition: "transform 120ms ease-out",
               }}
             />
-          ))}
-        </div>
 
-        <div className="w-8 h-8 rounded-full bg-white border border-zinc-700 flex items-center justify-center shrink-0">
-          <span className="flex items-center gap-[3px]">
-            <span
-              className={`h-[4px] w-[4px] rounded-full bg-purple-600 ${speaking ? "animate-pulse" : ""}`}
-            />
-            <span
-              className={`h-[4px] w-[4px] rounded-full bg-purple-600 ${speaking ? "animate-pulse" : ""}`}
-            />
-          </span>
-        </div>
-
-        <div className="flex items-center justify-center gap-[3px] h-5 flex-1">
-          {bars.slice(halfBars).map((height, i) => (
             <div
-              key={`r-${i}`}
-              className="w-[3px] rounded-full bg-emerald-400"
+              className="absolute inset-[-15%]"
               style={{
-                height: `${height * 100}%`,
-                transition: "height 120ms ease-out",
+                background: `radial-gradient(
+                  ellipse at 68% 20%,
+                  rgba(255,255,255,${0.34 + pulse * 0.26}) 0%,
+                  rgba(231,249,255,${0.2 + pulse * 0.14}) 32%,
+                  rgba(255,255,255,0) 68%
+                )`,
+                transform: `translate3d(
+                  ${pulse * -3}px,
+                  ${pulse * -3}px,
+                  0
+                ) scale(${1 + pulse * 0.06})`,
+                transition: "transform 120ms ease-out",
               }}
             />
-          ))}
+
+            <div
+              className="absolute inset-[-18%]"
+              style={{
+                background: `radial-gradient(
+                  ellipse at 32% 86%,
+                  rgba(0,131,255,${0.72 + pulse * 0.18}) 0%,
+                  rgba(0,131,255,${0.42 + pulse * 0.18}) 28%,
+                  rgba(0,131,255,${0.12 + pulse * 0.08}) 54%,
+                  rgba(0,131,255,0) 72%
+                )`,
+                transform: `translate3d(
+                  ${pulse * -3}px,
+                  ${pulse * 3}px,
+                  0
+                ) scale(${1 + pulse * 0.05})`,
+                transition: "transform 120ms ease-out",
+              }}
+            />
+
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background: `linear-gradient(
+                  135deg,
+                  rgba(255,255,255,${0.24 + pulse * 0.2}) 0%,
+                  rgba(255,255,255,${0.08 + pulse * 0.1}) 28%,
+                  rgba(255,255,255,0) 48%,
+                  rgba(0,131,255,${0.12 + pulse * 0.08}) 100%
+                )`,
+              }}
+            />
+
+            <div
+              className="pointer-events-none absolute left-[18%] top-[13%] h-[28%] w-[38%] rounded-full"
+              style={{
+                background: `radial-gradient(
+                  ellipse,
+                  rgba(255,255,255,${0.72 + pulse * 0.2}) 0%,
+                  rgba(255,255,255,${0.18 + pulse * 0.12}) 42%,
+                  rgba(255,255,255,0) 72%
+                )`,
+                filter: "blur(5px)",
+                transform: `translate3d(
+                  ${pulse * 2}px,
+                  ${pulse * -1}px,
+                  0
+                ) scale(${1 + pulse * 0.08})`,
+                transition: "transform 120ms ease-out",
+              }}
+            />
+          </div>
         </div>
       </div>
 
-      {streamedText && (
-        <span
-          key={streamedText}
-          className="text-[10px] text-zinc-300 max-w-[300px] text-center truncate bg-zinc-900/90 px-3 py-0.5 rounded-full backdrop-blur-sm border border-zinc-700/50 whitespace-nowrap animate-bounce"
-        >
-          {streamedText}
-        </span>
-      )}
+      <div className="pointer-events-none absolute left-1/2 top-[91px] w-[100px] -translate-x-1/2">
+        <div className="mx-auto w-full rounded-2xl border border-white/[0.08] bg-zinc-950/75 px-3 py-1.5 text-center text-[10px] font-medium text-zinc-300 shadow-lg backdrop-blur-md">
+          <span className="block max-h-[48px] overflow-hidden break-words leading-[14px]">
+            {displayText}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

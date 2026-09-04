@@ -1,11 +1,11 @@
 import { useCallback, useRef, useState } from "react";
-import { LiveKitVoiceClient } from "../lib/livekit-client";
-import type { InputSpec } from "../components/containers/ConversationPage";
-import { request } from "../lib/services/http";
-import { connectSocket } from "../lib/ws";
+import { LiveKitVoiceClient } from "../livekit-client";
+import type { InputSpec } from "../../components/containers/ConversationPage";
+import { request } from "../services/http";
+import { connectSocket } from "../ws";
 import type { Socket } from "socket.io-client";
-import { useBusinessStore } from "../store/business";
-import { useAuthStore } from "../store/auth";
+import { useBusinessStore } from "../../store/business";
+import { useAuthStore } from "../../store/auth";
 
 type SessionState =
   | "disconnected"

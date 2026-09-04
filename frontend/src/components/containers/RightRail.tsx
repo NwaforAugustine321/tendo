@@ -1,4 +1,4 @@
-import { Calendar, StickyNote, Mic, MicOff } from "lucide-react";
+import { Calendar, StickyNote, Mic, MicOff, LoaderCircle } from "lucide-react";
 
 import { useVoiceAgentStore } from "../../lib/voice-agent/store";
 
@@ -31,43 +31,27 @@ export function RightRail() {
 
   const isActive = micActive || agentSpeaking;
 
-  const canUseMic =
-    connectionState === "ready" ||
-    connectionState === "listening" ||
-    connectionState === "speaking";
-
-  const canRetry =
-    connectionState === "error" || connectionState === "disconnected";
-
-  const micDisabled =
+  const micLoading =
     connectionState === "initializing" ||
     connectionState === "connecting" ||
     connectionState === "waiting_for_agent" ||
     connectionState === "reconnecting";
 
   const handleMicClick = async () => {
+    if (micLoading || !businessId) {
+      return;
+    }
+
     if (micActive) {
       stopMic();
       return;
     }
 
-    if (canUseMic) {
+    try {
+      await initAgent(businessId);
       await startAgent();
+    } catch {
       return;
-    }
-
-    if (canRetry && businessId) {
-      try {
-        await initAgent(businessId);
-
-        const state = useVoiceAgentStore.getState();
-
-        if (state.connectionState === "ready" && state.agentReady) {
-          await startAgent();
-        }
-      } catch {
-        return;
-      }
     }
   };
 
@@ -91,19 +75,15 @@ export function RightRail() {
     displayStatus = statusText;
   }
 
-  const micLabel = micActive
-    ? "Stop voice communication"
-    : canRetry
-      ? "Retry voice connection"
+  const micLabel = micLoading
+    ? displayStatus || "Starting voice communication"
+    : micActive
+      ? "Stop voice communication"
       : "Start voice communication with Tendo";
 
   return (
     <>
-      <SpeakingIndicator
-        active={isActive}
-        speaking={agentSpeaking}
-        statusText={displayStatus}
-      />
+      <SpeakingIndicator active={isActive} />
 
       <aside
         className="hidden h-full w-[52px] flex-col items-center gap-2 border-l border-zinc-800/60 bg-[#0f0f0f] py-3 md:flex"
@@ -128,22 +108,26 @@ export function RightRail() {
           onClick={() => {
             void handleMicClick();
           }}
-          disabled={micDisabled || !businessId}
+          disabled={micLoading || !businessId}
           className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
             micActive
               ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
-              : canRetry
-                ? "text-zinc-300 hover:bg-white/10 hover:text-white"
-                : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+              : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
           } ${
-            micDisabled || !businessId
+            micLoading || !businessId
               ? "cursor-not-allowed opacity-40"
               : "cursor-pointer"
           }`}
           aria-label={micLabel}
           title={micLabel}
         >
-          {micActive ? <MicOff size={20} /> : <Mic size={20} />}
+          {micLoading ? (
+            <LoaderCircle size={20} className="animate-spin" />
+          ) : micActive ? (
+            <MicOff size={20} />
+          ) : (
+            <Mic size={20} />
+          )}
         </button>
       </aside>
     </>
