@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from "react";
+
 import { RefreshCw } from "lucide-react";
+
 import { ChatPanel } from "../../../components/containers/ChatPanel";
+
 import { useWorkspaceStore } from "../../../store/workspace";
+
 import type { InboxMessage } from "./types";
+
+import { HomeAskTendo } from "./HomeAskTendo";
 import { HomeBriefing } from "./HomeBriefing";
 import { MessageDetail } from "./MessageDetail";
 import { useHomeData } from "./useHomeData";
@@ -29,9 +35,11 @@ const MAX_CHAT_WIDTH = 600;
 
 export function Home() {
   const [openMessage, setOpenMessage] = useState<InboxMessage | null>(null);
+
   const [refreshing, setRefreshing] = useState(false);
 
   const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
+
   const [isResizingChat, setIsResizingChat] = useState(false);
 
   const resizeStartXRef = useRef(0);
@@ -111,9 +119,6 @@ export function Home() {
     }
   };
 
-  /**
-   * Start resizing the ChatPanel.
-   */
   const handleResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
 
@@ -125,13 +130,6 @@ export function Home() {
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
 
-  /**
-   * Resize while dragging.
-   *
-   * Because the ChatPanel is on the right side, moving the divider
-   * to the left makes the panel wider and moving it right makes
-   * the panel narrower.
-   */
   useEffect(() => {
     if (!isResizingChat) return;
 
@@ -151,6 +149,7 @@ export function Home() {
     };
 
     document.addEventListener("pointermove", handlePointerMove);
+
     document.addEventListener("pointerup", handlePointerUp);
 
     document.body.style.cursor = "col-resize";
@@ -158,6 +157,7 @@ export function Home() {
 
     return () => {
       document.removeEventListener("pointermove", handlePointerMove);
+
       document.removeEventListener("pointerup", handlePointerUp);
 
       document.body.style.cursor = "";
@@ -186,6 +186,7 @@ export function Home() {
         onNext={async () => {
           if (currentIndex >= 0 && currentIndex < recentRecords.length - 1) {
             setOpenMessage(recentRecords[currentIndex + 1]);
+
             return;
           }
 
@@ -203,54 +204,59 @@ export function Home() {
 
   return (
     <div className="flex h-full min-h-0 bg-[#0a0a0a] text-zinc-100">
-      {/* Main briefing */}
-      <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex min-h-full w-full max-w-[900px] flex-col">
-          {/* Page actions */}
-          <div className="flex items-center justify-end px-6 pt-5 lg:px-10">
-            <button
-              type="button"
-              onClick={refreshHome}
-              disabled={refreshing}
-              aria-label="Refresh home"
-              title="Refresh"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-600 transition-colors hover:bg-white/5 hover:text-zinc-300 disabled:opacity-40"
-            >
-              <RefreshCw
-                size={15}
-                className={refreshing ? "animate-spin" : ""}
-              />
-            </button>
-          </div>
-
-          <div className="px-6  lg:px-10">
-            <div className="mx-auto w-full max-w-3xl">
-              <HomeBriefing
-                firstName={getFirstName(currentProfile)}
-                attention={attention}
-                insights={insights}
-                recentRecords={recentRecords}
-                activityCount={recordsTotal}
-                onAsk={askTendo}
-                onOpenRecord={(record) => {
-                  markRecordRead(record.id);
-                  setOpenMessage(record);
-                }}
-                onReview={reviewSnap}
-              />
-
-              <div className="mb-10" />
+      <main className="flex min-w-0 min-h-0 flex-1 flex-col">
+        {/* Scrollable home content */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[900px]">
+            <div className="flex items-center justify-end px-6 pt-5 lg:px-10">
+              <button
+                type="button"
+                onClick={refreshHome}
+                disabled={refreshing}
+                aria-label="Refresh home"
+                title="Refresh"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-600 transition-colors hover:bg-white/5 hover:text-zinc-300 disabled:opacity-40"
+              >
+                <RefreshCw
+                  size={15}
+                  className={refreshing ? "animate-spin" : ""}
+                />
+              </button>
             </div>
+
+            <div className="px-6 lg:px-10">
+              <div className="mx-auto w-full max-w-3xl">
+                <HomeBriefing
+                  firstName={getFirstName(currentProfile)}
+                  attention={attention}
+                  insights={insights}
+                  recentRecords={recentRecords}
+                  activityCount={recordsTotal}
+                  onOpenRecord={(record) => {
+                    markRecordRead(record.id);
+                    setOpenMessage(record);
+                  }}
+                  onReview={reviewSnap}
+                />
+
+                <div className="mb-10" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Fixed Ask Tendo */}
+        <div className="shrink-0  bg-[#0a0a0a] px-6 py-4 lg:px-10">
+          <div className="mx-auto w-full max-w-3xl">
+            <HomeAskTendo />
           </div>
         </div>
       </main>
 
-      {/* Tendo colleague panel */}
       <aside
         style={{ width: `${chatWidth}px` }}
-        className="relative hidden shrink-0 border-l border-zinc-800/60 bg-[#0f0f0f] lg:flex lg:flex-col"
+        className="relative hidden h-full min-h-0 shrink-0 border-l border-zinc-800/60 bg-[#0f0f0f] lg:flex lg:flex-col"
       >
-        {/* Resize handle */}
         <div
           role="separator"
           aria-label="Resize Tendo panel"
@@ -268,7 +274,6 @@ export function Home() {
         </div>
       </aside>
 
-      {/* Background refresh state */}
       {loading && (
         <div className="pointer-events-none fixed bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-zinc-800/70 bg-[#111111]/90 px-3 py-1.5 text-[10px] text-zinc-600 backdrop-blur">
           Updating

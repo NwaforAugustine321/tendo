@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { ArrowRight, CheckCircle2, ChevronRight, Sparkles } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
-import { HomeAskTendo } from "./HomeAskTendo";
 import type { Snap } from "../../../lib/services/snaps";
 import type { BusinessInsight } from "../../../lib/workspace/dashboard-types";
 import type { InboxMessage } from "./types";
@@ -23,7 +22,7 @@ function Section({
   return (
     <section className="mt-8">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+        <h2 className="text-[13px] font-medium tracking-[-0.01em] text-zinc-500">
           {title}
         </h2>
 
@@ -65,20 +64,17 @@ export function HomeBriefing({
   insights: BusinessInsight[];
   recentRecords: InboxMessage[];
   activityCount: number;
-  onAsk: (message: string) => void;
   onOpenRecord: (record: InboxMessage) => void;
   onReview: (snap: Snap) => void;
 }) {
   const visibleAttention = attention.slice(0, ATTENTION_LIMIT);
+
   const visibleFindings = insights.slice(0, FINDINGS_LIMIT);
+
   const visibleActivity = recentRecords.slice(0, ACTIVITY_LIMIT);
 
-  const hasMoreAttention = attention.length > ATTENTION_LIMIT;
-  const hasMoreFindings = insights.length > FINDINGS_LIMIT;
-  const hasMoreActivity = activityCount > ACTIVITY_LIMIT;
-
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-10 lg:px-10 lg:py-6">
+    <div className="w-full">
       {/* Greeting */}
       <div>
         <p className="text-[26px] font-medium tracking-[-0.025em] text-zinc-100">
@@ -88,11 +84,6 @@ export function HomeBriefing({
         <p className="mt-1.5 text-[14px] text-zinc-500">
           A few things changed since you last checked in.
         </p>
-      </div>
-
-      {/* Ask Tendo */}
-      <div className="mt-7">
-        <HomeAskTendo />
       </div>
 
       {/* WHAT NEEDS YOUR ATTENTION */}
@@ -203,6 +194,8 @@ export function HomeBriefing({
       </Section>
 
       {/* RECENT ACTIVITY */}
+
+      {/* RECENT ACTIVITY */}
       <Section
         title="Recent activity"
         action={
@@ -212,35 +205,49 @@ export function HomeBriefing({
         }
       >
         {visibleActivity.length > 0 ? (
-          visibleActivity.map((record) => (
-            <button
-              key={record.id}
-              type="button"
-              onClick={() => onOpenRecord(record)}
-              className="group flex w-full items-center gap-3 py-3.5 text-left transition-colors hover:bg-white/[0.02]"
-            >
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-700 transition-colors group-hover:bg-emerald-500/70" />
+          <div className="relative">
+            <div className="absolute bottom-4 left-[5px] top-4 w-px bg-zinc-800" />
 
-              <span className="min-w-0 flex-1 truncate text-[13px] text-zinc-400 group-hover:text-zinc-300">
-                {record.sender || "Recent business activity"}
-              </span>
+            {visibleActivity.map((record, index) => (
+              <button
+                key={record.id}
+                type="button"
+                onClick={() => onOpenRecord(record)}
+                className="group relative flex w-full items-start gap-3 py-3 text-left transition-colors hover:bg-white/[0.02]"
+              >
+                <span className="relative z-10 mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full border border-zinc-700 bg-[#0a0a0a] transition-colors group-hover:border-zinc-500" />
 
-              <span className="shrink-0 text-[11px] text-zinc-600">
-                {record.date}
-              </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] text-zinc-400 transition-colors group-hover:text-zinc-300">
+                    {record.sender || "Recent business activity"}
+                  </span>
 
-              <ChevronRight
-                size={14}
-                className="shrink-0 text-zinc-700 group-hover:text-zinc-500"
-              />
-            </button>
-          ))
+                  {record.subject && (
+                    <span className="mt-0.5 block truncate text-[11px] text-zinc-600">
+                      {record.subject}
+                    </span>
+                  )}
+                </span>
+
+                <span className="shrink-0 pt-0.5 text-[10px] text-zinc-600">
+                  {record.date}
+                </span>
+
+                <ChevronRight
+                  size={14}
+                  className="mt-0.5 shrink-0 text-zinc-700 transition-colors group-hover:text-zinc-500"
+                />
+              </button>
+            ))}
+          </div>
         ) : (
           <div className="py-3.5 text-[13px] text-zinc-600">
             No recent activity yet.
           </div>
         )}
       </Section>
+
+      <div className="h-6" />
     </div>
   );
 }
