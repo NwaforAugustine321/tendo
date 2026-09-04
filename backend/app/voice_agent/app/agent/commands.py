@@ -11,7 +11,9 @@ from livekit import rtc
 from ..webhooks.contracts import WebhookEvent
 
 from ..webhooks.handlers.voice_agent_handler import VoiceCommandHandlers
-
+from livekit.agents import (
+    JobContext
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,7 @@ class VoiceCommandReceiver:
         room: rtc.Room,
         user_id: str,
         speak: Callable[[str], Awaitable[None]],
+        ctx: JobContext
     ) -> None:
 
         self._room = room
@@ -34,6 +37,7 @@ class VoiceCommandReceiver:
             speak=speak,
         )
         self._registered = False
+        self._background_tasks: set[asyncio.Task] = set()
 
     def register(self) -> None:
 
@@ -45,15 +49,22 @@ class VoiceCommandReceiver:
             data: rtc.DataPacket,
         ) -> None:
 
+            print(
+                "topic>>>",
+                self._TOPIC,
+                "data>>>",
+                data,
+                flush=True,
+            )
+
             if data.topic != self._TOPIC:
                 return
 
-            asyncio.create_task(
-                self._handle(
-                    data,
-                ),
-            )
+            task = asyncio.create_task(self._handle(data))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
 
+        print('register successfully here>>>', flush=True)
         self._registered = True
 
     async def _handle(

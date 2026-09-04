@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import asyncio
@@ -8,18 +7,21 @@ from uuid import uuid4
 
 from livekit.agents import (
     AgentSession,
+    AgentStateChangedEvent,
     ErrorEvent,
+    get_job_context,
     stt,
     tts,
 )
+from livekit.protocol import agent as agent_protocol
 
-from ..webhooks.contracts import WebhookEvent
 from ..webhooks.client import WebhookClientInterface
 from ..webhooks.contracts import (
+    HOOKS,
+    WebhookEvent,
     WebhookType,
-    HOOKS
 )
-
+from ..services.voice_agent_service import voice_agent_service
 
 logger = logging.getLogger(__name__)
 
@@ -31,22 +33,47 @@ class VoiceSessionHandlers:
         *,
         webhook_client: WebhookClientInterface,
         session_id: str,
-        user_id=str,
-        business_id=str,
-        room_name=str
+        user_id: str,
+        business_id: str,
+        room: str,
     ) -> None:
 
         self._webhook_client = webhook_client
         self._session_id = session_id
         self._user_id = user_id
         self._business_id = business_id
-        self._room_name = room_name
+        self._room = room
+        self._agent_identity = (
+            get_job_context()
+            .room
+            .local_participant
+            .identity
+        )
+        self._background_tasks: set[asyncio.Task] = set()
 
-    def register(
+    def _run_background_task(self, coro) -> None:
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def register(
         self,
         session: AgentSession,
         resources: Any = None,
     ) -> None:
+
+        @session.on("agent_state_changed")
+        def on_agent_state_changed(
+            ev: AgentStateChangedEvent,
+        ) -> None:
+
+            self._run_background_task(
+                self._update_runtime_state(
+
+                    agent_state=ev.new_state,
+                    session_status=agent_protocol.JobStatus.JS_RUNNING,
+                ),
+            )
 
         @session.on("user_input_transcribed")
         def on_user_input_transcribed(
@@ -70,15 +97,23 @@ class VoiceSessionHandlers:
                     "text": transcript,
                     "user_id": self._user_id,
                     "business_id": self._business_id,
-                    "room_name": self._room_name,
+                    "room": self._room,
+                    "agent_identity": self._agent_identity,
                 },
             )
 
-            asyncio.create_task(
+            self._run_background_task(
                 self._send_transcript(
                     webhook_event,
                 ),
             )
+
+        self._run_background_task(
+            self._update_runtime_state(
+                agent_id=self._agent_identity,
+                session_status=agent_protocol.JobStatus.JS_RUNNING,
+            ),
+        )
 
         @session.on("error")
         def on_error(
@@ -99,29 +134,21 @@ class VoiceSessionHandlers:
             if error.recoverable:
                 return
 
-            if isinstance(
-                source,
-                tts.TTS,
-            ):
+            if isinstance(source, tts.TTS):
                 logger.warning(
                     "[VoiceSessionHandlers] Recovering from TTS error.",
                 )
 
                 error.recoverable = True
-
                 return
 
-            if isinstance(
-                source,
-                stt.STT,
-            ):
+            if isinstance(source, stt.STT):
                 logger.warning(
                     "[VoiceSessionHandlers] "
                     "STT error detected. Creating fresh STT instance.",
                 )
 
                 try:
-
                     if resources is not None:
 
                         get_stt = getattr(
@@ -141,7 +168,6 @@ class VoiceSessionHandlers:
                     )
 
                 except Exception:
-
                     logger.exception(
                         "[VoiceSessionHandlers] "
                         "Failed to recover STT.",
@@ -157,6 +183,13 @@ class VoiceSessionHandlers:
                 error,
             )
 
+            self._run_background_task(
+                self._update_runtime_state(
+                    session_status=agent_protocol.JobStatus.JS_FAILED,
+                    session_error=str(error),
+                ),
+            )
+
         @session.on("close")
         def on_close(
             *args: Any,
@@ -168,20 +201,47 @@ class VoiceSessionHandlers:
                 self._session_id,
             )
 
+            self._run_background_task(
+                self._update_runtime_state(
+                    session_status=agent_protocol.JobStatus.JS_SUCCESS,
+                ),
+            )
+
+    async def _update_runtime_state(
+        self,
+        **updates: Any,
+    ) -> None:
+
+        try:
+            await voice_agent_service._update_voice_session_state(
+                business_id=self._business_id,
+                user_id=self._user_id,
+                **updates,
+            )
+
+        except Exception:
+            logger.exception(
+                "[VoiceSessionHandlers] "
+                "Failed to update voice session state: "
+                "session_id=%s agent_state=%s "
+                "session_status=%s",
+                self._session_id,
+                agent_state,
+                session_status.name,
+            )
+
     async def _send_transcript(
         self,
         event: WebhookEvent,
     ) -> None:
 
         try:
-
             await self._webhook_client.send(
                 hook=HOOKS.VOICE_AGENT,
                 event=event,
             )
 
         except Exception:
-
             logger.exception(
                 "[VoiceSessionHandlers] "
                 "Failed to send transcript webhook: "

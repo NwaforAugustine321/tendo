@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 
 from livekit import api
+from livekit.protocol import room
+from livekit.api import SendDataRequest, DataPacket
 
 from app.config import settings
 from ...webhooks.contracts import WebhookEvent
@@ -45,7 +47,6 @@ class LiveKitWebhookTransport:
         *,
         event: WebhookEvent,
     ) -> None:
-        print('trasporter doing it thing >>>', event)
         if self._client is None:
             logger.warning(
                 "LiveKit webhook transport is not started: "
@@ -56,12 +57,23 @@ class LiveKitWebhookTransport:
             )
             return
 
-        room_name = event.payload.get("room_name")
+        room_name = event.payload.get("room")
         user_id = event.payload.get("user_id")
+        agent_identity = event.payload.get("agent_identity")
+
+        if not isinstance(agent_identity, str) or not agent_identity:
+            logger.error(
+                "LiveKit webhook event is missing payload.agent_identity: "
+                "type=%s event_id=%s request_id=%s",
+                event.type,
+                event.event_id,
+                event.request_id,
+            )
+            return
 
         if not isinstance(room_name, str) or not room_name:
             logger.error(
-                "LiveKit webhook event is missing payload.room_name: "
+                "LiveKit webhook event is missing payload.room: "
                 "type=%s event_id=%s request_id=%s",
                 event.type,
                 event.event_id,
@@ -84,8 +96,8 @@ class LiveKitWebhookTransport:
                 api.SendDataRequest(
                     room=room_name,
                     data=event.model_dump_json().encode("utf-8"),
-                    kind=api.proto_room.DataPacket.Kind.RELIABLE,
-                    destination_identities=[user_id],
+                    kind=DataPacket.Kind.RELIABLE,
+                    destination_identities=[agent_identity],
                     topic=self._TOPIC,
                 )
             )

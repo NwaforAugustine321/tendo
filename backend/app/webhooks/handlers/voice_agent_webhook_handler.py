@@ -31,7 +31,6 @@ class VoiceAgentWebHookHandler:
     ) -> None:
 
         payload = event.payload
-        print('my payload webhook >>>', payload)
 
         user_message = payload.get(
             "text",
@@ -45,18 +44,7 @@ class VoiceAgentWebHookHandler:
             return
 
         session = {
-            "business_id": payload.get(
-                "business_id",
-                "",
-            ),
-            "session_id": payload.get(
-                "session_id",
-                "",
-            ),
-            "user_id": payload.get(
-                "user_id",
-                "",
-            ),
+            **payload
         }
 
         planner = Planner(
@@ -89,19 +77,10 @@ class VoiceAgentWebHookHandler:
             event_id=event.event_id,
             request_id=event.request_id,
             payload={
-                "room_name": payload.get(
-                    "room_name",
-                    "",
-                ),
-                "user_id": payload.get(
-                    "user_id",
-                    "",
-                ),
-                "session_id": payload.get(
-                    "session_id",
-                    "",
-                ),
+
+                **payload,
                 "text": text,
+
             },
         )
 

@@ -25,17 +25,20 @@ _livekit: api.LiveKitAPI | None = None
 def get_livekit() -> api.LiveKitAPI:
     global _livekit
 
-    if _livekit is None:
-        logger.info(
-            "[VoiceService] Creating LiveKit API client: url=%s",
-            settings.livekit_url,
-        )
+    try:
+        if _livekit is None:
+            logger.info(
+                "[VoiceService] Creating LiveKit API client: url=%s",
+                settings.livekit_url,
+            )
 
-        _livekit = api.LiveKitAPI(
-            url=settings.livekit_url,
-            api_key=settings.livekit_api_key,
-            api_secret=settings.livekit_api_secret,
-        )
+            _livekit = api.LiveKitAPI(
+                url=settings.livekit_url,
+                api_key=settings.livekit_api_key,
+                api_secret=settings.livekit_api_secret,
+            )
+    except Exception:
+        _livekit = None
 
     return _livekit
 
@@ -128,12 +131,29 @@ class VoiceService:
         *,
         business_id: str,
         user_id: str,
-        session_status: agent_protocol.JobStatus | int | None,
-        agent_state: str | None,
-        agent_id: str | None,
-        session_error: str | None,
+        session_status: agent_protocol.JobStatus | int | None = None,
+        agent_state: str | None = None,
+        agent_id: str | None = None,
+        session_error: str | None = None,
     ) -> None:
         db = get_client()
+
+        update: dict[str, Any] = {}
+
+        if session_status is not None:
+            update["session_status"] = self._status_name(session_status)
+
+        if agent_state is not None:
+            update["agent_state"] = agent_state
+
+        if agent_id is not None:
+            update["agent_id"] = agent_id
+
+        if session_error is not None:
+            update["session_error"] = session_error
+
+        if len(update) == 1:
+            return
 
         await db[
             VOICE_SESSIONS_COLLECTION
@@ -143,14 +163,7 @@ class VoiceService:
                 "user_id": user_id,
             },
             {
-                "$set": {
-                    "session_status": self._status_name(
-                        session_status,
-                    ),
-                    "agent_state": agent_state,
-                    "agent_id": agent_id,
-                    "session_error": session_error,
-                },
+                "$set": update,
             },
         )
 
@@ -559,14 +572,6 @@ class VoiceService:
                 "room": room,
             },
             separators=(",", ":"),
-        )
-
-        logger.info(
-            "[VoiceService] Creating agent dispatch: "
-            "agent=%s room=%s metadata=%s",
-            AGENT_NAME,
-            room,
-            metadata,
         )
 
         dispatch = await self._livekit.agent_dispatch.create_dispatch(

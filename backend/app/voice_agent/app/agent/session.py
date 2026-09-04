@@ -225,30 +225,6 @@ class VoiceSessionService:
             ),
         )
 
-        logger.info(
-            "[VoiceSessionService] AgentSession created: "
-            "room=%s session_id=%s",
-            ctx.room.name,
-            data.session_id,
-        )
-
-        handlers = VoiceSessionHandlers(
-            webhook_client=self._webhook_client,
-            session_id=data.session_id,
-            user_id=data.user_id,
-            business_id=data.business_id,
-            oom_name=data.room_name
-        )
-
-        handlers.register(session)
-
-        logger.info(
-            "[VoiceSessionService] Session handlers registered: "
-            "room=%s session_id=%s",
-            ctx.room.name,
-            data.session_id,
-        )
-
         agent = VoiceAgent(
             instructions=(
                 "You are Tendo, a helpful voice AI assistant. "
@@ -258,19 +234,22 @@ class VoiceSessionService:
             ),
         )
 
-        logger.info(
-            "[VoiceSessionService] Starting AgentSession: "
-            "room=%s session_id=%s",
-            ctx.room.name,
-            data.session_id,
-        )
-
         try:
 
             await session.start(
                 agent=agent,
                 room=ctx.room,
             )
+
+            handlers = VoiceSessionHandlers(
+                webhook_client=self._webhook_client,
+                session_id=data.session_id,
+                user_id=data.user_id,
+                business_id=data.business_id,
+                room=data.room
+            )
+
+            await handlers.register(session)
 
         except Exception:
 

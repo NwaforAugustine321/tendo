@@ -176,6 +176,7 @@ async def tendo_session(
     stt, tts = resources.get()
 
     webhook_client = WebhookClient(
+
         hooks={
             HOOKS.VOICE_AGENT: WebhookConfig(
                 url=settings.main_server_webhook_url,
@@ -206,6 +207,7 @@ async def tendo_session(
             room=ctx.room,
             user_id=session_data.user_id,
             speak=session.say,
+            ctx=ctx
         )
 
         command_receiver.register()
