@@ -2,7 +2,7 @@
 node_modules/
 frontend/node_modules/
 frontend/dist/
-ollama-STT-TTS/
+
 
 # Environment
 .env
@@ -11,14 +11,7 @@ ollama-STT-TTS/
 # Kiro specs (local only)
 .kiro/
 
-tunnel/
-voice-agent/
 
-# Sigmoid reference (not part of tendo)
-sigmoid.ai/
-
-# CrewAI reference (local only)
-crewAI/
 
 # Python
 __pycache__/
@@ -26,8 +19,26 @@ __pycache__/
 *.pyo
 .venv/
 *.egg-info/
+*.dist-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
 
-# Data (vector stores, local DB)
+# Virtual environments
+venv/
+env/
+.env.local
+.env.*.local
+
+
+backend/app/voice_agent/.env
+backend/app/voice_agent/*.egg-info/
+
 backend/data/
 
 # IDE
@@ -36,3 +47,7 @@ backend/data/
 
 # Amazon Sumerian Hosts (reference only)
 amazon-sumerian-hosts
+
+# macOS
+.DS_Store
+**/.DS_Store

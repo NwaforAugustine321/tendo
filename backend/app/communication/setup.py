@@ -16,9 +16,6 @@ from app.communication.handlers.inapp_socket_forwarder_handler import (
 from app.communication.handlers.business_activities_persist_handler import (
     handle_business_persist_activties
 )
-from app.voice_agent.lifecycle import (
-    voice_lifecycle_service,
-)
 
 
 def create_application_event_manager(
@@ -46,18 +43,6 @@ def create_application_event_manager(
                 event.delivery is EventDelivery.APP
             ),
             name="business_activities_persist_subscriber",
-        ),
-    )
-
-    manager.register(
-        ApplicationEventSubscriber(
-            event_bus=event_bus,
-            handler=voice_lifecycle_service.handle,
-            event_filter=lambda event: event.event in {
-                "voice.session.requested",
-                "voice.session.stop_requested",
-            },
-            name="voice-lifecycle-subscriber",
         ),
     )
 

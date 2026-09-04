@@ -1,39 +1,77 @@
+
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
+from uuid import uuid4
 
 from livekit.agents import (
     AgentSession,
     ErrorEvent,
-    llm,
     stt,
     tts,
 )
+
+from ..webhooks.contracts import WebhookEvent
+from ..webhooks.client import WebhookClientInterface
+
 
 logger = logging.getLogger(__name__)
 
 
 class VoiceSessionHandlers:
-    """Registers lifecycle and recovery handlers for a voice session."""
+
+    def __init__(
+        self,
+        *,
+        webhook_client: WebhookClientInterface,
+        session_id: str,
+    ) -> None:
+
+        self._webhook_client = webhook_client
+        self._session_id = session_id
 
     def register(
         self,
         session: AgentSession,
         resources: Any = None,
     ) -> None:
-        """Register AgentSession lifecycle handlers.
 
-        Args:
-            session: The AgentSession to register handlers on.
-            resources: VoiceResources instance used to create fresh
-                STT instances on error recovery.
-        """
+        @session.on("user_input_transcribed")
+        def on_user_input_transcribed(
+            event: Any,
+        ) -> None:
+
+            if not event.is_final:
+                return
+
+            transcript = event.transcript
+
+            if not transcript:
+                return
+
+            webhook_event = WebhookEvent(
+                type="voice.transcript",
+                event_id=str(uuid4()),
+                request_id=str(uuid4()),
+                payload={
+                    "session_id": self._session_id,
+                    "text": transcript,
+                },
+            )
+
+            asyncio.create_task(
+                self._send_transcript(
+                    webhook_event,
+                ),
+            )
 
         @session.on("error")
         def on_error(
             ev: ErrorEvent,
         ) -> None:
+
             error = ev.error
             source = ev.source
 
@@ -48,25 +86,6 @@ class VoiceSessionHandlers:
             if error.recoverable:
                 return
 
-            # ---------------------------------------------------------------
-            # LLM
-            # ---------------------------------------------------------------
-
-            if isinstance(
-                source,
-                llm.LLM,
-            ):
-                logger.warning(
-                    "[VoiceSessionHandlers] Recovering from LLM error.",
-                )
-
-                error.recoverable = True
-                return
-
-            # ---------------------------------------------------------------
-            # TTS
-            # ---------------------------------------------------------------
-
             if isinstance(
                 source,
                 tts.TTS,
@@ -76,11 +95,8 @@ class VoiceSessionHandlers:
                 )
 
                 error.recoverable = True
-                return
 
-            # ---------------------------------------------------------------
-            # STT
-            # ---------------------------------------------------------------
+                return
 
             if isinstance(
                 source,
@@ -92,14 +108,17 @@ class VoiceSessionHandlers:
                 )
 
                 try:
-                    # Create a completely fresh STT instance to avoid
-                    # stale gRPC sequence state. The Riva streaming API
-                    # requires a START flag on the first request of each
-                    # sequence — reusing a corrupted connection causes
-                    # INVALID_ARGUMENT errors.
+
                     if resources is not None:
-                        fresh_stt = resources.create_stt()
-                        session._stt = fresh_stt
+
+                        get_stt = getattr(
+                            resources,
+                            "get_stt",
+                            None,
+                        )
+
+                        if callable(get_stt):
+                            session._stt = get_stt()
 
                     error.recoverable = True
 
@@ -109,16 +128,13 @@ class VoiceSessionHandlers:
                     )
 
                 except Exception:
+
                     logger.exception(
                         "[VoiceSessionHandlers] "
                         "Failed to recover STT.",
                     )
 
                 return
-
-            # ---------------------------------------------------------------
-            # Unknown error
-            # ---------------------------------------------------------------
 
             logger.error(
                 "[VoiceSessionHandlers] "
@@ -128,14 +144,35 @@ class VoiceSessionHandlers:
                 error,
             )
 
-        # -------------------------------------------------------------------
-        # Session close
-        # -------------------------------------------------------------------
-
         @session.on("close")
         def on_close(
-            *args,
+            *args: Any,
         ) -> None:
+
             logger.info(
-                "[VoiceSessionHandlers] AgentSession closed.",
+                "[VoiceSessionHandlers] AgentSession closed: "
+                "session_id=%s",
+                self._session_id,
+            )
+
+    async def _send_transcript(
+        self,
+        event: WebhookEvent,
+    ) -> None:
+
+        try:
+
+            await self._webhook_client.send(
+                hook="main_app",
+                event=event,
+            )
+
+        except Exception:
+
+            logger.exception(
+                "[VoiceSessionHandlers] "
+                "Failed to send transcript webhook: "
+                "session_id=%s event_id=%s",
+                self._session_id,
+                event.event_id,
             )

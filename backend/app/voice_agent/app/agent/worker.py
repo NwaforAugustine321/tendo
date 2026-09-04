@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import logging
@@ -8,20 +9,12 @@ from livekit.agents import (
     AgentServer,
     JobContext,
     JobProcess,
-    cli,
 )
 
-from app.communication.config import EventBusConfig
-from app.communication.event_bus import set_event_bus
-from app.communication.provider import EventBusProvider
-from app.config import settings
+from ..config import settings
+from ..webhooks.client import WebhookClient
 
-from .events import (
-    VoiceAgentEventRouter,
-    VoiceAgentEventSubscriber,
-    VoiceSessionRegistry,
-)
-from .handlers import VoiceSessionHandlers
+from .commands import VoiceCommandReceiver
 from .metadata import VoiceSessionMetadataParser
 from .model import InvalidVoiceSessionMetadata
 from .resources import VoiceResources
@@ -54,9 +47,11 @@ logging.basicConfig(
     format="%(levelname)s %(name)s: %(message)s",
 )
 
+
 logger = logging.getLogger(
     "voice-worker",
 )
+
 
 logging.getLogger(
     "livekit.agents",
@@ -91,7 +86,6 @@ server = AgentServer(
 def prewarm(
     proc: JobProcess,
 ) -> None:
-    """Initialize resources owned by a LiveKit worker process."""
 
     logger.info(
         "Initializing voice worker process: pid=%s",
@@ -102,38 +96,9 @@ def prewarm(
 
     metadata_parser = VoiceSessionMetadataParser()
 
-    event_bus_provider = EventBusProvider(
-        EventBusConfig(
-            channel="application.events",
-            options={
-                "url": settings.redis_url,
-            },
-        ),
-    )
-
-    event_bus = event_bus_provider.get()
-
-    set_event_bus(
-        event_bus,
-    )
-
-    session_registry = VoiceSessionRegistry()
-
-    event_router = VoiceAgentEventRouter(
-        registry=session_registry,
-    )
-
-    event_subscriber = VoiceAgentEventSubscriber(
-        event_bus=event_bus,
-        handler=event_router.handle,
-    )
-
     proc.userdata["resources"] = resources
+
     proc.userdata["metadata_parser"] = metadata_parser
-    proc.userdata["event_bus_provider"] = event_bus_provider
-    proc.userdata["event_bus"] = event_bus
-    proc.userdata["session_registry"] = session_registry
-    proc.userdata["event_subscriber"] = event_subscriber
 
     logger.info(
         "Voice worker process initialized: pid=%s",
@@ -150,7 +115,6 @@ server.setup_fnc = prewarm
 async def tendo_session(
     ctx: JobContext,
 ) -> None:
-    """Create and run a voice session."""
 
     resources: VoiceResources = (
         ctx.proc.userdata[
@@ -164,52 +128,35 @@ async def tendo_session(
         ]
     )
 
-    event_bus = ctx.proc.userdata[
-        "event_bus"
-    ]
-
-    session_registry: VoiceSessionRegistry = (
-        ctx.proc.userdata[
-            "session_registry"
-        ]
-    )
-
-    event_subscriber: VoiceAgentEventSubscriber = (
-        ctx.proc.userdata[
-            "event_subscriber"
-        ]
-    )
-
-    event_subscriber.start()
-
     metadata = (
         ctx.job.metadata
         or ctx.room.metadata
     )
 
     try:
+
         session_data = metadata_parser.parse(
             metadata,
         )
 
     except InvalidVoiceSessionMetadata as exc:
+
         logger.error(
             "[tendo_session] Invalid voice session metadata: %s",
             exc,
         )
 
         await ctx.shutdown()
+
         return
 
     logger.info(
         "[tendo_session] Voice session metadata parsed: "
-        "room=%s business_id=%s session_id=%s "
-        "user_id=%s record_id=%s",
+        "room=%s business_id=%s session_id=%s user_id=%s",
         ctx.room.name,
         session_data.business_id,
         session_data.session_id,
         session_data.user_id,
-        session_data.record_id,
     )
 
     ctx.log_context_fields = {
@@ -219,27 +166,34 @@ async def tendo_session(
         "business_id": session_data.business_id,
     }
 
-    graph, stt, tts = resources.get()
+    stt, tts = resources.get()
 
-    session_handlers = VoiceSessionHandlers()
+    webhook_client = WebhookClient()
 
     session_service = VoiceSessionService(
-        event_bus=event_bus,
-        registry=session_registry,
-        graph=graph,
         stt=stt,
         tts=tts,
-        handlers=session_handlers,
+        webhook_client=webhook_client,
     )
 
     session = None
 
     try:
+
+        await webhook_client.start()
+
         session = await session_service.start(
             ctx=ctx,
             data=session_data,
-            resources=resources,
         )
+
+        command_receiver = VoiceCommandReceiver(
+            room=ctx.room,
+            user_id=session_data.user_id,
+            speak=session.say,
+        )
+
+        command_receiver.register()
 
         logger.info(
             "[tendo_session] Voice session started: "
@@ -249,16 +203,8 @@ async def tendo_session(
             session_data.user_id,
         )
 
-        await ctx.connect()
-
-        logger.info(
-            "[tendo_session] Connected to LiveKit: "
-            "room=%s session_id=%s",
-            ctx.room.name,
-            session_data.session_id,
-        )
-
     except Exception:
+
         logger.exception(
             "[tendo_session] Voice session failed: "
             "room=%s session_id=%s",
@@ -267,21 +213,28 @@ async def tendo_session(
         )
 
         if session is not None:
+
             try:
+
                 await session_service.close(
                     session_id=session_data.session_id,
                     session=session,
                 )
+
             except Exception:
+
                 logger.exception(
                     "[tendo_session] Failed to close failed "
                     "voice session: session_id=%s",
                     session_data.session_id,
                 )
 
+        await webhook_client.close()
+
         raise
 
     async def _shutdown() -> None:
+
         logger.info(
             "[tendo_session] Shutting down voice session: "
             "room=%s session_id=%s",
@@ -289,33 +242,25 @@ async def tendo_session(
             session_data.session_id,
         )
 
-        if session is None:
-            return
+        if session is not None:
 
-        try:
-            await session_service.close(
-                session_id=session_data.session_id,
-                session=session,
-            )
+            try:
 
-        except Exception:
-            logger.exception(
-                "[tendo_session] Failed to close voice session: "
-                "session_id=%s",
-                session_data.session_id,
-            )
+                await session_service.close(
+                    session_id=session_data.session_id,
+                    session=session,
+                )
 
-        finally:
-            await session_registry.unregister(
-                session_data.session_id,
-            )
+            except Exception:
+
+                logger.exception(
+                    "[tendo_session] Failed to close voice session: "
+                    "session_id=%s",
+                    session_data.session_id,
+                )
+
+        await webhook_client.close()
 
     ctx.add_shutdown_callback(
         _shutdown,
-    )
-
-
-if __name__ == "__main__":
-    cli.run_app(
-        server,
     )

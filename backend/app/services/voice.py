@@ -1,25 +1,16 @@
-"""Voice session service — business logic for LiveKit voice rooms."""
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
-from livekit.api import LiveKitAPI
-from livekit.protocol.room import CreateRoomRequest
+from app.db.mongo_client import get_client
+from app.db.tools.sessions import find_active_session
 
-from app.communication.events import ApplicationEvent
-from app.db.tools.sessions import (
-    find_active_session,
-    insert_session,
-)
-from app.config.settings import settings
 
-logger = logging.getLogger(__name__)
+COLLECTION = "voice_sessions"
 
 
 class VoiceService:
-    """Encapsulates voice session business logic."""
 
     async def resolve_session(
         self,
@@ -27,13 +18,7 @@ class VoiceService:
         business_id: str,
         user_id: str,
         session_id: str,
-    ) -> str:
-        """
-        Resolve an existing voice session or create a new one.
-
-        If a session ID is supplied, it is returned unchanged.
-        Otherwise an active session is reused when available.
-        """
+    ) -> str | None:
 
         if session_id:
             return session_id
@@ -46,98 +31,87 @@ class VoiceService:
         if existing:
             return existing["id"]
 
-        new_session = await insert_session(
-            business_id,
-            user_id,
-            title="Voice Session",
-        )
+        return None
 
-        return new_session["id"]
-
-    async def ensure_room(
+    async def create_voice_session(
         self,
         *,
-        room_name: str,
-        metadata: str,
-    ) -> None:
-        """
-        Ensure that the LiveKit room exists.
+        session_id: str,
+        user_id: str,
+        business_id: str,
+        room: str,
+        livekit_url: str,
+        livekit_token: str,
+        token: str,
+    ) -> dict[str, Any]:
+        db = get_client()
 
-        This method only manages the LiveKit room.
+        await db[COLLECTION].update_one(
+            {
+                "business_id": business_id,
+                "user_id": user_id,
+            },
+            {
+                "$set": {
+                    "session_id": session_id,
+                    "room": room,
+                    "livekit_url": livekit_url,
+                    "livekit_token": livekit_token,
+                    "token": token,
+                },
+                "$setOnInsert": {
+                    "user_id": user_id,
+                    "business_id": business_id,
+                },
+            },
+            upsert=True,
+        )
 
-        Agent dispatch is handled separately by the application
-        EventBus lifecycle subscriber.
-        """
+        document = await db[COLLECTION].find_one(
+            {
+                "business_id": business_id,
+                "user_id": user_id,
+            },
+        )
 
-        async with LiveKitAPI(
-            url=settings.livekit_url,
-            api_key=settings.livekit_api_key,
-            api_secret=settings.livekit_api_secret,
-        ) as api:
+        if document is None:
+            raise RuntimeError(
+                "Voice session could not be created or retrieved.",
+            )
 
-            try:
-                await api.room.create_room(
-                    CreateRoomRequest(
-                        name=room_name,
-                        metadata=metadata,
-                        empty_timeout=300,
-                        departure_timeout=30,
-                        max_participants=2,
-                    ),
-                )
+        return document
 
-                logger.info(
-                    "LiveKit voice room created: room=%s",
-                    room_name,
-                )
-
-            except Exception as exc:
-                # A room can already exist because of:
-                #
-                # - another browser tab
-                # - reconnect
-                # - repeated start request
-                #
-                # In that case the existing room can be reused.
-                logger.debug(
-                    "LiveKit room already exists or could not "
-                    "be created: room=%s error=%s",
-                    room_name,
-                    exc,
-                )
-
-    async def request_session(
+    async def get_voice_session(
         self,
         *,
-        event_bus: Any,
-        payload: dict[str, Any],
-    ) -> None:
-        """
-        Publish a voice-session lifecycle request.
+        business_id: str,
+        user_id: str,
+    ) -> dict[str, Any] | None:
+        db = get_client()
 
-        The FastAPI voice lifecycle subscriber receives this event
-        and performs the LiveKit agent dispatch.
-
-        This service does not dispatch the agent directly.
-        """
-
-        session_id = payload.get("session_id", "")
-
-        event = ApplicationEvent(
-            event="voice.session.requested",
-            source="voice-api",
-            correlation_id=session_id,
-            data=payload,
+        return await db[COLLECTION].find_one(
+            {
+                "business_id": business_id,
+                "user_id": user_id,
+            },
         )
 
-        await event_bus.publish(
-            event,
+    async def delete_voice_session(
+        self,
+        *,
+        business_id: str,
+        user_id: str,
+    ) -> bool:
+        db = get_client()
+
+        result = await db[COLLECTION].delete_one(
+            {
+                "business_id": business_id,
+                "user_id": user_id,
+            },
         )
 
-        logger.info(
-            "Voice session requested: payload=%s",
-            payload,
-        )
+        return result.deleted_count > 0
 
 
 voice_service = VoiceService()

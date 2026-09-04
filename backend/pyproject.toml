@@ -50,17 +50,11 @@ dependencies = [
   "markdownify",
 
   # --- Voice -------------------------------------------------------------
-  # livekit-plugins-* are versioned in lockstep with livekit-agents; leave
-  # them unpinned so the resolver keeps them aligned.
+  # LiveKit agent dependencies have been moved to the dedicated
+  # voice_agent microservice (backend/app/voice_agent/pyproject.toml).
   #
-  # nvidia-riva-client backs the lazy `import riva.client` in
-  # app/runtime/rag/ingestion/loaders/audio.py. It also arrives via
-  # livekit-plugins-nvidia, but is declared here because the audio loader
-  # uses it directly.
-  "livekit-agents>=1.6.1",
-  "livekit-api>=1.2.0",
-  "livekit-plugins-langchain",
-  "livekit-plugins-nvidia",
+  # nvidia-riva-client is kept here because the audio RAG loader
+  # (app/runtime/rag/ingestion/loaders/audio.py) imports it directly.
   "nvidia-riva-client",
 
   

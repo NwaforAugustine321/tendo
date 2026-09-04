@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "voice-agent"
+version = "0.1.0"
+description = "Tendo Voice Agent Service"
+requires-python = ">=3.11"
+
+dependencies = [
+    "fastapi==0.115.12",
+    "uvicorn[standard]==0.34.2",
+    "pydantic==2.11.5",
+    "pydantic-settings==2.9.1",
+    "httpx==0.28.1",
+    "supabase==2.15.2",
+    "pymongo==4.12.1",
+    "livekit==1.1.15",
+    "livekit-agents==1.7.1",
+    "livekit-plugins-nvidia==1.7.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.5",
+    "pytest-asyncio==0.25.3",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest==8.3.5",
+    "pytest-asyncio==0.25.3",
+]

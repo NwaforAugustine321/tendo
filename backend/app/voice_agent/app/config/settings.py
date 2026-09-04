@@ -1,0 +1,37 @@
+"""Application settings."""
+
+from pydantic_settings import BaseSettings
+
+from app.webhooks.settings import WebhookSettings
+
+
+class Settings(BaseSettings):
+    supabase_url: str
+    supabase_service_role_key: str
+
+    mongodb_url: str = ""
+    mongodb_user: str = ""
+    mongodb_pass: str = ""
+    mongodb_database: str = "tendo"
+
+    livekit_url: str = ""
+    livekit_api_key: str = ""
+    livekit_api_secret: str = ""
+
+    nvidia_api_key: str = ""
+
+    webhook: WebhookSettings = WebhookSettings(
+        secret="",
+        send_hooks={},
+        receive_hooks={},
+    )
+
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "env_nested_delimiter": "__",
+        "extra": "ignore",
+    }
+
+
+settings = Settings()
