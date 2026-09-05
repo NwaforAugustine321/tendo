@@ -1,5 +1,7 @@
 import { Calendar, StickyNote, Mic, MicOff, LoaderCircle } from "lucide-react";
 
+import { useState } from "react";
+
 import { useMessage } from "../../hooks/useMessage";
 import { useBusinessStore } from "../../store/business";
 import { SpeakingIndicator } from "../atoms/SpeakingIndicator";
@@ -18,6 +20,8 @@ const RAIL_ITEMS = [
 ];
 
 export function RightRail() {
+  const [voiceSessionId, setVoiceSessionId] = useState("");
+
   const { currentProfile } = useBusinessStore();
   const businessId = currentProfile?.id ?? "";
 
@@ -29,6 +33,7 @@ export function RightRail() {
     initAgent,
     startAgent,
     stopMic,
+    stopAgent,
     statusText,
   } = useMessage();
 
@@ -46,8 +51,30 @@ export function RightRail() {
       return;
     }
 
+    /*
+     * STOP VOICE
+     *
+     * Stop both the local microphone and the
+     * backend voice agent/session.
+     */
     if (micActive) {
       stopMic();
+
+      if (voiceSessionId) {
+        try {
+          await stopAgent(businessId, voiceSessionId);
+        } catch {
+          /*
+           * stopAgent handles the user-facing
+           * error state/toast.
+           *
+           * Do not expose internal errors here.
+           */
+        }
+      }
+
+      setVoiceSessionId("");
+
       return;
     }
 
@@ -55,17 +82,23 @@ export function RightRail() {
       /*
        * Initialize the voice session using the
        * business ID from the workspace store.
-       *
-       * initAgent returns the VoiceSession.
        */
       const session = await initAgent(businessId);
 
       /*
-       * Start the agent using the same business ID
-       * and the session ID returned by initAgent.
+       * Keep the session ID so the same voice
+       * session can be explicitly stopped later.
+       */
+      setVoiceSessionId(session.session_id);
+
+      /*
+       * Start the agent using the session ID
+       * returned by initAgent.
        */
       await startAgent(businessId, session.session_id);
     } catch {
+      setVoiceSessionId("");
+
       return;
     }
   };

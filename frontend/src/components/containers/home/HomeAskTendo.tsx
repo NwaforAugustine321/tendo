@@ -12,6 +12,12 @@ export function HomeAskTendo() {
   const [textActive, setTextActive] = useState(false);
   const [voiceActive, setVoiceActive] = useState(false);
 
+  /*
+   * Keep the active voice session ID so that stopping
+   * voice can also stop the backend agent session.
+   */
+  const [voiceSessionId, setVoiceSessionId] = useState("");
+
   const { currentProfile } = useBusinessStore();
   const businessId = currentProfile?.id ?? "";
 
@@ -24,6 +30,7 @@ export function HomeAskTendo() {
     response,
     transcript,
     stopMic,
+    stopAgent,
     initAgent,
     startAgent,
   } = useMessage();
@@ -112,27 +119,41 @@ export function HomeAskTendo() {
     useWorkspaceStore.getState().setPendingChatMessage(message);
   };
 
-  /*
-   * VOICE TOGGLE
-   *
-   * Voice startup:
-   *
-   *   1. Get businessId from workspace store.
-   *   2. Initialize the voice session.
-   *   3. Get session_id from the returned session.
-   *   4. Start the agent with businessId + session_id.
-   */
   const handleVoiceToggle = async () => {
     if (micLoading) {
       return;
     }
 
+    /*
+     * STOP VOICE
+     *
+     * Previously this only stopped the microphone.
+     * Now it also stops the backend voice agent/session.
+     */
     if (micActive) {
       stopMic();
 
-      if (!agentSpeaking) {
-        setVoiceActive(false);
+      setVoiceActive(false);
+
+      /*
+       * stopAgent requires both IDs.
+       *
+       * If for some reason the local session ID is
+       * unavailable, the microphone has still already
+       * been stopped, so don't block the UI cleanup.
+       */
+      if (businessId && voiceSessionId) {
+        try {
+          await stopAgent(businessId, voiceSessionId);
+        } catch {
+          /*
+           * stopAgent already handles the user-facing
+           * error/toast. Do not expose internal errors here.
+           */
+        }
       }
+
+      setVoiceSessionId("");
 
       return;
     }
@@ -146,9 +167,16 @@ export function HomeAskTendo() {
 
       const session = await initAgent(businessId);
 
+      /*
+       * Save the session ID before starting the agent.
+       * This is then used when the user clicks stop.
+       */
+      setVoiceSessionId(session.session_id);
+
       await startAgent(businessId, session.session_id);
     } catch {
       setVoiceActive(false);
+      setVoiceSessionId("");
     }
   };
 

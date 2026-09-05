@@ -166,18 +166,6 @@ function createClient(
         errorMessage: "Session is unavailable.",
         statusText: "Session is unavailable.",
       });
-
-      /*
-       * Important:
-       *
-       * We deliberately do NOT disconnect the user's
-       * LiveKit client here.
-       *
-       * The agent left, but the user's room connection
-       * can still be valid. That allows startAgent() to
-       * dispatch a new agent into the same room.
-       */
-      toast.error("Voice session ended. You can try again.");
     },
 
     onUserSpeakingChange: (speaking) => {
@@ -223,7 +211,7 @@ function createClient(
         agentReady: false,
       });
 
-      toast.error("Voice session is unavailable. Please try again.");
+      toast.error("Audio session is unavailable. Please try again.");
     },
   });
 }
@@ -337,7 +325,7 @@ function startStatusMonitor(
         statusText: "Session is unavailable.",
       });
 
-      toast.error("Voice session is unavailable. Please try again.");
+      toast.error("Audio session is unavailable. Please try again.");
     } finally {
       statusCheckInFlight = false;
     }
@@ -368,7 +356,7 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
    */
   initAgent: async (businessId, requestedSessionId) => {
     if (!businessId) {
-      toast.error("Unable to start voice.");
+      toast.error("Unable to start audio session.");
 
       throw new Error("Business ID is required.");
     }
@@ -455,9 +443,9 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
         statusText: "Unable to start voice.",
       });
 
-      toast.error("Unable to start voice. Please try again.");
+      toast.error("Unable to start audio session. Please try again.");
 
-      throw new Error("Unable to start voice.");
+      throw new Error("Unable to start audio session.");
     }
   },
 
@@ -466,13 +454,13 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
    */
   startAgent: async (businessId, sessionId) => {
     if (!businessId) {
-      toast.error("Unable to start voice.");
+      toast.error("Unable to start audio session.");
 
       throw new Error("Business ID is required.");
     }
 
     if (!sessionId) {
-      toast.error("Unable to start voice.");
+      toast.error("Unable to start audio session.");
 
       throw new Error("Session ID is required.");
     }
@@ -546,9 +534,9 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
           statusText: "Session is unavailable.",
         });
 
-        toast.error("Voice connection is unavailable. Please try again.");
+        toast.error("Audio connection is unavailable. Please try again.");
 
-        throw new Error("Voice connection is unavailable.");
+        throw new Error("Audio connection is unavailable.");
       }
     }
 
@@ -567,9 +555,9 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
     const activeClient = client;
 
     if (!activeClient) {
-      toast.error("Voice connection is unavailable. Please try again.");
+      toast.error("Audio connection is unavailable. Please try again.");
 
-      throw new Error("Voice connection is unavailable.");
+      throw new Error("Audio connection is unavailable.");
     }
 
     try {
@@ -623,8 +611,6 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
       });
 
       startStatusMonitor(businessId, sessionId, set);
-
-      toast.success("Voice started.");
     } catch {
       if (version !== startVersion) {
         return;
@@ -645,7 +631,7 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
         statusText: "Unable to start voice.",
       });
 
-      toast.error("Unable to start voice. Please try again.");
+      toast.error("Unable to audio session. Please try again.");
 
       throw new Error("Unable to start voice.");
     }
@@ -679,8 +665,6 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
    */
   stopAgent: async (businessId, sessionId) => {
     if (!businessId || !sessionId) {
-      toast.error("Unable to stop voice.");
-
       throw new Error("Business ID and session ID are required.");
     }
 
@@ -724,8 +708,6 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
         agentSpeaking: false,
         statusText: "Disconnected",
       });
-
-      toast.success("Voice stopped.");
     }
   },
 
