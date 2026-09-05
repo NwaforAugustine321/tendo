@@ -213,24 +213,6 @@ export function useMessage() {
     return "idle";
   }, [agentSpeaking, reasoning, micActive]);
 
-  /*
-   * STATUS TEXT
-   *
-   * This is now derived from shared Zustand state.
-   *
-   * Therefore every component calling useMessage()
-   * receives the same live statusText.
-   *
-   * Example:
-   *
-   * Reasoning...
-   *      ↓
-   * Searching your knowledge...
-   *      ↓
-   * Analyzing the results...
-   *      ↓
-   * Preparing the response...
-   */
   const statusText = useMemo(() => {
     if (agentSpeaking) {
       return "Speaking...";
@@ -256,7 +238,7 @@ export function useMessage() {
 
   const isTextMode = interactionMode === "text";
 
-  const isBusy = status === "reasoning" || status === "speaking";
+  const isBusy = statusText ? true : false;
 
   return {
     events,

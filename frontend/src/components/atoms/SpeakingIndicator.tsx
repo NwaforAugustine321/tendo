@@ -250,7 +250,7 @@ export function SpeakingIndicator({ active }: Props) {
         </div>
       </div>
 
-      {agentSpeaking && (
+      {/* {agentSpeaking && (
         <div className="pointer-events-none absolute left-1/2 top-[91px] w-[100px] -translate-x-1/2">
           <div className="mx-auto w-full rounded-2xl border border-white/[0.08] bg-zinc-950/75 px-3 py-1.5 text-center text-[10px] font-medium text-zinc-300 shadow-lg backdrop-blur-md">
             <span className="block max-h-[48px] overflow-hidden break-words leading-[14px]">
@@ -258,7 +258,7 @@ export function SpeakingIndicator({ active }: Props) {
             </span>
           </div>
         </div>
-      )}
+      )} */}
     </div>
   );
 }

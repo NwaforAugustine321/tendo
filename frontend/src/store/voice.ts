@@ -167,7 +167,17 @@ function createClient(
         statusText: "Session is unavailable.",
       });
 
-      toast.error("Session has ended.");
+      /*
+       * Important:
+       *
+       * We deliberately do NOT disconnect the user's
+       * LiveKit client here.
+       *
+       * The agent left, but the user's room connection
+       * can still be valid. That allows startAgent() to
+       * dispatch a new agent into the same room.
+       */
+      toast.error("Voice session ended. You can try again.");
     },
 
     onUserSpeakingChange: (speaking) => {
@@ -199,6 +209,9 @@ function createClient(
     },
 
     onError: () => {
+      /*
+       * Do not expose the internal LiveKit/agent error.
+       */
       set({
         connectionState: "error",
         interactionMode: "text",
@@ -207,9 +220,10 @@ function createClient(
         micActive: false,
         userSpeaking: false,
         agentSpeaking: false,
+        agentReady: false,
       });
 
-      toast.error("Session is unavailable.");
+      toast.error("Voice session is unavailable. Please try again.");
     },
   });
 }
@@ -257,13 +271,16 @@ function startStatusMonitor(
         )?.status,
       );
 
-      /*
-       * The backend session is no longer active.
-       */
       if (isTerminalSessionStatus(status)) {
         stopStatusMonitor();
 
         client?.stopMic();
+
+        /*
+         * The backend says the session is finished.
+         * Clean up the client because this is a real
+         * terminal session state.
+         */
         client?.disconnect();
         client = null;
 
@@ -282,11 +299,11 @@ function startStatusMonitor(
       }
 
       /*
-       * JS_RUNNING / JS_PENDING / other
-       * non-terminal states are left alone.
+       * JS_RUNNING / JS_PENDING / other non-terminal
+       * statuses are intentionally left alone.
        *
-       * LiveKit remains the source of truth
-       * for the actual connection state.
+       * LiveKit remains the source of truth for the
+       * actual realtime connection.
        */
     } catch {
       if (monitorVersion !== statusMonitorVersion) {
@@ -296,8 +313,8 @@ function startStatusMonitor(
       statusCheckFailures += 1;
 
       /*
-       * Do not immediately kill the voice session
-       * because of one temporary status API failure.
+       * One temporary status API failure must not
+       * terminate an otherwise healthy voice session.
        */
       if (statusCheckFailures < MAX_STATUS_CHECK_FAILURES) {
         return;
@@ -320,18 +337,16 @@ function startStatusMonitor(
         statusText: "Session is unavailable.",
       });
 
-      toast.error("Session is unavailable. Please try again.");
+      toast.error("Voice session is unavailable. Please try again.");
     } finally {
       statusCheckInFlight = false;
     }
   };
 
   /*
-   * Do not make an immediate status request here.
+   * Keep the health check deliberately low frequency.
    *
-   * init/start already confirmed the session.
-   * The first health check happens after the
-   * low-frequency interval.
+   * Do not immediately call the status endpoint here.
    */
   statusMonitorTimer = setInterval(() => {
     void checkStatus();
@@ -353,12 +368,14 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
    */
   initAgent: async (businessId, requestedSessionId) => {
     if (!businessId) {
-      toast.error("Unable to start Session.");
+      toast.error("Unable to start voice.");
 
       throw new Error("Business ID is required.");
     }
 
     const version = ++lifecycleVersion;
+
+    stopStatusMonitor();
 
     set({
       connectionState: "initializing",
@@ -368,7 +385,7 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
       micActive: false,
       userSpeaking: false,
       agentSpeaking: false,
-      statusText: "Starting Session...",
+      statusText: "Starting voice...",
     });
 
     try {
@@ -382,6 +399,7 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
 
       client = null;
 
+      previousClient?.stopMic();
       previousClient?.disconnect();
 
       const nextClient = createClient(set);
@@ -433,13 +451,13 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
         micActive: false,
         userSpeaking: false,
         agentSpeaking: false,
-        errorMessage: "Unable to start Session.",
-        statusText: "Unable to start Session.",
+        errorMessage: "Unable to start voice.",
+        statusText: "Unable to start voice.",
       });
 
-      toast.error("Unable to start Session. Please try again.");
+      toast.error("Unable to start voice. Please try again.");
 
-      throw new Error("Unable to start Session.");
+      throw new Error("Unable to start voice.");
     }
   },
 
@@ -448,42 +466,129 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
    */
   startAgent: async (businessId, sessionId) => {
     if (!businessId) {
-      toast.error("Unable to start Session.");
+      toast.error("Unable to start voice.");
 
       throw new Error("Business ID is required.");
     }
 
     if (!sessionId) {
-      toast.error("Unable to start Session.");
+      toast.error("Unable to start voice.");
 
       throw new Error("Session ID is required.");
     }
 
-    const state = get();
+    let state = get();
 
-    if (state.micActive) {
+    /*
+     * Do not block a retry merely because the previous
+     * failed attempt left micActive=true.
+     *
+     * Only return when we genuinely have an active
+     * voice interaction.
+     */
+    if (
+      state.micActive &&
+      state.agentReady &&
+      state.connectionState !== "error"
+    ) {
       return;
     }
 
-    if (!client?.isConnected()) {
-      toast.error("Voice connection is unavailable. Please try again.");
+    /*
+     * If a previous failed attempt left the microphone
+     * active but the agent is no longer ready, clean
+     * that microphone state before retrying.
+     */
+    if (state.micActive && !state.agentReady) {
+      client?.stopMic();
 
-      throw new Error("Voice connection is unavailable.");
+      set({
+        micActive: false,
+        userSpeaking: false,
+        agentSpeaking: false,
+      });
+
+      state = get();
     }
+
+    /*
+     * If the user's LiveKit connection itself died,
+     * we need a fresh client connection and therefore
+     * a fresh session/token.
+     *
+     * This is the case where obtaining a new token is
+     * actually necessary.
+     */
+    if (!client?.isConnected()) {
+      stopStatusMonitor();
+
+      try {
+        await get().initAgent(businessId, sessionId);
+      } catch {
+        /*
+         * initAgent already handles the user-facing
+         * toast and generic state.
+         */
+        throw new Error("Unable to start voice.");
+      }
+
+      state = get();
+
+      if (!client?.isConnected()) {
+        set({
+          connectionState: "error",
+          interactionMode: "text",
+          agentReady: false,
+          micActive: false,
+          userSpeaking: false,
+          agentSpeaking: false,
+          errorMessage: "Session is unavailable.",
+          statusText: "Session is unavailable.",
+        });
+
+        toast.error("Voice connection is unavailable. Please try again.");
+
+        throw new Error("Voice connection is unavailable.");
+      }
+    }
+
+    /*
+     * A retry must be allowed to explicitly dispatch
+     * the agent again.
+     *
+     * Previously this depended only on isAgentReady(),
+     * which could remain stale after a failed agent job.
+     */
+    const previousStateWasError =
+      state.connectionState === "error" || !state.agentReady;
 
     const version = ++startVersion;
 
     const activeClient = client;
+
+    if (!activeClient) {
+      toast.error("Voice connection is unavailable. Please try again.");
+
+      throw new Error("Voice connection is unavailable.");
+    }
 
     try {
       set({
         connectionState: "waiting_for_agent",
         interactionMode: "listening",
         errorMessage: "",
-        statusText: "Starting Session...",
+        statusText: "Starting voice...",
       });
 
-      if (!activeClient.isAgentReady()) {
+      /*
+       * Dispatch again when:
+       *
+       * - there is no known ready agent, OR
+       * - the previous state was an error.
+       *
+       * This is the important retry fix.
+       */
+      if (previousStateWasError || !activeClient.isAgentReady()) {
         await startAgentApi(businessId, sessionId);
 
         if (version !== startVersion) {
@@ -517,12 +622,9 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
         errorMessage: "",
       });
 
-      /*
-       * Start the low-frequency session
-       * health monitor only after voice has
-       * successfully started.
-       */
       startStatusMonitor(businessId, sessionId, set);
+
+      toast.success("Voice started.");
     } catch {
       if (version !== startVersion) {
         return;
@@ -539,13 +641,13 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
         micActive: false,
         userSpeaking: false,
         agentSpeaking: false,
-        errorMessage: "Unable to start Session.",
-        statusText: "Unable to start Session.",
+        errorMessage: "Unable to start voice.",
+        statusText: "Unable to start voice.",
       });
 
-      toast.error("Unable to start Session. Please try again.");
+      toast.error("Unable to start voice. Please try again.");
 
-      throw new Error("Unable to start Session.");
+      throw new Error("Unable to start voice.");
     }
   },
 
@@ -577,7 +679,7 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
    */
   stopAgent: async (businessId, sessionId) => {
     if (!businessId || !sessionId) {
-      toast.error("Unable to stop Session.");
+      toast.error("Unable to stop voice.");
 
       throw new Error("Business ID and session ID are required.");
     }
@@ -591,7 +693,7 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
 
     set({
       connectionState: "stopping",
-      statusText: "Stopping Session...",
+      statusText: "Stopping voice...",
       errorMessage: "",
     });
 
@@ -599,10 +701,9 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
       await stopAgentApi(businessId, sessionId);
     } catch {
       /*
-       * Even if the backend stop request fails,
-       * clean up the local voice connection.
+       * Do not expose backend/internal errors.
        *
-       * Do not expose the backend error.
+       * We still clean up the local LiveKit session.
        */
     } finally {
       if (version !== lifecycleVersion) {
@@ -623,6 +724,8 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
         agentSpeaking: false,
         statusText: "Disconnected",
       });
+
+      toast.success("Voice stopped.");
     }
   },
 
@@ -637,7 +740,7 @@ export const useVoiceAgentStore = create<VoiceStore>((set, get) => ({
     const state = get();
 
     if (!state.agentReady || !client?.isConnected()) {
-      toast.error("Session is unavailable.");
+      toast.error("Voice session is unavailable.");
 
       return false;
     }
