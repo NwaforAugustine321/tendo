@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -8,6 +7,7 @@ from app.runtime.chat.message import ChatMessage
 from app.runtime.conversation.context import ConversationContext
 from app.runtime.events.emitter import Emitter
 from app.lib.i18n import I18N
+from app.runtime.presence_tracker.interface import PresenceResult
 from app.runtime.presence_tracker.manager import PresenceTracker
 from app.runtime.response_queue.queue import ResponseQueue
 from app.runtime.events.events import (
@@ -37,6 +37,17 @@ class RunContext:
 
     _context_tokens: int = 0
     _context_threshold_reached: bool = False
+
+    async def presence_classify(
+        self,
+    ) -> PresenceResult | None:
+
+        tracker = self.presence_tracker
+
+        if tracker is None:
+            return None
+
+        return await tracker.classify()
 
     async def presence_state(
         self,

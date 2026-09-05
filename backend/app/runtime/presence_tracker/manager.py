@@ -5,8 +5,11 @@ from time import monotonic
 
 from .config import PresenceTrackerConfig
 from .interface import (
+    PresenceAction,
     PresenceLLM,
     PresenceOutput,
+    PresencePhase,
+    PresenceResult,
 )
 from .state import PresenceState
 
@@ -40,9 +43,13 @@ class PresenceTracker:
         self._last_response_at = 0.0
         self._last_user_activity_at = 0.0
         self._last_state_event_at = 0.0
+        self._last_delivered_state: tuple[str, str] | None = None
+        self._last_delivered_text = ""
 
         self._started = False
         self._closed = False
+        self._progress_enabled = False
+        self._preemptive_generation = False
 
         self._interrupt_event = asyncio.Event()
 
@@ -119,6 +126,8 @@ class PresenceTracker:
 
         self._generation += 1
         self._interval_index = 0
+        self._last_delivered_state = None
+        self._last_delivered_text = ""
 
         self._last_response_at = (
             now
@@ -129,6 +138,7 @@ class PresenceTracker:
         self._last_state_event_at = now
 
         self._started = True
+        self._progress_enabled = False
         self._interrupt_event.clear()
 
         self._state = PresenceState(
@@ -138,9 +148,86 @@ class PresenceTracker:
             ),
         )
 
-        # Fire immediately without blocking the main runner.
-        self._trigger_generation(
-            force=True,
+        self._preemptive_generation = True
+        self._trigger_generation(force=True)
+
+    async def classify(self) -> PresenceResult:
+        if (
+            self._closed
+            or not self._config.enabled
+            or not self._started
+            or self._state is None
+        ):
+            return PresenceResult(
+                action=PresenceAction.HANDOFF,
+            )
+
+        generation = self._generation
+
+        if not self._is_generation_valid(generation):
+            return PresenceResult(
+                action=PresenceAction.HANDOFF,
+            )
+
+        state = self._state.snapshot()
+        state.elapsed_seconds = state.elapsed
+
+        try:
+            result = await self._llm.generate(
+                state=state,
+                phase=PresencePhase.INITIAL,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if self._is_generation_valid(generation):
+                self._progress_enabled = True
+
+            return PresenceResult(
+                action=PresenceAction.HANDOFF,
+            )
+
+        if not self._is_generation_valid(generation):
+            return PresenceResult(
+                action=PresenceAction.HANDOFF,
+            )
+
+        if result.action == PresenceAction.RESPOND:
+            message = (
+                result.message.strip()
+                if result.message
+                else None
+            )
+
+            if not message:
+                return PresenceResult(
+                    action=PresenceAction.HANDOFF,
+                )
+
+            max_length = (
+                state.max_response_length
+                or self._config.max_response_length
+            )
+
+            if len(message) > max_length:
+                message = message[
+                    :max_length
+                ].rstrip()
+
+            return PresenceResult(
+                action=PresenceAction.RESPOND,
+                message=message or None,
+            )
+
+        if result.action == PresenceAction.HANDOFF:
+            self._progress_enabled = True
+
+            return PresenceResult(
+                action=PresenceAction.HANDOFF,
+            )
+
+        return PresenceResult(
+            action=PresenceAction.HANDOFF,
         )
 
     def update(
@@ -174,7 +261,6 @@ class PresenceTracker:
 
         self._last_user_activity_at = monotonic()
 
-        # Invalidate any generation currently working.
         self._generation += 1
 
         self._cancel_task(
@@ -198,13 +284,11 @@ class PresenceTracker:
             self._closed
             or not self._started
             or self._state is None
+            or not self._progress_enabled
         ):
             return
 
         if state is not None:
-            # Status changes update the current runtime state, but they do
-            # not create a new Presence run. Preserve the original runtime
-            # clock so elapsed time continues from start().
             started_at = self._state.started_at
 
             self._state = state.snapshot()
@@ -213,19 +297,6 @@ class PresenceTracker:
 
         self._last_state_event_at = monotonic()
 
-        # A state event changes the context available to the next presence
-        # generation. It must NOT reset the pacing signals:
-        #
-        #   - elapsed runtime
-        #   - response backoff / minimum response interval
-        #   - interval progression (40s -> 60s -> 90s -> 120s -> ...)
-        #
-        # Do not invalidate an already-running generation here. In a voice
-        # agent, frequent runtime status events are normal and forcing a new
-        # generation for each one would cause overlapping/repeated speech.
-        #
-        # The next generation will take a snapshot of the latest state when
-        # the existing pacing rules allow it.
         self._evaluate_presence()
 
     def stop(self) -> None:
@@ -233,14 +304,12 @@ class PresenceTracker:
             return
 
         self._started = False
+        self._progress_enabled = False
+        self._preemptive_generation = False
 
-        # Invalidate every outstanding generation.
         self._generation += 1
-
         self._interval_index = 0
 
-        # Signal consumers that current presence output
-        # should be interrupted/stopped.
         self._interrupt_event.set()
 
         self._cancel_task(
@@ -259,8 +328,9 @@ class PresenceTracker:
 
         self._closed = True
         self._started = False
+        self._progress_enabled = False
+        self._preemptive_generation = False
 
-        # Invalidate all outstanding work.
         self._generation += 1
 
         self._interrupt_event.set()
@@ -280,11 +350,11 @@ class PresenceTracker:
         if (
             self._closed
             or not self._started
+            or not self._progress_enabled
             or self._state is None
         ):
             return
 
-        # Never start another generation while one is running.
         if (
             self._generation_task is not None
             and not self._generation_task.done()
@@ -335,6 +405,7 @@ class PresenceTracker:
         if (
             self._closed
             or not self._started
+            or not self._progress_enabled
             or self._state is None
             or not self._config.intervals
         ):
@@ -363,6 +434,7 @@ class PresenceTracker:
             if (
                 self._closed
                 or not self._started
+                or not self._progress_enabled
                 or self._state is None
             ):
                 return
@@ -382,6 +454,10 @@ class PresenceTracker:
         if (
             self._closed
             or not self._started
+            or (
+                not self._progress_enabled
+                and not self._preemptive_generation
+            )
             or self._state is None
         ):
             return
@@ -418,9 +494,15 @@ class PresenceTracker:
         state = self._state.snapshot()
         state.elapsed_seconds = state.elapsed
 
+        state_key = (
+            state.status,
+            state.stage,
+        )
+
         self._generation_task = asyncio.create_task(
             self._generate(
                 state=state,
+                state_key=state_key,
                 generation=generation,
             ),
         )
@@ -429,35 +511,34 @@ class PresenceTracker:
         self,
         *,
         state: PresenceState,
+        state_key: tuple[str, str],
         generation: int,
     ) -> None:
         try:
-
-            text = await self._llm.generate(
+            result = await self._llm.generate(
                 state=state,
+                phase=PresencePhase.PROGRESS,
             )
-
-            if not text:
-                if self._is_generation_valid(
-                    generation,
-                ):
-                    self._schedule_timer()
-
-                return
 
             if not self._is_generation_valid(
                 generation,
             ):
                 return
 
-            text = text.strip()
+            if result.action != PresenceAction.STATUS:
+                if self._preemptive_generation:
+                    self._preemptive_generation = False
+                self._schedule_timer()
+                return
+
+            text = (
+                result.message.strip()
+                if result.message
+                else None
+            )
 
             if not text:
-                if self._is_generation_valid(
-                    generation,
-                ):
-                    self._schedule_timer()
-
+                self._schedule_timer()
                 return
 
             max_length = (
@@ -475,6 +556,26 @@ class PresenceTracker:
             ):
                 return
 
+            current_state = self._state
+            if current_state is None:
+                return
+
+            current_state_key = (
+                current_state.status,
+                current_state.stage,
+            )
+
+            if current_state_key != state_key:
+                self._schedule_timer()
+                return
+
+            if (
+                self._last_delivered_state == state_key
+                or self._last_delivered_text == text
+            ):
+                self._schedule_timer()
+                return
+
             await self._output.deliver(
                 text=text,
                 generation=generation,
@@ -486,6 +587,12 @@ class PresenceTracker:
                 return
 
             self._last_response_at = monotonic()
+            self._last_delivered_state = state_key
+            self._last_delivered_text = text
+
+            was_preemptive = self._preemptive_generation
+            if was_preemptive:
+                self._preemptive_generation = False
 
             if (
                 self._interval_index
@@ -504,6 +611,8 @@ class PresenceTracker:
             if self._is_generation_valid(
                 generation,
             ):
+                if self._preemptive_generation:
+                    self._preemptive_generation = False
                 self._schedule_timer()
 
     def _is_generation_valid(

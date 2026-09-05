@@ -1,8 +1,31 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import Enum
 from typing import Protocol
 
 from .state import PresenceState
+
+
+class PresencePhase(str, Enum):
+
+    PREEMPTIVE = "preemptive"
+    INITIAL = "initial"
+    PROGRESS = "progress"
+
+
+class PresenceAction(str, Enum):
+
+    RESPOND = "respond"
+    STATUS = "status"
+    HANDOFF = "handoff"
+
+
+@dataclass(slots=True)
+class PresenceResult:
+
+    action: PresenceAction
+    message: str | None = None
 
 
 class PresenceLLM(Protocol):
@@ -11,7 +34,8 @@ class PresenceLLM(Protocol):
         self,
         *,
         state: PresenceState,
-    ) -> str | None:
+        phase: PresencePhase,
+    ) -> PresenceResult:
         ...
 
 
@@ -33,6 +57,13 @@ class PresenceTrackerInterface(Protocol):
         *,
         user_request: str,
     ) -> None:
+        ...
+
+    async def classify(
+        self,
+        *,
+        user_request: str,
+    ) -> PresenceResult:
         ...
 
     def update(

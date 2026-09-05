@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useEventReceiver, type RuntimeEvent } from "./useEmitReceiver";
 
@@ -57,24 +57,15 @@ export function useAgentSessionStatus(
     event: null,
   });
 
-  const processedCountRef = useRef(0);
-
   useEffect(() => {
-    const newEvents = receivedEvents.slice(processedCountRef.current);
-
-    if (!newEvents.length) {
+    if (!receivedEvents.length) {
       return;
     }
 
-    let nextPresence = presence;
+    let nextPresence: RuntimePresence | null = null;
     let shouldReset = false;
 
-    for (const event of newEvents) {
-      /*
-       * "message" is the Socket.IO response event.
-       *
-       * Once it arrives, the current presence is complete.
-       */
+    for (const event of receivedEvents) {
       if (event.event === "message") {
         shouldReset = true;
         continue;
@@ -92,9 +83,7 @@ export function useAgentSessionStatus(
         continue;
       }
 
-      const current = nextPresence.text;
-
-      if (!current) {
+      if (!nextPresence?.text) {
         nextPresence = {
           text,
           event: type,
@@ -103,7 +92,7 @@ export function useAgentSessionStatus(
         continue;
       }
 
-      if (text.startsWith(current)) {
+      if (text.startsWith(nextPresence.text)) {
         nextPresence = {
           text,
           event: type,
@@ -113,27 +102,37 @@ export function useAgentSessionStatus(
       }
 
       nextPresence = {
-        text: current + text,
+        text: nextPresence.text + text,
         event: type,
       };
     }
 
     if (shouldReset) {
-      if (presence.text || presence.event) {
-        setPresence({
+      setPresence((current) => {
+        if (!current.text && !current.event) {
+          return current;
+        }
+
+        return {
           text: "",
           event: null,
-        });
-      }
-    } else if (
-      nextPresence.text !== presence.text ||
-      nextPresence.event !== presence.event
-    ) {
-      setPresence(nextPresence);
+        };
+      });
+    } else if (nextPresence) {
+      setPresence((current) => {
+        if (
+          current.text === nextPresence!.text &&
+          current.event === nextPresence!.event
+        ) {
+          return current;
+        }
+
+        return nextPresence!;
+      });
     }
 
-    processedCountRef.current = receivedEvents.length;
-  }, [receivedEvents, presence]);
+    clearReceivedEvents();
+  }, [receivedEvents, clearReceivedEvents]);
 
   const clear = useCallback(() => {
     setPresence((current) => {
@@ -147,10 +146,8 @@ export function useAgentSessionStatus(
       };
     });
 
-    processedCountRef.current = receivedEvents.length;
-
     clearReceivedEvents();
-  }, [clearReceivedEvents, receivedEvents.length]);
+  }, [clearReceivedEvents]);
 
   const clearEvent = useCallback(
     (eventName: string) => {
@@ -171,11 +168,9 @@ export function useAgentSessionStatus(
             event: null,
           };
         });
-
-        processedCountRef.current = receivedEvents.length;
       }
     },
-    [clearReceivedEvent, receivedEvents.length],
+    [clearReceivedEvent],
   );
 
   return {

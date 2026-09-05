@@ -1,10 +1,15 @@
-
 from __future__ import annotations
 
 from typing import Any
 
 from app.llm.client import get_client
+from app.runtime.utils.tag_parser import extract_tag
 
+from .interface import (
+    PresenceAction,
+    PresencePhase,
+    PresenceResult,
+)
 from .state import PresenceState
 
 
@@ -13,8 +18,10 @@ class PresenceLLM:
     def __init__(
         self,
         llm: Any | None = None,
+        classifier_llm: Any | None = None,
         *,
         max_tokens: int = 160,
+        classifier_max_tokens: int = 80,
     ) -> None:
         self._llm = (
             llm
@@ -26,7 +33,18 @@ class PresenceLLM:
             )
         )
 
+        self._classifier_llm = (
+            classifier_llm
+            if classifier_llm is not None
+            else get_client(
+                config={
+                    "max_token": classifier_max_tokens,
+                },
+            )
+        )
+
         self._max_tokens = max_tokens
+        self._classifier_max_tokens = classifier_max_tokens
 
     @property
     def max_tokens(
@@ -34,20 +52,165 @@ class PresenceLLM:
     ) -> int:
         return self._max_tokens
 
+    @property
+    def classifier_max_tokens(
+        self,
+    ) -> int:
+        return self._classifier_max_tokens
+
     async def generate(
         self,
         *,
         state: PresenceState,
-    ) -> str | None:
-        prompt = self._build_prompt(state)
+        phase: PresencePhase,
+    ) -> PresenceResult:
 
-        response = await self._llm.ainvoke(
-            prompt,
+        if phase is PresencePhase.PREEMPTIVE:
+            response = await self._llm.ainvoke(
+                self._build_preemptive_prompt(
+                    state,
+                ),
+            )
+
+        elif phase is PresencePhase.INITIAL:
+            response = await self._classifier_llm.ainvoke(
+                self._build_initial_prompt(
+                    state,
+                ),
+            )
+
+        else:
+            response = await self._llm.ainvoke(
+                self._build_progress_prompt(
+                    state,
+                ),
+            )
+
+        content = self._extract_content(
+            response,
         )
 
-        return self._extract_content(response)
+        if not content:
+            if phase is PresencePhase.INITIAL:
+                return PresenceResult(
+                    action=PresenceAction.HANDOFF,
+                )
 
-    def _build_prompt(
+            return PresenceResult(
+                action=PresenceAction.STATUS,
+            )
+
+        if phase is PresencePhase.INITIAL:
+            return self._parse_initial_response(
+                content,
+            )
+
+        message = extract_tag(
+            content,
+            "message",
+        )
+
+        if not message:
+            return PresenceResult(
+                action=PresenceAction.STATUS,
+            )
+
+        message = message.strip()
+
+        if not message:
+            return PresenceResult(
+                action=PresenceAction.STATUS,
+            )
+
+        return PresenceResult(
+            action=(
+                PresenceAction.RESPOND
+                if phase is PresencePhase.PREEMPTIVE
+                else PresenceAction.STATUS
+            ),
+            message=message,
+        )
+
+    def _build_preemptive_prompt(
+        self,
+        state: PresenceState,
+    ) -> str:
+        return f"""
+You are the fast conversational layer of an AI assistant.
+
+The user has just submitted a request that may require the main
+assistant to do work.
+
+Generate one very short spoken acknowledgement indicating that you
+will look into the request.
+
+This is only an immediate conversational acknowledgement.
+
+Do not solve the request.
+Do not provide information about the request.
+Do not perform or claim any action.
+Do not claim that work has already been completed.
+Do not mention internal systems, agents, models, tools, reasoning,
+processing, backend operations, or classification.
+Do not greet the user.
+Do not ask a question.
+Do not say "please wait", "hold on", or "hang on".
+Do not repeat the user's request.
+
+Keep it natural and conversational.
+
+Maximum one short sentence.
+
+Return exactly:
+
+<message>short spoken acknowledgement</message>
+
+User request:
+{state.user_request}
+""".strip()
+
+    def _build_initial_prompt(
+        self,
+        state: PresenceState,
+    ) -> str:
+        return f"""
+You are a fast conversational routing layer.
+
+Determine whether the user's message is a lightweight conversational
+interaction or an actual task requiring the main assistant.
+
+Choose exactly one action.
+
+RESPOND:
+Use only for pure greetings, chit-chat, small talk, or acknowledgments.
+
+HANDOFF:
+Use for any question, task, analysis, tool usage, data lookup,
+creation, modification, or substantive request.
+
+CRITICAL RULES:
+- Do not solve the user's task.
+- Do not perform any business action.
+- Do not invent information.
+- Do not mention this classification process.
+- For HANDOFF, do not provide a response message.
+
+Return EXACTLY one of these XML structures.
+
+If RESPOND:
+
+<action>RESPOND</action>
+<message>Short, natural response</message>
+
+If HANDOFF:
+
+<action>HANDOFF</action>
+
+User message to classify:
+{state.user_request}
+""".strip()
+
+    def _build_progress_prompt(
         self,
         state: PresenceState,
     ) -> str:
@@ -60,74 +223,113 @@ class PresenceLLM:
             )
 
         return f"""
-                
-                You are participating in an ongoing conversation. 
-                
-                You only generate status of current user's request
-                and progress, not the final answer.
+You are generating a short spoken progress update for a voice
+conversation while the main assistant works in the background.
 
-                The user's request is currently being handled, and the work is still
-                in progress. Based on the current context below, respond naturally
-                to the user.
+Your only job is to generate a brief, natural update based on the
+safe runtime state provided below.
 
-                Your response should help maintain a natural conversation while the
-                work continues.
-                
-                Do Not generate greating message or acknowledgment.
-                Do NOT solve the user's request.
-                Do NOT provide the final answer.
-                Do NOT expose private reasoning or internal system information.
-                Do NOT invent progress or actions that are not present in the state.
-                Do NOT repeat the user's request.
+The main assistant is responsible for reasoning, tools, actions,
+and the final answer.
 
-                Use only the safe runtime state provided below.
+Do NOT greet the user.
+Do NOT provide an acknowledgement unrelated to progress.
+Do NOT solve the user's request.
+Do NOT provide the final answer.
+Do NOT expose private reasoning or internal system information.
+Do NOT invent progress.
+Do NOT repeat the user's request.
 
-                User request:
-                {state.user_request}
+CURRENT STATE:
 
-                Current status:
-                {state.status}
+User request:
+{state.user_request}
 
-                Current stage:
-                {state.stage}
+Current status:
+{state.status}
 
-                Current progress:
-                {state.message}
+Current progress:
+{state.message}
 
-                Elapsed time:
-                {int(state.elapsed_seconds)} seconds
+Completed steps:
+{completed_steps or "None"}
 
-                Iteration:
-                {state.iteration}
+Generate one short, conversational progress update based ONLY on the
+state above.
 
-                Reasoning step:
-                {state.reasoning_step}
+Rules:
+- Maximum 1 to 2 short sentences.
+- Be natural, warm, and conversational.
+- Acknowledge meaningful progress when available.
+- Do not claim something happened unless the state says it happened.
+- Never mention iteration, stage, elapsed time, reasoning steps,
+  agents, tools, backend, or other technical implementation details.
+- Do not expose chain-of-thought.
+- Do not say "please wait", "hold on", or "hang on".
+- Do not repeat the user's request.
+- Do not provide the final answer.
+- Write exactly what should be spoken aloud.
+- Do not use markdown, bullets, symbols, or emojis.
 
-                Recently completed steps:
-                {completed_steps or "None"}
+Return exactly:
 
-                Generate a short, natural conversational response based on the
-                current situation.
+<message>spoken progress response</message>
+""".strip()
 
-                Rules:
-                - Keep the response concise (maximum 1 to 2 sentences).
-                - Be natural, warm, and conversational.
-                - Acknowledge meaningful progress when available.
-                - Do not claim something happened unless the state says it happened.
-                - CRITICAL: Do not read back raw system variables to the user. Never mention technical state terms like "iteration", "stage", "seconds elapsed", "reasoning steps", "agents", "tools", or "backend".
-                - VOICE INTERFACE COMPLIANCE: Do not use bullet points, markdown formatting, symbols, or emojis. Write out text exactly as it should be spoken aloud.
-                - Do not expose chain-of-thought.
-                - Do not say "please wait" or "hold on".
-                - Do not repeat the user's request.
-                - Do not provide the final answer.
-                - If there is little useful progress information, give a brief,
-                natural acknowledgment that fits the situation.
-                """.strip()
+    @staticmethod
+    def _parse_initial_response(
+        content: str,
+    ) -> PresenceResult:
+
+        action = extract_tag(
+            content,
+            "action",
+        )
+
+        if not action:
+            return PresenceResult(
+                action=PresenceAction.HANDOFF,
+            )
+
+        action = action.strip().upper()
+
+        if action == PresenceAction.RESPOND.value.upper():
+            message = extract_tag(
+                content,
+                "message",
+            )
+
+            if not message:
+                return PresenceResult(
+                    action=PresenceAction.HANDOFF,
+                )
+
+            message = message.strip()
+
+            if not message:
+                return PresenceResult(
+                    action=PresenceAction.HANDOFF,
+                )
+
+            return PresenceResult(
+                action=PresenceAction.RESPOND,
+                message=message,
+            )
+
+        if action == PresenceAction.HANDOFF.value.upper():
+            return PresenceResult(
+                action=PresenceAction.HANDOFF,
+            )
+
+        return PresenceResult(
+            action=PresenceAction.HANDOFF,
+        )
 
     @staticmethod
     def _extract_content(
         response: Any,
     ) -> str | None:
+
         if response is None:
             return None
 
