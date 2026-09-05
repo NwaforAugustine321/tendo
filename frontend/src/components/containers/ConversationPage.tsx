@@ -93,24 +93,8 @@ export type MessageItem = {
 type Props = {
   messages: MessageItem[];
 
-  /*
-   * Whether Tendo is currently processing
-   * or speaking.
-   */
   isTyping: boolean;
 
-  /*
-   * Current runtime status text.
-   *
-   * Examples:
-   *   "Reasoning..."
-   *   "Understanding your business..."
-   *   "Checking your data..."
-   *   "Speaking..."
-   *
-   * The component must never hard-code
-   * a reasoning message.
-   */
   statusText?: string;
 
   fullScreen?: boolean;
@@ -139,8 +123,6 @@ export function ConversationPage({
   onConfirm,
   onModify,
   onCancel,
-  onRevert,
-  onContinueFromHere,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -150,9 +132,6 @@ export function ConversationPage({
 
   const mountedRef = useRef(false);
 
-  /*
-   * Scroll tracking.
-   */
   useEffect(() => {
     const element = scrollRef.current;
 
@@ -175,13 +154,6 @@ export function ConversationPage({
     };
   }, []);
 
-  /*
-   * Observe content size changes.
-   *
-   * This keeps the conversation pinned
-   * while streamed text or status content
-   * changes its height.
-   */
   useEffect(() => {
     const element = scrollRef.current;
 
@@ -208,10 +180,6 @@ export function ConversationPage({
     };
   }, []);
 
-  /*
-   * Scroll when messages or typing/status
-   * state changes.
-   */
   useEffect(() => {
     const element = scrollRef.current;
 
@@ -221,10 +189,6 @@ export function ConversationPage({
 
     const lastMessage = messages[messages.length - 1];
 
-    /*
-     * A newly submitted user message
-     * should always move to the bottom.
-     */
     if (lastMessage?.role === "user") {
       followBottomRef.current = true;
     }
@@ -249,20 +213,8 @@ export function ConversationPage({
 
   const hasMessages = messages.length > 0;
 
-  /*
-   * Only show the empty state when
-   * there is no conversation AND Tendo
-   * is not doing anything.
-   */
   const showEmptyState = !hasMessages && !isTyping;
 
-  /*
-   * Show the runtime indicator when
-   * Tendo is processing.
-   *
-   * statusText is optional, so this
-   * component does not invent a status.
-   */
   const showStatus = isTyping && Boolean(statusText);
 
   return (
@@ -302,25 +254,6 @@ export function ConversationPage({
             {messages.map((message, index) => {
               const isLast = index === messages.length - 1;
 
-              /*
-               * Understanding
-               */
-              if (message.type === "understanding" && message.understanding) {
-                return (
-                  <UnderstandingCard
-                    key={message.id}
-                    title={message.understanding.title}
-                    businessName={message.understanding.businessName}
-                    activities={message.understanding.activities}
-                    behaviors={message.understanding.behaviors}
-                    note={message.understanding.note}
-                  />
-                );
-              }
-
-              /*
-               * Input
-               */
               if (message.type === "input" && message.inputSpec) {
                 return (
                   <InputCard
@@ -332,9 +265,6 @@ export function ConversationPage({
                 );
               }
 
-              /*
-               * Confirmation
-               */
               if (message.type === "confirmation" && message.confirmation) {
                 return (
                   <ConfirmationCard
@@ -348,28 +278,6 @@ export function ConversationPage({
                 );
               }
 
-              /*
-               * Operation
-               */
-              if (message.type === "operation" && message.operation) {
-                return (
-                  <OperationCard
-                    key={message.id}
-                    operationType={message.operation.operationType}
-                    changes={message.operation.changes}
-                    onRevert={onRevert ? () => onRevert(message.id) : undefined}
-                    onContinueFromHere={
-                      onContinueFromHere
-                        ? () => onContinueFromHere(message.id)
-                        : undefined
-                    }
-                  />
-                );
-              }
-
-              /*
-               * Regular text message.
-               */
               return (
                 <MessageBubble
                   key={message.id}

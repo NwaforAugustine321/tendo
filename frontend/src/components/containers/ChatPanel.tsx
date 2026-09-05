@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Plus, History, X, Loader2 } from "lucide-react";
+import { History, Loader2, Plus, X } from "lucide-react";
 
 import { Conversation } from "../../pages/Conversation";
 
@@ -8,10 +8,10 @@ import { useBusinessStore } from "../../store/business";
 import { useWorkspaceStore } from "../../store/workspace";
 
 import {
-  listSessions,
   createSession,
-  getSessionMessages,
   deleteSession,
+  getSessionMessages,
+  listSessions,
   type ChatSession,
 } from "../../lib/services/conversations";
 
@@ -23,11 +23,13 @@ type Props = {
 
 const PAGE_SIZE = 20;
 
+type SessionMessage = {
+  role: string;
+  content: string;
+};
+
 function mapMessages(
-  messages: Array<{
-    role: string;
-    content: string;
-  }>,
+  messages: SessionMessage[],
   offset: number,
 ): MessageItem[] {
   return messages.map((message, index) => ({
@@ -46,39 +48,22 @@ export function ChatPanel({ recordId }: Props) {
   const pendingMsg = useWorkspaceStore((state) => state.pendingChatMessage);
 
   const [sessions, setSessions] = useState<ChatSession[]>([]);
-
   const [activeSessionId, setActiveSessionId] = useState("");
-
   const [initialMessages, setInitialMessages] = useState<MessageItem[]>([]);
 
   const [showHistory, setShowHistory] = useState(false);
-
   const [collapsed, setCollapsed] = useState(false);
 
   const [loading, setLoading] = useState(true);
-
   const [loadingMessages, setLoadingMessages] = useState(false);
-
   const [creatingSession, setCreatingSession] = useState(false);
 
-  /*
-   * Every async session/message operation
-   * receives a request generation.
-   *
-   * Older requests are ignored when a newer
-   * request has started.
-   */
   const requestIdRef = useRef(0);
 
-  /*
-   * Prevent duplicate automatic session
-   * creation for the same pending message.
-   */
   const pendingSessionRef = useRef<string | null>(null);
 
-  /*
-   * Load all persisted messages for a session.
-   */
+  const lastPendingMessageRef = useRef<string | null>(null);
+
   const loadMessagesForSession = useCallback(
     async (sessionId: string, requestId: number) => {
       if (!sessionId || !businessId) {
@@ -88,9 +73,8 @@ export function ChatPanel({ recordId }: Props) {
       setLoadingMessages(true);
       setInitialMessages([]);
 
-      let offset = 0;
-
       const allMessages: MessageItem[] = [];
+      let offset = 0;
 
       try {
         while (true) {
@@ -101,10 +85,6 @@ export function ChatPanel({ recordId }: Props) {
             offset,
           );
 
-          /*
-           * User switched session while
-           * this request was running.
-           */
           if (requestId !== requestIdRef.current) {
             return;
           }
@@ -122,13 +102,17 @@ export function ChatPanel({ recordId }: Props) {
           offset += PAGE_SIZE;
         }
 
-        if (requestId === requestIdRef.current) {
-          setInitialMessages(allMessages);
+        if (requestId !== requestIdRef.current) {
+          return;
         }
+
+        setInitialMessages(allMessages);
       } catch {
-        if (requestId === requestIdRef.current) {
-          setInitialMessages([]);
+        if (requestId !== requestIdRef.current) {
+          return;
         }
+
+        setInitialMessages([]);
       } finally {
         if (requestId === requestIdRef.current) {
           setLoadingMessages(false);
@@ -138,29 +122,20 @@ export function ChatPanel({ recordId }: Props) {
     [businessId],
   );
 
-  /*
-   * Load the sessions for the current
-   * business/record.
-   *
-   * IMPORTANT:
-   * pendingMsg is intentionally NOT a
-   * dependency here.
-   *
-   * Pending-message session creation is
-   * handled by the separate effect below.
-   */
   useEffect(() => {
     if (!businessId) {
+      ++requestIdRef.current;
+
       setSessions([]);
       setActiveSessionId("");
       setInitialMessages([]);
       setLoading(false);
       setLoadingMessages(false);
+
       return;
     }
 
     const requestId = ++requestIdRef.current;
-
     let cancelled = false;
 
     setLoading(true);
@@ -177,37 +152,22 @@ export function ChatPanel({ recordId }: Props) {
           return;
         }
 
+        setSessions(data);
+
         /*
-         * Existing session.
-         *
-         * The first session returned by
-         * the service is treated as the
-         * most recent session, matching
-         * the existing behavior.
+         * The service returns the newest session first.
          */
-        if (data.length > 0) {
-          const session = data[0];
+        const newestSession = data[0];
 
-          setSessions(data);
-          setActiveSessionId(session.id);
-
-          await loadMessagesForSession(session.id, requestId);
-
+        if (!newestSession) {
+          setActiveSessionId("");
+          setInitialMessages([]);
           return;
         }
 
-        /*
-         * No existing session.
-         *
-         * Do NOT create one here.
-         *
-         * If there is a pending message,
-         * the dedicated pending-message
-         * effect below will create it.
-         */
-        setSessions([]);
-        setActiveSessionId("");
-        setInitialMessages([]);
+        setActiveSessionId(newestSession.id);
+
+        await loadMessagesForSession(newestSession.id, requestId);
       } catch {
         if (cancelled || requestId !== requestIdRef.current) {
           return;
@@ -231,7 +191,7 @@ export function ChatPanel({ recordId }: Props) {
   }, [businessId, recordId, loadMessagesForSession]);
 
   /*
-   * Select a session.
+   * Select an existing conversation.
    */
   const handleSelectSession = useCallback(
     (sessionId: string) => {
@@ -244,14 +204,13 @@ export function ChatPanel({ recordId }: Props) {
         return;
       }
 
-      /*
-       * Invalidate all previous
-       * message requests immediately.
-       */
       const requestId = ++requestIdRef.current;
 
+      /*
+       * Immediately clear the old conversation while
+       * the new session is loading.
+       */
       setActiveSessionId(sessionId);
-
       setInitialMessages([]);
       setLoadingMessages(true);
       setShowHistory(false);
@@ -262,7 +221,7 @@ export function ChatPanel({ recordId }: Props) {
   );
 
   /*
-   * Create a new conversation.
+   * Create a new empty conversation.
    */
   const handleNewSession = useCallback(async () => {
     if (!businessId || creatingSession) {
@@ -272,6 +231,9 @@ export function ChatPanel({ recordId }: Props) {
     const requestId = ++requestIdRef.current;
 
     setCreatingSession(true);
+    setShowHistory(false);
+    setLoadingMessages(false);
+    setInitialMessages([]);
 
     try {
       const session = await createSession(businessId, "New Session", recordId);
@@ -280,39 +242,38 @@ export function ChatPanel({ recordId }: Props) {
         return;
       }
 
-      setSessions((previous) => [session, ...previous]);
+      setSessions((previous) => [
+        session,
+        ...previous.filter((item) => item.id !== session.id),
+      ]);
 
       setActiveSessionId(session.id);
-
       setInitialMessages([]);
       setLoadingMessages(false);
-      setShowHistory(false);
 
       /*
-       * The pending message, if any,
-       * belongs to this newly created
-       * session.
+       * If there is a pending workspace message, mark
+       * this newly created session as its destination.
        */
       pendingSessionRef.current = pendingMsg ?? null;
+
+      lastPendingMessageRef.current = pendingMsg ?? null;
     } catch {
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
       /*
-       * HTTP service handles
-       * the underlying error.
+       * Do not modify session state here.
+       * The service owns the actual error handling.
        */
     } finally {
       if (requestId === requestIdRef.current) {
         setCreatingSession(false);
       }
     }
-  }, [businessId, creatingSession, recordId, pendingMsg]);
+  }, [businessId, creatingSession, pendingMsg, recordId]);
 
-  /*
-   * Handle a pending message when no
-   * session exists.
-   *
-   * This is the ONLY automatic session
-   * creation path.
-   */
   useEffect(() => {
     if (
       !pendingMsg ||
@@ -324,39 +285,55 @@ export function ChatPanel({ recordId }: Props) {
       return;
     }
 
-    if (pendingSessionRef.current === pendingMsg) {
+    if (
+      pendingSessionRef.current === pendingMsg ||
+      lastPendingMessageRef.current === pendingMsg
+    ) {
       return;
     }
 
     pendingSessionRef.current = pendingMsg;
+    lastPendingMessageRef.current = pendingMsg;
 
     const requestId = ++requestIdRef.current;
 
     setCreatingSession(true);
+    setInitialMessages([]);
+    setLoadingMessages(false);
 
-    createSession(businessId, "New Session", recordId)
-      .then((session) => {
+    const createPendingSession = async () => {
+      try {
+        const session = await createSession(
+          businessId,
+          "New Session",
+          recordId,
+        );
+
         if (requestId !== requestIdRef.current) {
           return;
         }
 
-        setSessions((previous) => [session, ...previous]);
+        setSessions((previous) => [
+          session,
+          ...previous.filter((item) => item.id !== session.id),
+        ]);
 
         setActiveSessionId(session.id);
-
         setInitialMessages([]);
         setLoadingMessages(false);
-      })
-      .catch(() => {
+      } catch {
         if (requestId === requestIdRef.current) {
           pendingSessionRef.current = null;
+          lastPendingMessageRef.current = null;
         }
-      })
-      .finally(() => {
+      } finally {
         if (requestId === requestIdRef.current) {
           setCreatingSession(false);
         }
-      });
+      }
+    };
+
+    void createPendingSession();
   }, [
     pendingMsg,
     businessId,
@@ -367,7 +344,10 @@ export function ChatPanel({ recordId }: Props) {
   ]);
 
   /*
-   * Delete a session.
+   * Delete a conversation.
+   *
+   * Deleting an inactive session must NOT invalidate
+   * a message request for the currently active session.
    */
   const handleCloseSession = useCallback(
     async (sessionId: string) => {
@@ -377,49 +357,57 @@ export function ChatPanel({ recordId }: Props) {
 
       const wasActive = sessionId === activeSessionId;
 
+      const remainingSessions = sessions.filter(
+        (session) => session.id !== sessionId,
+      );
+
       /*
-       * Remove the session and, if it was
-       * active, select the next available
-       * session in ONE state update.
+       * Only invalidate the active request when the
+       * deleted session is actually active.
        */
-      setSessions((previous) => {
-        const next = previous.filter((session) => session.id !== sessionId);
+      if (wasActive) {
+        ++requestIdRef.current;
 
-        if (wasActive) {
-          setActiveSessionId(next[0]?.id ?? "");
+        const nextSession = remainingSessions[0];
 
-          setInitialMessages([]);
+        setSessions(remainingSessions);
+        setInitialMessages([]);
+        setLoadingMessages(false);
+        setActiveSessionId(nextSession?.id ?? "");
 
-          setLoadingMessages(false);
+        /*
+         * If another session exists, load it explicitly.
+         */
+        if (nextSession) {
+          const requestId = ++requestIdRef.current;
+
+          setLoadingMessages(true);
+
+          void loadMessagesForSession(nextSession.id, requestId);
         }
-
-        return next;
-      });
-
-      /*
-       * Invalidate any message request
-       * belonging to the deleted session.
-       */
-      ++requestIdRef.current;
+      } else {
+        setSessions(remainingSessions);
+      }
 
       try {
         await deleteSession(sessionId, businessId);
       } catch {
         /*
-         * HTTP service handles
-         * the underlying error.
+         * Keep the optimistic UI.
+         * The service owns the underlying error.
          */
       }
     },
-    [activeSessionId, businessId],
+    [activeSessionId, businessId, loadMessagesForSession, sessions],
   );
 
   /*
-   * Collapsed chat panel.
+   * Collapsed state.
    */
   if (collapsed) {
     return (
       <button
+        type="button"
         onClick={() => setCollapsed(false)}
         className="
           flex h-full w-10
@@ -427,9 +415,11 @@ export function ChatPanel({ recordId }: Props) {
           border-l border-zinc-800/60
           bg-[#0f0f0f]
           text-zinc-400
+          transition-colors
           hover:text-zinc-300
         "
         title="Open chat"
+        aria-label="Open chat"
       >
         <span
           className="
@@ -459,52 +449,69 @@ export function ChatPanel({ recordId }: Props) {
           px-1
         "
       >
-        {sessions.slice(0, 5).map((session) => (
-          <div
-            key={session.id}
-            onClick={() => handleSelectSession(session.id)}
-            className={[
-              "flex cursor-pointer",
-              "items-center gap-1",
-              "rounded-t-md px-2.5 py-1.5",
-              "text-[11px]",
-              "transition-colors",
-              activeSessionId === session.id
-                ? [
-                    "border border-zinc-800/60",
-                    "border-b-transparent",
-                    "bg-[#0f0f0f]",
-                    "text-zinc-200",
-                  ].join(" ")
-                : ["text-zinc-400", "hover:text-zinc-300"].join(" "),
-            ].join(" ")}
-          >
-            <span className="max-w-[100px] truncate">{session.title}</span>
+        {sessions.slice(0, 5).map((session) => {
+          const isActive = session.id === activeSessionId;
 
-            <button
-              onClick={(event) => {
-                event.stopPropagation();
+          return (
+            <div
+              key={session.id}
+              className={[
+                "flex shrink-0 items-center gap-1",
+                "rounded-t-md px-2.5 py-1.5",
+                "text-[11px]",
+                "transition-colors",
+                isActive
+                  ? [
+                      "border border-zinc-800/60",
+                      "border-b-transparent",
+                      "bg-[#0f0f0f]",
+                      "text-zinc-200",
+                    ].join(" ")
+                  : ["text-zinc-400", "hover:text-zinc-300"].join(" "),
+              ].join(" ")}
+            >
+              <button
+                type="button"
+                onClick={() => handleSelectSession(session.id)}
+                className="
+                  min-w-0 max-w-[100px]
+                  truncate
+                  text-left
+                "
+                title={session.title}
+              >
+                {session.title}
+              </button>
 
-                void handleCloseSession(session.id);
-              }}
-              className="
-                  ml-0.5 rounded p-0.5
-                  text-zinc-400
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void handleCloseSession(session.id);
+                }}
+                className="
+                  ml-0.5 shrink-0
+                  rounded p-0.5
+                  text-zinc-500
+                  transition-colors
                   hover:bg-zinc-800
                   hover:text-zinc-300
                 "
-              title="Close session"
-            >
-              <X size={10} />
-            </button>
-          </div>
-        ))}
+                title="Close session"
+                aria-label={`Close ${session.title}`}
+              >
+                <X size={10} />
+              </button>
+            </div>
+          );
+        })}
 
         <button
+          type="button"
           onClick={() => void handleNewSession()}
           disabled={creatingSession}
           className="
-            flex items-center gap-1
+            flex shrink-0 items-center gap-1
             px-2 py-1.5
             text-[11px]
             text-zinc-400
@@ -526,15 +533,17 @@ export function ChatPanel({ recordId }: Props) {
         <div className="flex-1" />
 
         <button
+          type="button"
           onClick={() => setShowHistory((previous) => !previous)}
           className={[
-            "rounded p-1",
+            "shrink-0 rounded p-1",
             "transition-colors",
             showHistory
               ? "bg-zinc-800 text-zinc-200"
               : ["text-zinc-400", "hover:text-zinc-300"].join(" "),
           ].join(" ")}
           title="Session history"
+          aria-label="Session history"
         >
           <History size={14} />
         </button>
@@ -558,39 +567,40 @@ export function ChatPanel({ recordId }: Props) {
               font-medium
               uppercase
               tracking-wide
-              text-zinc-400
+              text-zinc-500
             "
           >
             All sessions
           </p>
 
           {sessions.length > 0 ? (
-            sessions.map((session) => (
-              <button
-                key={session.id}
-                onClick={() => handleSelectSession(session.id)}
-                className={[
-                  "flex w-full",
-                  "cursor-pointer",
-                  "items-center",
-                  "rounded px-2 py-1",
-                  "text-[11px]",
-                  "transition-colors",
-                  "hover:bg-zinc-800",
-                  session.id === activeSessionId
-                    ? "text-emerald-400"
-                    : "text-zinc-400",
-                ].join(" ")}
-              >
-                <span className="truncate">{session.title}</span>
+            <div className="space-y-0.5">
+              {sessions.map((session) => (
+                <button
+                  key={session.id}
+                  type="button"
+                  onClick={() => handleSelectSession(session.id)}
+                  className={[
+                    "flex w-full items-center",
+                    "rounded px-2 py-1",
+                    "text-[11px]",
+                    "transition-colors",
+                    "hover:bg-zinc-800",
+                    session.id === activeSessionId
+                      ? "text-emerald-400"
+                      : "text-zinc-400",
+                  ].join(" ")}
+                >
+                  <span className="min-w-0 truncate">{session.title}</span>
 
-                <span className="ml-auto text-[9px] text-zinc-600">
-                  {new Date(session.created_at).toLocaleDateString()}
-                </span>
-              </button>
-            ))
+                  <span className="ml-auto shrink-0 pl-2 text-[9px] text-zinc-600">
+                    {new Date(session.created_at).toLocaleDateString()}
+                  </span>
+                </button>
+              ))}
+            </div>
           ) : (
-            <p className="text-[11px] text-zinc-400">No sessions yet</p>
+            <p className="text-[11px] text-zinc-500">No sessions yet</p>
           )}
         </div>
       )}
@@ -653,9 +663,11 @@ export function ChatPanel({ recordId }: Props) {
               justify-center
               gap-3
               p-4
+              text-center
             "
           >
             <button
+              type="button"
               onClick={() => void handleNewSession()}
               disabled={creatingSession}
               className="
@@ -674,7 +686,7 @@ export function ChatPanel({ recordId }: Props) {
 
               {creatingSession
                 ? "Starting…"
-                : "Ask Tendo anything about your business or Start a new conversation session..."}
+                : "Ask Tendo anything about your business or start a new conversation session..."}
             </button>
           </div>
         )}

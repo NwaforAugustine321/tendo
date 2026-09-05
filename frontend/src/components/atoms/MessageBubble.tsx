@@ -149,7 +149,7 @@ function VoiceWaveform({ audioUrl }: { audioUrl?: string }) {
 }
 
 function formatDisplayContent(content: string): string {
-  if (!content.trim().startsWith("[")) return content;
+  if (!content?.trim()?.startsWith("[")) return content;
   try {
     const responses = JSON.parse(content);
     if (
@@ -175,7 +175,7 @@ export function MessageBubble({
     hour: "2-digit",
     minute: "2-digit",
   });
-  const isVoice = content === "🎤 Voice message";
+  const isVoice = content === "Voice message";
   const displayContent = isUser ? formatDisplayContent(content) : content;
   const streamedContent = useStreamText(displayContent, !isUser && stream);
 
@@ -208,7 +208,7 @@ export function MessageBubble({
           {isVoice ? (
             <VoiceWaveform audioUrl={audioUrl} />
           ) : isUser ? (
-            displayContent.split("\n").map((line, i) => (
+            displayContent?.split("\n")?.map((line, i) => (
               <p key={i} className={i > 0 ? "mt-0.5" : ""}>
                 {line}
               </p>

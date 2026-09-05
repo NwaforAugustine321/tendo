@@ -4,8 +4,6 @@ import logging
 
 from app.communication.ws.models import (
     SocketConnection,
-    SocketMessage,
-    SocketResponse,
     SocketTextInput,
 )
 from app.communication.ws.server import (
@@ -15,6 +13,9 @@ from app.communication.ws.server import (
 )
 from app.graph.nodes.moa_orchestrator import moa_node
 from app.services.auth import COOKIE_NAME, handle_get_me
+from app.communication.events import ApplicationEvent
+from app.communication.event_bus import get_event_bus
+from app.communication.events import EventDelivery
 
 logger = logging.getLogger(__name__)
 
@@ -134,15 +135,21 @@ async def message(
         data,
         dict,
     ):
-        await socket_dispatcher.emit_to_sid(
-            sid=sid,
-            event="message",
-            payload=SocketMessage(
-                type="error",
-                payload=SocketResponse(
-                    content="Invalid message format",
-                ),
-            ).to_dict()
+        payload = {
+            "type": "error",
+            "payload": {
+                "message": "Invalid message format",
+            },
+            "user_id": user_id,
+        }
+
+        await get_event_bus().publish(
+            ApplicationEvent(
+                event="error",
+                source="agent",
+                delivery=EventDelivery.APP,
+                data=payload,
+            ),
         )
         return
 
@@ -152,15 +159,21 @@ async def message(
     )
 
     if message_type != "text":
-        await socket_dispatcher.emit_to_sid(
-            sid=sid,
-            event="message",
-            payload=SocketMessage(
-                type="error",
-                payload=SocketResponse(
-                    content="Invalid message type",
-                ),
-            ).to_dict()
+        payload = {
+            "type": "error",
+            "payload": {
+                "message": "Invalid message type",
+            },
+            "user_id": user_id,
+        }
+
+        await get_event_bus().publish(
+            ApplicationEvent(
+                event="error",
+                source="agent",
+                delivery=EventDelivery.APP,
+                data=payload,
+            ),
         )
         return
 
@@ -172,15 +185,21 @@ async def message(
         raw_payload,
         dict,
     ):
-        await socket_dispatcher.emit_to_sid(
-            sid=sid,
-            event="message",
-            payload=SocketMessage(
-                type="error",
-                payload=SocketResponse(
-                    content="Invalid message payload",
-                ),
-            ).to_dict()
+        payload = {
+            "type": "error",
+            "payload": {
+                "message": "Invalid message payload"
+            },
+            "user_id": user_id,
+        }
+
+        await get_event_bus().publish(
+            ApplicationEvent(
+                event="error",
+                source="agent",
+                delivery=EventDelivery.APP,
+                data=payload,
+            ),
         )
         return
 
@@ -191,47 +210,64 @@ async def message(
     if not text_input.content.strip():
         return
 
-    # business_id and session_id come from the message payload.
     business_id = text_input.business_id
     session_id = text_input.session_id
     user_id = connection.user_id
 
     if not user_id:
-        await socket_dispatcher.emit_to_sid(
-            sid=sid,
-            event="message",
-            payload=SocketMessage(
-                type="error",
-                payload=SocketResponse(
-                    content="Unauthorized, no user id",
-                ),
-            ).to_dict()
+        payload = {
+            "type": "error",
+            "payload": {
+                "message": "Unauthorized, no user id",
+            },
+            "user_id": user_id,
+        }
+
+        await get_event_bus().publish(
+            ApplicationEvent(
+                event="error",
+                source="agent",
+                delivery=EventDelivery.APP,
+                data=payload,
+            ),
         )
         return
 
     if not business_id:
-        await socket_dispatcher.emit_to_sid(
-            sid=sid,
-            event="message",
-            payload=SocketMessage(
-                type="error",
-                payload=SocketResponse(
-                    content="Unauthorized, no business id",
-                ),
-            ).to_dict()
+        payload = {
+            "type": "error",
+            "payload": {
+                "message": "Unauthorized, no business id"
+            },
+            "user_id": user_id,
+        }
+
+        await get_event_bus().publish(
+            ApplicationEvent(
+                event="error",
+                source="agent",
+                delivery=EventDelivery.APP,
+                data=payload,
+            ),
         )
         return
 
     if not session_id:
-        await socket_dispatcher.emit_to_sid(
-            sid=sid,
-            event="message",
-            payload=SocketMessage(
-                type="error",
-                payload=SocketResponse(
-                    content="Unauthorized, no session id",
-                ),
-            ).to_dict()
+        payload = {
+            "type": "error",
+            "payload": {
+                "message": "Unauthorized, no session id"
+            },
+            "user_id": user_id,
+        }
+
+        await get_event_bus().publish(
+            ApplicationEvent(
+                event="error",
+                source="agent",
+                delivery=EventDelivery.APP,
+                data=payload,
+            ),
         )
         return
 
@@ -260,20 +296,24 @@ async def message(
             {},
         )
 
-        await socket_dispatcher.emit_to_sid(
-            sid=sid,
-            event="message",
-            payload={
-                "data": {
-                    "type": "message",
-                    "payload": {
-                        "content": response.get(
-                            "text",
-                            "",
-                        ),
-                    },
-                },
+        payload = {
+            "type": "message",
+            "payload": {
+                "message": response.get(
+                    "text",
+                    "",
+                ),
             },
+            "user_id": user_id,
+        }
+
+        await get_event_bus().publish(
+            ApplicationEvent(
+                event="message",
+                source="agent",
+                delivery=EventDelivery.APP,
+                data=payload,
+            ),
         )
 
     except Exception as exc:
@@ -284,18 +324,21 @@ async def message(
             exc_info=True,
         )
 
-        await socket_dispatcher.emit_to_sid(
-            sid=sid,
-            event="message",
-            payload=SocketMessage(
-                type="message",
-                payload=SocketResponse(
-                    content=(
-                        "Something went wrong. "
-                        "Please try again."
-                    ),
-                ),
-            ).to_dict()
+        payload = {
+            "type": "message",
+            "payload": {
+                "message": "Something went wrong. Please try again.",
+            },
+            "user_id": user_id,
+        }
+
+        await get_event_bus().publish(
+            ApplicationEvent(
+                event="message",
+                source="agent",
+                delivery=EventDelivery.APP,
+                data=payload,
+            ),
         )
 
 

@@ -87,38 +87,37 @@ def _get_llm() -> LangChainLLM:
     return _llm_instance
 
 
-def _create_callbacks(
-    user_id: str = "",
-):
-    async def progress_callback(
-        event: StatusEvent,
-    ) -> None:
+# def _create_callbacks(
+#     user_id: str = "",
+# ):
+#     async def progress_callback(
+#         event: StatusEvent,
+#     ) -> None:
 
-        if not user_id:
-            return
+#         if not user_id:
+#             return
 
-        payload = {
-            "type": "agent.progress",
-            "payload": {
-                "status": event.status.value,
-                "message": event.message,
-            },
-            "user_id": user_id,
-            "event": "agent.progress",
-        }
+#         payload = {
+#             "type": "text.presence",
+#             "payload": {
+#                 "status": event.status.value,
+#                 "message": event.message,
+#             },
+#             "user_id": user_id,
+#         }
 
-        await get_event_bus().publish(
-            ApplicationEvent(
-                event="agent.progress",
-                source="voice-agent",
-                delivery=EventDelivery.APP,
-                data=payload,
-            ),
-        )
+#         await get_event_bus().publish(
+#             ApplicationEvent(
+#                 event="text.presence",
+#                 source="agent",
+#                 delivery=EventDelivery.APP,
+#                 data=payload,
+#             ),
+#         )
 
-    return [
-        progress_callback,
-    ]
+#     return [
+#         progress_callback,
+#     ]
 
 
 async def _voice_agent_response_callback(
@@ -142,20 +141,23 @@ async def _voice_agent_response_callback(
 
     room_name = f"tendo-{business_id}"
 
+    payload = {
+        "type": event_type,
+        "room": room_name,
+        "business_id": business_id,
+        "session_id": session_id,
+        "user_id": user_id,
+        "text": text,
+        "agent_identity": agent_identity
+    }
+
     await get_webhook_client().send(
         hook=HOOKS.VOICE_AGENT,
         event=WebhookEvent(
             type=event_type,
             event_id=f"{session_id}:{sequence}",
             request_id=f"{session_id}",
-            payload={
-                "room": room_name,
-                "business_id": business_id,
-                "session_id": session_id,
-                "user_id": user_id,
-                "text": text,
-                "agent_identity": agent_identity
-            },
+            payload=payload,
         ),
     )
 
@@ -171,14 +173,10 @@ async def _presence_callback(
     payload = {
         "type": "text.presence",
         "payload": {
-            "status": 'progress',
             "message": text,
         },
         "user_id": user_id,
-        "event": "text.presence",
     }
-
-    print('you sending me >>', payload)
 
     await get_event_bus().publish(
         ApplicationEvent(
@@ -988,14 +986,14 @@ class Planner:
             )
 
         # Keep existing progress callback behavior.
-        callbacks = _create_callbacks(
-            self._user_id,
-        )
+        # callbacks = _create_callbacks(
+        #     self._user_id,
+        # )
 
-        emitter.on(
-            EventType.PROGRESS,
-            callbacks,
-        )
+        # emitter.on(
+        #     EventType.PROGRESS,
+        #     callbacks,
+        # )
 
         agent = Agent(
             name="Assistant",

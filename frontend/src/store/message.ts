@@ -1,68 +1,82 @@
 import { create } from "zustand";
 
-import type { RuntimeEvent } from "../hooks/useEmitReceiver";
+import { EventType } from "../types/event";
+
+type EventTypeValue = (typeof EventType)[keyof typeof EventType];
 
 export type MessagePresence = {
-  text: string;
-  event: "text.presence" | null;
+  content: string;
+  event: typeof EventType.TextPresence | null;
 };
 
 export type MessageTranscript = {
-  text: string;
-  event: "voice.transcript";
-  data: RuntimeEvent;
+  content: string;
+  event: typeof EventType.VoiceTranscript;
+  data: Record<string, any>;
 };
 
 export type MessageResponse = {
-  text: string;
-  event: "message" | "voice.response";
-  data: RuntimeEvent;
+  content: string;
+  event: typeof EventType.Message | typeof EventType.VoiceResponse;
+  data: Record<string, any>;
 };
 
 type MessageState = {
-  events: RuntimeEvent[];
-  presence: MessagePresence;
+  events: Record<string, any>[];
+
+  presence: MessagePresence | null;
+
   transcript: MessageTranscript | null;
+
   response: MessageResponse | null;
 
-  addEvents: (events: RuntimeEvent[]) => void;
+  /*
+   * Reasoning is shared because multiple components
+   * can call useMessage() at the same time.
+   */
+  reasoning: boolean;
+
+  addEvents: (events: Record<string, any>[]) => void;
+
+  startReasoning: () => void;
+
+  stopReasoning: () => void;
+
   clear: () => void;
-  clearEvent: (eventName: string) => void;
+
+  clearEvent: (eventName: EventTypeValue) => void;
 };
 
-function getEventType(event: RuntimeEvent): string | null {
-  const type = event.data?.type;
+function getEventType(event: Record<string, any>): EventTypeValue | null {
+  const type = event?.type;
 
-  return typeof type === "string" ? type : null;
+  if (
+    typeof type !== "string" ||
+    !Object.values(EventType).includes(type as EventTypeValue)
+  ) {
+    return null;
+  }
+
+  return type as EventTypeValue;
 }
 
-function getPayload(event: RuntimeEvent): Record<string, unknown> | null {
-  const payload = event.data?.payload;
+function getPayload(event: Record<string, any>): Record<string, unknown> {
+  const payload = event?.payload;
 
   if (!payload || typeof payload !== "object") {
-    return null;
+    return {};
   }
 
   return payload as Record<string, unknown>;
 }
 
-function getPresenceText(event: RuntimeEvent): string {
-  if (getEventType(event) !== "text.presence") {
-    return "";
-  }
-
-  const payload = getPayload(event);
-  const message = payload?.message;
-
-  return typeof message === "string" ? message : "";
-}
-
-function getTranscript(event: RuntimeEvent): MessageTranscript | null {
-  if (getEventType(event) !== "voice.transcript") {
+function getPresenceText(event: Record<string, any>): MessagePresence | null {
+  if (getEventType(event) !== EventType.TextPresence) {
     return null;
   }
 
   const payload = getPayload(event);
+
   const message = payload?.message;
 
   if (typeof message !== "string" || !message) {
@@ -70,77 +84,63 @@ function getTranscript(event: RuntimeEvent): MessageTranscript | null {
   }
 
   return {
-    text: message,
-    event: "voice.transcript",
-    data: event,
+    content: message,
+    event: EventType.TextPresence,
   };
 }
 
-function getResponse(event: RuntimeEvent): MessageResponse | null {
-  const type = getEventType(event);
-
-  if (type !== "message" && type !== "voice.response") {
+function getTranscript(event: Record<string, any>): MessageTranscript | null {
+  if (getEventType(event) !== EventType.VoiceTranscript) {
     return null;
   }
 
   const payload = getPayload(event);
-  const text = payload?.message;
 
-  if (typeof text !== "string" || !text) {
+  const message = payload?.message;
+
+  if (typeof message !== "string" || !message) {
     return null;
   }
 
   return {
-    text,
-    event: type,
+    content: message,
+    event: EventType.VoiceTranscript,
     data: event,
   };
 }
 
-function buildPresence(events: RuntimeEvent[]): MessagePresence {
-  let text = "";
+function getResponse(event: Record<string, any>): MessageResponse | null {
+  const type = getEventType(event);
 
-  for (const event of events) {
-    const presenceText = getPresenceText(event);
+  if (type !== EventType.Message && type !== EventType.VoiceResponse) {
+    return null;
+  }
 
-    if (!presenceText) {
-      continue;
-    }
+  const payload = getPayload(event);
 
-    if (!text) {
-      text = presenceText;
-      continue;
-    }
+  const message = payload?.message;
 
-    if (presenceText.startsWith(text)) {
-      text = presenceText;
-      continue;
-    }
-
-    if (text.startsWith(presenceText)) {
-      continue;
-    }
-
-    text += presenceText;
+  if (typeof message !== "string" || !message) {
+    return null;
   }
 
   return {
-    text,
-    event: text ? "text.presence" : null,
+    content: message,
+    event: type,
+    data: event,
   };
 }
 
 export const useMessageStore = create<MessageState>((set) => ({
   events: [],
 
-  presence: {
-    text: "",
-    event: null,
-  },
+  presence: null,
 
   transcript: null,
 
   response: null,
+
+  reasoning: false,
 
   addEvents: (incomingEvents) => {
     if (!incomingEvents.length) {
@@ -149,13 +149,22 @@ export const useMessageStore = create<MessageState>((set) => ({
 
     set((state) => {
       let transcript = state.transcript;
+
       let response = state.response;
+
+      let presence = state.presence;
 
       for (const event of incomingEvents) {
         const nextTranscript = getTranscript(event);
 
         if (nextTranscript) {
           transcript = nextTranscript;
+        }
+
+        const nextPresence = getPresenceText(event);
+
+        if (nextPresence) {
+          presence = nextPresence;
         }
 
         const nextResponse = getResponse(event);
@@ -169,22 +178,32 @@ export const useMessageStore = create<MessageState>((set) => ({
 
       return {
         events,
-        presence: buildPresence(events),
+        presence,
         transcript,
         response,
       };
     });
   },
 
+  startReasoning: () => {
+    set({
+      reasoning: true,
+    });
+  },
+
+  stopReasoning: () => {
+    set({
+      reasoning: false,
+    });
+  },
+
   clear: () => {
     set({
       events: [],
-      presence: {
-        text: "",
-        event: null,
-      },
+      presence: null,
       transcript: null,
       response: null,
+      reasoning: false,
     });
   },
 
@@ -194,24 +213,30 @@ export const useMessageStore = create<MessageState>((set) => ({
         (event) => getEventType(event) !== eventName,
       );
 
-      if (eventName === "text.presence") {
+      if (eventName === EventType.TextPresence) {
         return {
           events,
-          presence: {
-            text: "",
-            event: null,
-          },
+          presence: null,
         };
       }
 
-      if (eventName === "voice.transcript") {
+      if (eventName === EventType.VoicePresence) {
+        return {
+          events,
+        };
+      }
+
+      if (eventName === EventType.VoiceTranscript) {
         return {
           events,
           transcript: null,
         };
       }
 
-      if (eventName === "message" || eventName === "voice.response") {
+      if (
+        eventName === EventType.Message ||
+        eventName === EventType.VoiceResponse
+      ) {
         return {
           events,
           response: null,

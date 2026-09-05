@@ -9,6 +9,8 @@ import { useWorkspaceStore } from "../store/workspace";
 
 import { connectSocket } from "../lib/ws";
 
+import { EventType } from "../types/event";
+
 type Props = {
   initialMessages?: MessageItem[];
   sessionId?: string;
@@ -35,18 +37,14 @@ export function Conversation({
   const businessId = currentProfile?.id ?? "";
 
   /*
-   * useMessage is the single owner of:
-   *
-   * - runtime events
-   * - presence
-   * - transcript
-   * - response
-   * - reasoning state
-   * - voice lifecycle
+   * useMessage owns runtime state
+   * and voice lifecycle.
    */
   const {
-    events,
-    status,
+    isBusy,
+    statusText,
+    transcript,
+    response,
     startTextRequest,
     initAgent,
     micActive,
@@ -59,16 +57,16 @@ export function Conversation({
   const pendingSentRef = useRef<string | null>(null);
 
   /*
-   * Number of runtime events already
-   * consumed by this Conversation.
+   * Prevent the same transcript
+   * from being appended twice.
    */
-  const processedEventCountRef = useRef(0);
+  const processedTranscriptRef = useRef<object | null>(null);
 
   /*
-   * Session currently represented by
-   * this Conversation instance.
+   * Prevent the same response
+   * from being appended twice.
    */
-  const mountedSessionRef = useRef<string | undefined>(sessionId);
+  const processedResponseRef = useRef<object | null>(null);
 
   /*
    * Keep persisted messages synchronized
@@ -76,137 +74,96 @@ export function Conversation({
    */
   useEffect(() => {
     setMessages(initialMessages ?? []);
+
+    processedTranscriptRef.current = null;
+
+    processedResponseRef.current = null;
   }, [initialMessages]);
 
   /*
-   * Detect a session boundary.
-   *
-   * Runtime events belonging to the
-   * previous session must never be
-   * replayed into this session.
+   * Reset runtime message consumption
+   * when the active session changes.
    */
   useEffect(() => {
-    if (mountedSessionRef.current === sessionId) {
-      return;
-    }
+    processedTranscriptRef.current = null;
 
-    mountedSessionRef.current = sessionId;
-
-    /*
-     * Ignore all events that existed
-     * before this session became active.
-     */
-    processedEventCountRef.current = events.length;
-
-    setMessages(initialMessages ?? []);
+    processedResponseRef.current = null;
 
     pendingSentRef.current = null;
-  }, [sessionId, initialMessages, events.length]);
+
+    setMessages(initialMessages ?? []);
+  }, [sessionId, initialMessages]);
 
   /*
-   * Convert only NEW runtime events
-   * into conversation messages.
+   * Add a voice transcript to the
+   * conversation as a user message.
    */
   useEffect(() => {
-    if (!events.length) {
+    if (!transcript) {
       return;
     }
 
-    /*
-     * The message store may have been
-     * cleared while this component
-     * remained mounted.
-     */
-    if (processedEventCountRef.current > events.length) {
-      processedEventCountRef.current = events.length;
-
+    if (processedTranscriptRef.current === transcript.data) {
       return;
     }
 
-    const startIndex = processedEventCountRef.current;
+    processedTranscriptRef.current = transcript.data;
 
-    const newEvents = events.slice(startIndex);
-
-    if (!newEvents.length) {
-      return;
-    }
-
-    /*
-     * Advance the cursor BEFORE
-     * updating React state so the same
-     * events cannot be consumed twice.
-     */
-    processedEventCountRef.current = events.length;
-
-    const newMessages: MessageItem[] = [];
-
-    for (const event of newEvents) {
-      const type = event.data?.type;
-
-      if (
-        type !== "voice.transcript" &&
-        type !== "message" &&
-        type !== "voice.response"
-      ) {
-        continue;
-      }
-
-      const payload = event.data?.payload;
-
-      if (!payload || typeof payload !== "object") {
-        continue;
-      }
-
-      const payloadRecord = payload as Record<string, unknown>;
-
-      const content =
-        typeof payloadRecord.content === "string"
-          ? payloadRecord.content
-          : typeof payloadRecord.message === "string"
-            ? payloadRecord.message
-            : "";
-
-      if (!content.trim()) {
-        continue;
-      }
-
-      if (type === "voice.transcript") {
-        newMessages.push({
-          id: `user-${Date.now()}-${newMessages.length}`,
-          role: "user",
-          content,
-          type: "text",
-        });
-
-        continue;
-      }
-
-      newMessages.push({
-        id: `assistant-${Date.now()}-${newMessages.length}`,
-        role: "assistant",
-        content,
+    setMessages((previous) => [
+      ...previous,
+      {
+        id: `user-${Date.now()}`,
+        role: "user",
+        content: transcript.content,
         type: "text",
-        stream: true,
-      });
-    }
+      },
+    ]);
+  }, [transcript]);
 
-    if (!newMessages.length) {
+  /*
+   * Add the final AI response to
+   * the conversation.
+   *
+   * Handles both:
+   *
+   * - message
+   * - voice.response
+   */
+  useEffect(() => {
+    if (!response) {
       return;
     }
 
-    setMessages((previous) => [...previous, ...newMessages]);
-  }, [events]);
+    if (processedResponseRef.current === response.data) {
+      return;
+    }
+
+    processedResponseRef.current = response.data;
+
+    setMessages((previous) => [
+      ...previous,
+      {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        content: response.content,
+        type: "text",
+        stream: false,
+      },
+    ]);
+  }, [response]);
 
   /*
    * Send a text request through the
    * existing application socket.
    *
-   * This does NOT create or own the
-   * socket lifecycle.
+   * This does not own socket lifecycle.
    */
   const sendChatText = useCallback(
     (text: string): boolean => {
-      const message = text.trim();
+      if (!text) {
+        return false;
+      }
+      const message = text?.trim();
 
       if (!message || !businessId || !sessionId) {
         return false;
@@ -262,7 +219,9 @@ export function Conversation({
             continue;
           }
 
-          const found = field.options.find((option) => option.id === optionId);
+          const found: any = field.options.find(
+            (option) => option.id === optionId,
+          );
 
           if (found) {
             return found;
@@ -280,7 +239,10 @@ export function Conversation({
    */
   const handleSendText = useCallback(
     (text: string) => {
-      const message = text.trim();
+      if (!text) {
+        return;
+      }
+      const message = text?.trim();
 
       if (!message || !businessId || !sessionId) {
         return;
@@ -292,7 +254,7 @@ export function Conversation({
 
       /*
        * Verify transport before
-       * modifying the conversation UI.
+       * changing the conversation.
        */
       const sent = sendChatText(message);
 
@@ -311,9 +273,7 @@ export function Conversation({
       ]);
 
       /*
-       * Enter:
-       *
-       * Reasoning...
+       * Enter reasoning state.
        */
       startTextRequest();
 
@@ -355,11 +315,6 @@ export function Conversation({
   /*
    * Initialize LiveKit for this
    * exact business/session pair.
-   *
-   * IMPORTANT:
-   * Catch the rejected promise.
-   * The voice store intentionally
-   * rethrows initialization errors.
    */
   useEffect(() => {
     if (!businessId || !sessionId) {
@@ -373,14 +328,8 @@ export function Conversation({
         await initAgent(businessId, sessionId);
       } catch {
         /*
-         * useMessage / voice store
-         * already exposes the error
-         * through its state.
-         *
-         * Do not allow an async
-         * initialization rejection
-         * to become an unhandled
-         * promise rejection.
+         * The voice store owns
+         * the error state.
          */
         if (cancelled) {
           return;
@@ -408,8 +357,8 @@ export function Conversation({
       await startAgent();
     } catch {
       /*
-       * Voice store owns the
-       * error state.
+       * Voice store owns
+       * the error state.
        */
     }
   }, [micActive, startAgent, stopMic]);
@@ -424,20 +373,16 @@ export function Conversation({
     [handleSendText],
   );
 
-  /*
-   * ConversationPage only needs
-   * message state and interaction
-   * callbacks.
-   */
   return (
     <ConversationPage
       messages={messages}
-      isTyping={status === "reasoning" || status === "speaking"}
+      isTyping={isBusy}
+      statusText={statusText}
       fullScreen={fullScreen}
       transparentBg={transparentBg}
       onSendText={handleSendText}
       onOptionSelect={handleOptionSelect}
-      onConfirm={() => handleOptionSelect("confirm")}
+      onConfirm={() => handleOptionSelect(EventType.Message)}
       onModify={() => {}}
       onCancel={() => handleOptionSelect("cancel")}
       onRevert={() => {}}

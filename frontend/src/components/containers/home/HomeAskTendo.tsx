@@ -1,22 +1,30 @@
 import { useEffect, useState } from "react";
+
 import { Mic, MicOff, LoaderCircle } from "lucide-react";
 
 import { useMessage } from "../../../hooks/useMessage";
+
 import { useWorkspaceStore } from "../../../store/workspace";
+
+import { EventType } from "../../../types/event";
 
 export function HomeAskTendo() {
   const [value, setValue] = useState("");
+
   const [textActive, setTextActive] = useState(false);
+
   const [voiceActive, setVoiceActive] = useState(false);
 
   const {
     status,
+    isBusy,
     statusText,
     micActive,
     agentSpeaking,
     connectionState,
     response,
     transcript,
+    presence,
     stopMic,
   } = useMessage();
 
@@ -28,64 +36,111 @@ export function HomeAskTendo() {
     connectionState === "stopping";
 
   /*
-   * Text lifecycle.
+   * TEXT REQUEST LIFECYCLE
    *
-   * The indicator starts when the user
-   * submits text and stays visible until
-   * the final response arrives.
+   * A text request is started locally by submit().
+   *
+   * We keep textActive=true until the FINAL text
+   * response arrives.
+   *
+   * Do not use `status === idle` here because the
+   * status/reasoning state belongs to this particular
+   * useMessage() instance.
    */
   useEffect(() => {
-    if (status === "reasoning") {
+    if (response?.event !== EventType.Message) {
       return;
     }
 
-    if (response?.event === "message") {
-      setTextActive(false);
-    }
-  }, [status, response]);
+    /*
+     * Final text response received.
+     *
+     * This is the reset point for the text indicator.
+     */
+    setTextActive(false);
+  }, [response?.event]);
 
   /*
-   * Voice lifecycle.
+   * VOICE REQUEST LIFECYCLE
    *
-   * Once a transcript arrives, the voice
-   * request is being processed.
+   * A voice request becomes active when the transcript
+   * arrives.
    *
-   * Keep the indicator visible while Tendo
-   * is reasoning or speaking.
+   * Keep the indicator visible until voice.response
+   * has completed speaking.
    */
   useEffect(() => {
-    if (transcript) {
+    if (transcript?.content) {
       setVoiceActive(true);
     }
+  }, [transcript?.content]);
 
-    if (response?.event === "voice.response" && !agentSpeaking) {
+  useEffect(() => {
+    if (response?.event !== EventType.VoiceResponse) {
+      return;
+    }
+
+    /*
+     * The voice response has arrived.
+     *
+     * Keep the indicator while Tendo is speaking.
+     * It is cleared once speaking has finished.
+     */
+    if (!agentSpeaking) {
       setVoiceActive(false);
     }
-  }, [transcript, response, agentSpeaking]);
+  }, [response?.event, agentSpeaking]);
 
   /*
-   * The indicator is controlled by the
-   * interaction lifecycle, NOT by whether
-   * statusText happens to contain text.
+   * When the agent finishes speaking, make sure the
+   * voice indicator is reset.
    */
-  const showIndicator = textActive || voiceActive || agentSpeaking;
+  useEffect(() => {
+    if (agentSpeaking) {
+      return;
+    }
+
+    if (!voiceActive) {
+      return;
+    }
+
+    if (response?.event === EventType.VoiceResponse) {
+      setVoiceActive(false);
+    }
+  }, [agentSpeaking, voiceActive, response?.event]);
 
   /*
-   * statusText is only the content inside
-   * the indicator.
+   * IMPORTANT
    *
-   * The indicator itself does not depend
-   * on statusText.
+   * Do NOT gate this with:
+   *
+   *   status !== "idle"
+   *
+   * because HomeAskTendo's local useMessage()
+   * can still have status="idle" while another
+   * useMessage() instance is processing the request.
+   *
+   * textActive / voiceActive are the local indicator
+   * lifecycle for this component.
    */
-  const displayedStatus =
-    statusText ||
-    (agentSpeaking
-      ? "Speaking..."
-      : status === "reasoning"
-        ? "Reasoning..."
-        : voiceActive
-          ? "Reasoning..."
-          : "Reasoning...");
+  //   const showIndicator = isBusy; // textActive || voiceActive || agentSpeaking;
+
+  /*
+   * STATUS DISPLAY
+   *
+   * statusText remains LIVE.
+   *
+   * We intentionally do NOT store statusText in local
+   * state. Every new statusText value from useMessage()
+   * should immediately be reflected here.
+   *
+   * Priority:
+   *
+   * 1. Speaking... while the agent is speaking
+   * 2. statusText when available
+   * 3. Reasoning... while text/voice processing
+   */
+  //   const displayedStatus = agentSpeaking ? "Speaking..." : statusText;
 
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
@@ -96,28 +151,55 @@ export function HomeAskTendo() {
       return;
     }
 
+    /*
+     * Reset any previous voice indicator before
+     * starting a new text request.
+     */
+    setVoiceActive(false);
+
+    /*
+     * Clear the input immediately.
+     */
     setValue("");
 
     /*
-     * Show the indicator immediately.
-     * It does not matter whether the backend
-     * has sent statusText yet.
+     * Start the local text indicator immediately.
+     *
+     * This is important because the HomeAskTendo
+     * useMessage() instance is separate from the
+     * Conversation useMessage() instance.
      */
     setTextActive(true);
 
+    /*
+     * The workspace/Conversation flow owns the
+     * actual request execution.
+     */
     useWorkspaceStore.getState().setPendingChatMessage(message);
   };
 
   const handleVoiceToggle = () => {
     if (micActive) {
       stopMic();
-      setVoiceActive(false);
+
+      /*
+       * Stopping the microphone ends the local
+       * voice indicator if there is no response
+       * currently being spoken.
+       */
+      if (!agentSpeaking) {
+        setVoiceActive(false);
+      }
+
       return;
     }
 
     /*
-     * Show the indicator immediately
-     * when voice mode starts.
+     * Starting the microphone itself does not mean
+     * a request is being processed.
+     *
+     * The actual voice request begins when the
+     * transcript arrives.
      */
     setVoiceActive(true);
 
@@ -126,7 +208,7 @@ export function HomeAskTendo() {
 
   return (
     <div className="w-full">
-      {showIndicator && (
+      {isBusy && (
         <div className="mb-2 flex justify-start">
           <div className="inline-flex w-fit items-center gap-2 rounded-2xl border border-zinc-800/90 bg-[#141414] px-4 py-2.5">
             <span className="flex items-center gap-1">
@@ -138,7 +220,7 @@ export function HomeAskTendo() {
             </span>
 
             <span className="animate-pulse text-xs text-zinc-400">
-              {displayedStatus}
+              {statusText}
             </span>
           </div>
         </div>
@@ -155,6 +237,7 @@ export function HomeAskTendo() {
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
+
                 submit();
               }
             }}

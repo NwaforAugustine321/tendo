@@ -4,15 +4,12 @@ import type { Socket } from "socket.io-client";
 
 import { connectSocket } from "../lib/ws";
 
-export type RuntimeEvent = {
-  event: string;
-  data: Record<string, unknown>;
-};
-
 type SocketPayload = Record<string, unknown>;
 
 export function useEventReceiver(events?: string[]) {
-  const [received, setReceived] = useState<RuntimeEvent | null>(null);
+  const [received, setReceived] = useState<Record<string, any> | null | any>(
+    null,
+  );
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -25,12 +22,7 @@ export function useEventReceiver(events?: string[]) {
 
     for (const eventName of events ?? []) {
       const listener = (payload: SocketPayload) => {
-        console.log(`[socket] ${eventName}`, payload);
-
-        setReceived({
-          event: eventName,
-          data: payload,
-        });
+        setReceived(payload.data);
       };
 
       listeners.set(eventName, listener);
