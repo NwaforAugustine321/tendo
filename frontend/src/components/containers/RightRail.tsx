@@ -1,8 +1,7 @@
 import { Calendar, StickyNote, Mic, MicOff, LoaderCircle } from "lucide-react";
 
 import { useMessage } from "../../hooks/useMessage";
-import { useVoiceAgentStore } from "../../store/voice";
-
+import { useBusinessStore } from "../../store/business";
 import { SpeakingIndicator } from "../atoms/SpeakingIndicator";
 
 const RAIL_ITEMS = [
@@ -19,16 +18,19 @@ const RAIL_ITEMS = [
 ];
 
 export function RightRail() {
+  const { currentProfile } = useBusinessStore();
+  const businessId = currentProfile?.id ?? "";
+
   const {
     connectionState,
-    businessId,
     micActive,
+    agentSpeaking,
+    isVoiceMode,
     initAgent,
     startAgent,
     stopMic,
-  } = useVoiceAgentStore();
-
-  const { isVoiceMode, agentSpeaking, statusText } = useMessage();
+    statusText,
+  } = useMessage();
 
   const isActive = isVoiceMode || micActive || agentSpeaking;
 
@@ -36,7 +38,8 @@ export function RightRail() {
     connectionState === "initializing" ||
     connectionState === "connecting" ||
     connectionState === "waiting_for_agent" ||
-    connectionState === "reconnecting";
+    connectionState === "reconnecting" ||
+    connectionState === "stopping";
 
   const handleMicClick = async () => {
     if (micLoading || !businessId) {
@@ -49,8 +52,19 @@ export function RightRail() {
     }
 
     try {
-      await initAgent(businessId);
-      await startAgent();
+      /*
+       * Initialize the voice session using the
+       * business ID from the workspace store.
+       *
+       * initAgent returns the VoiceSession.
+       */
+      const session = await initAgent(businessId);
+
+      /*
+       * Start the agent using the same business ID
+       * and the session ID returned by initAgent.
+       */
+      await startAgent(businessId, session.session_id);
     } catch {
       return;
     }
@@ -69,7 +83,10 @@ export function RightRail() {
       <SpeakingIndicator active={isActive} />
 
       <aside
-        className="hidden h-full w-[52px] flex-col items-center gap-2 border-l border-zinc-800/60 bg-[#0f0f0f] py-3 md:flex"
+        className={[
+          "hidden h-full w-[52px] flex-col items-center gap-2",
+          "border-l border-zinc-800/60 bg-[#0f0f0f] py-3 md:flex",
+        ].join(" ")}
         aria-label="Side panel"
       >
         {RAIL_ITEMS.map((item) => (
@@ -92,15 +109,16 @@ export function RightRail() {
             void handleMicClick();
           }}
           disabled={micLoading || !businessId}
-          className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
+          className={[
+            "flex h-9 w-9 items-center justify-center rounded-full",
+            "transition-colors",
             micActive
               ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
-              : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
-          } ${
+              : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300",
             micLoading || !businessId
               ? "cursor-not-allowed opacity-40"
-              : "cursor-pointer"
-          }`}
+              : "cursor-pointer",
+          ].join(" ")}
           aria-label={micLabel}
           title={micLabel}
         >

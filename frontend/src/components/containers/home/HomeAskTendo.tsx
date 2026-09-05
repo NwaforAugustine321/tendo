@@ -3,20 +3,19 @@ import { useEffect, useState } from "react";
 import { Mic, MicOff, LoaderCircle } from "lucide-react";
 
 import { useMessage } from "../../../hooks/useMessage";
-
+import { useBusinessStore } from "../../../store/business";
 import { useWorkspaceStore } from "../../../store/workspace";
-
 import { EventType } from "../../../types/event";
 
 export function HomeAskTendo() {
   const [value, setValue] = useState("");
-
   const [textActive, setTextActive] = useState(false);
-
   const [voiceActive, setVoiceActive] = useState(false);
 
+  const { currentProfile } = useBusinessStore();
+  const businessId = currentProfile?.id ?? "";
+
   const {
-    status,
     isBusy,
     statusText,
     micActive,
@@ -24,8 +23,9 @@ export function HomeAskTendo() {
     connectionState,
     response,
     transcript,
-    presence,
     stopMic,
+    initAgent,
+    startAgent,
   } = useMessage();
 
   const micLoading =
@@ -37,63 +37,47 @@ export function HomeAskTendo() {
 
   /*
    * TEXT REQUEST LIFECYCLE
-   *
-   * A text request is started locally by submit().
-   *
-   * We keep textActive=true until the FINAL text
-   * response arrives.
-   *
-   * Do not use `status === idle` here because the
-   * status/reasoning state belongs to this particular
-   * useMessage() instance.
    */
   useEffect(() => {
     if (response?.event !== EventType.Message) {
       return;
     }
 
-    /*
-     * Final text response received.
-     *
-     * This is the reset point for the text indicator.
-     */
     setTextActive(false);
   }, [response?.event]);
 
   /*
    * VOICE REQUEST LIFECYCLE
    *
-   * A voice request becomes active when the transcript
-   * arrives.
-   *
-   * Keep the indicator visible until voice.response
-   * has completed speaking.
+   * The voice request becomes active once the
+   * transcript arrives.
    */
   useEffect(() => {
-    if (transcript?.content) {
-      setVoiceActive(true);
+    if (!transcript?.content) {
+      return;
     }
+
+    setVoiceActive(true);
   }, [transcript?.content]);
 
+  /*
+   * VOICE RESPONSE LIFECYCLE
+   *
+   * Keep the indicator active while Tendo is speaking.
+   */
   useEffect(() => {
     if (response?.event !== EventType.VoiceResponse) {
       return;
     }
 
-    /*
-     * The voice response has arrived.
-     *
-     * Keep the indicator while Tendo is speaking.
-     * It is cleared once speaking has finished.
-     */
     if (!agentSpeaking) {
       setVoiceActive(false);
     }
   }, [response?.event, agentSpeaking]);
 
   /*
-   * When the agent finishes speaking, make sure the
-   * voice indicator is reset.
+   * Make sure the local voice indicator is cleared
+   * after Tendo finishes speaking.
    */
   useEffect(() => {
     if (agentSpeaking) {
@@ -110,38 +94,8 @@ export function HomeAskTendo() {
   }, [agentSpeaking, voiceActive, response?.event]);
 
   /*
-   * IMPORTANT
-   *
-   * Do NOT gate this with:
-   *
-   *   status !== "idle"
-   *
-   * because HomeAskTendo's local useMessage()
-   * can still have status="idle" while another
-   * useMessage() instance is processing the request.
-   *
-   * textActive / voiceActive are the local indicator
-   * lifecycle for this component.
+   * TEXT SUBMISSION
    */
-  //   const showIndicator = isBusy; // textActive || voiceActive || agentSpeaking;
-
-  /*
-   * STATUS DISPLAY
-   *
-   * statusText remains LIVE.
-   *
-   * We intentionally do NOT store statusText in local
-   * state. Every new statusText value from useMessage()
-   * should immediately be reflected here.
-   *
-   * Priority:
-   *
-   * 1. Speaking... while the agent is speaking
-   * 2. statusText when available
-   * 3. Reasoning... while text/voice processing
-   */
-  //   const displayedStatus = agentSpeaking ? "Speaking..." : statusText;
-
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
 
@@ -151,42 +105,31 @@ export function HomeAskTendo() {
       return;
     }
 
-    /*
-     * Reset any previous voice indicator before
-     * starting a new text request.
-     */
     setVoiceActive(false);
-
-    /*
-     * Clear the input immediately.
-     */
     setValue("");
-
-    /*
-     * Start the local text indicator immediately.
-     *
-     * This is important because the HomeAskTendo
-     * useMessage() instance is separate from the
-     * Conversation useMessage() instance.
-     */
     setTextActive(true);
 
-    /*
-     * The workspace/Conversation flow owns the
-     * actual request execution.
-     */
     useWorkspaceStore.getState().setPendingChatMessage(message);
   };
 
-  const handleVoiceToggle = () => {
+  /*
+   * VOICE TOGGLE
+   *
+   * Voice startup:
+   *
+   *   1. Get businessId from workspace store.
+   *   2. Initialize the voice session.
+   *   3. Get session_id from the returned session.
+   *   4. Start the agent with businessId + session_id.
+   */
+  const handleVoiceToggle = async () => {
+    if (micLoading) {
+      return;
+    }
+
     if (micActive) {
       stopMic();
 
-      /*
-       * Stopping the microphone ends the local
-       * voice indicator if there is no response
-       * currently being spoken.
-       */
       if (!agentSpeaking) {
         setVoiceActive(false);
       }
@@ -194,16 +137,19 @@ export function HomeAskTendo() {
       return;
     }
 
-    /*
-     * Starting the microphone itself does not mean
-     * a request is being processed.
-     *
-     * The actual voice request begins when the
-     * transcript arrives.
-     */
-    setVoiceActive(true);
+    if (!businessId) {
+      return;
+    }
 
-    window.dispatchEvent(new CustomEvent("tendo:voice-toggle"));
+    try {
+      setVoiceActive(true);
+
+      const session = await initAgent(businessId);
+
+      await startAgent(businessId, session.session_id);
+    } catch {
+      setVoiceActive(false);
+    }
   };
 
   return (
@@ -213,9 +159,7 @@ export function HomeAskTendo() {
           <div className="inline-flex w-fit items-center gap-2 rounded-2xl border border-zinc-800/90 bg-[#141414] px-4 py-2.5">
             <span className="flex items-center gap-1">
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:0ms]" />
-
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:150ms]" />
-
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:300ms]" />
             </span>
 
@@ -237,7 +181,6 @@ export function HomeAskTendo() {
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
-
                 submit();
               }
             }}
@@ -249,17 +192,23 @@ export function HomeAskTendo() {
           <div className="flex items-center gap-2 pb-0.5">
             <button
               type="button"
-              onClick={handleVoiceToggle}
-              disabled={micLoading}
+              onClick={() => {
+                void handleVoiceToggle();
+              }}
+              disabled={micLoading || !businessId}
               aria-label={micActive ? "Stop talking to Tendo" : "Talk to Tendo"}
               title={micActive ? "Stop talking to Tendo" : "Talk to Tendo"}
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-all ${
+              className={[
+                "flex h-9 w-9 shrink-0 items-center",
+                "justify-center rounded-full border",
+                "transition-all",
                 micActive
                   ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
-                  : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
-              } ${
-                micLoading ? "cursor-not-allowed opacity-40" : "cursor-pointer"
-              }`}
+                  : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300",
+                micLoading || !businessId
+                  ? "cursor-not-allowed opacity-40"
+                  : "cursor-pointer",
+              ].join(" ")}
             >
               {micLoading ? (
                 <LoaderCircle size={20} className="animate-spin" />
