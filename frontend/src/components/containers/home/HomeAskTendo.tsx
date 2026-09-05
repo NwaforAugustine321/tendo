@@ -1,137 +1,51 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Mic, MicOff, LoaderCircle } from "lucide-react";
 
-import { useAgentSessionStatus } from "../../../hooks/useAgentSessionStatus";
-import { useVoiceAgentStore } from "../../../lib/voice-agent/store";
+import { useMessage } from "../../../hooks/useMessage";
 import { useWorkspaceStore } from "../../../store/workspace";
-
-type InteractionMode = "text" | "voice";
 
 export function HomeAskTendo() {
   const [value, setValue] = useState("");
-  const [interactionMode, setInteractionMode] =
-    useState<InteractionMode>("text");
-  const [initializing, setInitializing] = useState(false);
 
-  const wasSpeakingRef = useRef(false);
-  const wasMicActiveRef = useRef(false);
+  const {
+    interactionMode,
+    statusText,
+    micActive,
+    agentSpeaking,
+    connectionState,
+    stopMic,
+  } = useMessage();
 
-  const { presence, clear: clearPresence } = useAgentSessionStatus([
-    "voice.presence",
-    "text.presence",
-    "message",
-  ]);
-
-  const micActive = useVoiceAgentStore((state) => state.micActive);
-  const agentSpeaking = useVoiceAgentStore((state) => state.agentSpeaking);
-  const micLoading = useVoiceAgentStore((state: any) => state.micLoading);
-  const stopMic = useVoiceAgentStore((state) => state.stopMic);
-
-  const latestPresence = presence.text;
-
-  /*
-   * A new presence replaces the initial
-   * Reasoning... state.
-   */
-  useEffect(() => {
-    if (latestPresence) {
-      setInitializing(false);
-    }
-  }, [latestPresence]);
-
-  /*
-   * When speaking finishes, the current
-   * response is complete.
-   *
-   * Clear the response status. If voice is
-   * still active, the status falls back to
-   * Listening...
-   */
-  useEffect(() => {
-    if (wasSpeakingRef.current && !agentSpeaking) {
-      clearPresence();
-      setInitializing(false);
-    }
-
-    wasSpeakingRef.current = agentSpeaking;
-  }, [agentSpeaking, clearPresence]);
-
-  /*
-   * Voice lifecycle.
-   *
-   * Activating the microphone means the user
-   * is ready to speak, so the status is
-   * Listening..., not Reasoning....
-   */
-  useEffect(() => {
-    const wasMicActive = wasMicActiveRef.current;
-
-    if (!wasMicActive && micActive) {
-      clearPresence();
-      setInteractionMode("voice");
-      setInitializing(false);
-    }
-
-    if (wasMicActive && !micActive) {
-      clearPresence();
-      setInteractionMode("text");
-      setInitializing(false);
-    }
-
-    wasMicActiveRef.current = micActive;
-  }, [micActive, clearPresence]);
+  const micLoading =
+    connectionState === "initializing" ||
+    connectionState === "connecting" ||
+    connectionState === "waiting_for_agent" ||
+    connectionState === "reconnecting" ||
+    connectionState === "stopping";
 
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
 
     const message = value.trim();
 
-    if (!message) return;
+    if (!message) {
+      return;
+    }
 
-    clearPresence();
-
-    setInteractionMode("text");
-    setInitializing(true);
     setValue("");
 
     useWorkspaceStore.getState().setPendingChatMessage(message);
   };
 
   const handleVoiceToggle = () => {
-    clearPresence();
-
     if (micActive) {
       stopMic();
-      setInteractionMode("text");
-      setInitializing(false);
-    } else {
-      setInteractionMode("voice");
-      setInitializing(false);
     }
 
     window.dispatchEvent(new CustomEvent("tendo:voice-toggle"));
   };
 
-  /*
-   * Status priority:
-   *
-   * 1. Speaking...
-   * 2. Current presence
-   * 3. Reasoning... for an active request
-   * 4. Listening... while voice is active
-   * 5. Nothing in text mode
-   */
-  let displayedStatus = "";
-
-  if (agentSpeaking) {
-    displayedStatus = "Speaking...";
-  } else if (latestPresence) {
-    displayedStatus = latestPresence;
-  } else if (initializing) {
-    displayedStatus = "Reasoning...";
-  } else if (interactionMode === "voice" && micActive) {
-    displayedStatus = "Listening...";
-  }
+  const displayedStatus = statusText;
 
   return (
     <div className="w-full">

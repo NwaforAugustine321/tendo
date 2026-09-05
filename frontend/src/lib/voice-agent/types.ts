@@ -10,6 +10,8 @@ export type VoiceConnectionState =
   | "stopping"
   | "error";
 
+export type VoiceInteractionMode = "text" | "listening" | "speaking";
+
 export type VoiceSession = {
   token: string;
   url: string;

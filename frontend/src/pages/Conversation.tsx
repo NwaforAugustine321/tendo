@@ -1,10 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ConversationPage, type MessageItem } from "../components/containers";
 
-import { useVoiceAgentStore } from "../lib/voice-agent/store";
-
-import { useEventReceiver } from "../hooks/useEmitReceiver";
+import { useMessage } from "../hooks/useMessage";
 
 import { useBusinessStore } from "../store/business";
 
@@ -41,26 +39,32 @@ export function Conversation({
     initialMessages ?? [],
   );
 
-  const [thinking, setThinking] = useState(false);
-  const [wakeActive, setWakeActive] = useState(false);
   const [socketConnected, setSocketConnected] = useState(true);
+
+  const [wakeActive, setWakeActive] = useState(false);
 
   const { currentProfile } = useBusinessStore();
 
   const businessId = currentProfile?.id ?? "";
 
   const {
-    connectionState,
+    statusText,
+    isVoiceMode,
     micActive,
     agentSpeaking,
-    statusText: voiceStatusText,
-    initAgent,
+    connectionState,
+    startTextRequest,
     startAgent,
     stopMic,
-    setStatusText,
-  } = useVoiceAgentStore();
+    initAgent,
+    clearEvent,
+  } = useMessage();
 
-  const { events: statusEvents } = useEventReceiver(["agent.progress"]);
+  const { sendPrompt } = useMessage();
+
+  const pendingMsg = useWorkspaceStore((state) => state.pendingChatMessage);
+
+  const pendingSentRef = useRef<string | null>(null);
 
   const isConnected =
     connectionState === "ready" ||
@@ -71,44 +75,81 @@ export function Conversation({
 
   const isSpeaking = connectionState === "speaking";
 
+  const voiceLoading =
+    connectionState === "initializing" ||
+    connectionState === "connecting" ||
+    connectionState === "waiting_for_agent";
+
+  useEffect(() => {
+    if (initialMessages && initialMessages.length > 0) {
+      setMessages(initialMessages);
+    }
+  }, [initialMessages]);
+
+  /*
+   * The message lifecycle is owned by useMessage.
+   *
+   * Conversation only subscribes to the resulting
+   * events for rendering the conversation history.
+   */
   useEffect(() => {
     const socket = connectSocket();
 
-    const handler = (raw: any) => {
-      const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
-
-      const data = msg?.data || {};
-      const type = data?.type || "";
-      const payload = data?.payload || {};
-
-      if (type === "message" && payload.content) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `assistant-${Date.now()}`,
-            role: "assistant",
-            content: payload.content,
-            type: "text",
-            stream: true,
-          },
-        ]);
-
-        setThinking(false);
-        setStatusText("");
-      }
+    const onConnect = () => {
+      setSocketConnected(true);
     };
 
-    socket.on("message", handler);
+    const onDisconnect = () => {
+      setSocketConnected(false);
+    };
 
-    const transcriptHandler = (raw: any) => {
-      const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
 
-      const content = msg?.data?.payload?.content || "";
+    setSocketConnected(socket.connected);
 
-      if (!content) {
-        return;
-      }
+    return () => {
+      socket.off("connect", onConnect);
 
+      socket.off("disconnect", onDisconnect);
+
+      disconnectSocket();
+    };
+  }, []);
+
+  /*
+   * Convert the events owned by useMessage into
+   * conversation UI messages.
+   */
+  const { events } = useMessage();
+
+  useEffect(() => {
+    if (!events.length) {
+      return;
+    }
+
+    const latest = events[events.length - 1];
+
+    const type = latest.data?.type;
+
+    const payload: any = latest.data?.payload;
+
+    if (!payload || typeof payload !== "object") {
+      return;
+    }
+
+    const content: any =
+      typeof payload.content === "string"
+        ? payload.content
+        : typeof payload.message === "string"
+          ? payload.message
+          : "";
+
+    if (!content) {
+      return;
+    }
+
+    if (type === "voice.transcript") {
       setMessages((prev) => [
         ...prev,
         {
@@ -119,34 +160,22 @@ export function Conversation({
         },
       ]);
 
-      setThinking(true);
-    };
+      return;
+    }
 
-    socket.on("transcript", transcriptHandler);
-
-    const onConnect = () => {
-      setSocketConnected(true);
-    };
-
-    const onDisconnect = () => {
-      setSocketConnected(false);
-      setThinking(false);
-    };
-
-    socket.on("connect", onConnect);
-    socket.on("disconnect", onDisconnect);
-
-    setSocketConnected(socket.connected);
-
-    return () => {
-      socket.off("message", handler);
-      socket.off("transcript", transcriptHandler);
-      socket.off("connect", onConnect);
-      socket.off("disconnect", onDisconnect);
-
-      disconnectSocket();
-    };
-  }, [setStatusText]);
+    if (type === "message" || type === "voice.response") {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content,
+          type: "text",
+          stream: true,
+        },
+      ]);
+    }
+  }, [events]);
 
   const sendChatText = useCallback(
     (text: string) => {
@@ -169,40 +198,97 @@ export function Conversation({
     [businessId, sessionId, recordId],
   );
 
-  useEffect(() => {
-    if (initialMessages && initialMessages.length > 0) {
-      setMessages(initialMessages);
-    }
-  }, [initialMessages]);
+  const findOptionContext = useCallback(
+    (
+      optionId: string,
+    ): {
+      id: string;
+      name: string;
+      label: string;
+      description?: string;
+    } | null => {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
 
+        if (msg.type !== "input" || !msg.inputSpec?.fields) {
+          continue;
+        }
+
+        for (const field of msg.inputSpec.fields) {
+          if (field.type !== "radio" || !field.options) {
+            continue;
+          }
+
+          const found = field.options.find((option) => option.id === optionId);
+
+          if (found) {
+            return found;
+          }
+        }
+      }
+
+      return null;
+    },
+    [messages],
+  );
+
+  const handleSendText = useCallback(
+    (text: string) => {
+      if (!text.trim()) {
+        return;
+      }
+
+      const optionContext = findOptionContext(text);
+
+      const displayText = optionContext?.label || text;
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `user-${Date.now()}`,
+          role: "user",
+          content: displayText,
+          type: "text",
+        },
+      ]);
+
+      startTextRequest();
+
+      sendChatText(text);
+
+      if (onFirstMessage && messages.length === 0) {
+        onFirstMessage();
+      }
+    },
+    [
+      findOptionContext,
+      messages.length,
+      onFirstMessage,
+      sendChatText,
+      startTextRequest,
+    ],
+  );
+
+  /*
+   * HomeAskTendo sends text requests through the
+   * workspace pending-message mechanism.
+   */
   useEffect(() => {
-    if (statusEvents.length === 0) {
+    if (!pendingMsg || pendingMsg === pendingSentRef.current) {
       return;
     }
 
-    const latest = statusEvents[statusEvents.length - 1];
+    pendingSentRef.current = pendingMsg;
 
-    const data = latest.data as any;
+    handleSendText(pendingMsg);
 
-    const status = data?.payload?.status || "";
+    useWorkspaceStore.getState().setPendingChatMessage(null);
+  }, [pendingMsg, handleSendText]);
 
-    const message = data?.payload?.message || data?.message || "";
-
-    if (
-      status === "completed" ||
-      status === "failed" ||
-      status === "cancelled"
-    ) {
-      setStatusText("");
-      setThinking(false);
-      return;
-    }
-
-    if (message) {
-      setStatusText(message);
-    }
-  }, [statusEvents, setStatusText]);
-
+  /*
+   * Initialize the LiveKit voice session once
+   * the selected business/session is available.
+   */
   useEffect(() => {
     if (!businessId || !sessionId) {
       return;
@@ -211,36 +297,10 @@ export function Conversation({
     void initAgent(businessId, sessionId);
   }, [businessId, sessionId, initAgent]);
 
-  useEffect(() => {
-    const handleVoiceToggleEvent = async () => {
-      if (micActive) {
-        stopMic();
-        setWakeActive(false);
-      } else {
-        try {
-          await startAgent();
-          setWakeActive(true);
-        } catch {
-          setWakeActive(false);
-        }
-      }
-
-      window.dispatchEvent(
-        new CustomEvent("tendo:recording-state", {
-          detail: {
-            recording: !micActive,
-          },
-        }),
-      );
-    };
-
-    window.addEventListener("tendo:voice-toggle", handleVoiceToggleEvent);
-
-    return () => {
-      window.removeEventListener("tendo:voice-toggle", handleVoiceToggleEvent);
-    };
-  }, [micActive, startAgent, stopMic]);
-
+  /*
+   * Keep the wake state synchronized with the
+   * actual voice interaction state.
+   */
   useEffect(() => {
     if (isConnected && micActive) {
       setWakeActive(true);
@@ -252,45 +312,7 @@ export function Conversation({
     }
   }, [isConnected, isSpeaking, isListening, micActive]);
 
-  const handleSendText = (text: string) => {
-    const optionContext = findOptionContext(text);
-
-    const displayText = optionContext?.label || text;
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `user-${Date.now()}`,
-        role: "user",
-        content: displayText,
-        type: "text",
-      },
-    ]);
-
-    setThinking(true);
-
-    sendChatText(text);
-
-    if (onFirstMessage && messages.length === 0) {
-      onFirstMessage();
-    }
-  };
-
-  const pendingMsg = useWorkspaceStore((state) => state.pendingChatMessage);
-
-  const pendingSentRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (pendingMsg && pendingMsg !== pendingSentRef.current) {
-      pendingSentRef.current = pendingMsg;
-
-      handleSendText(pendingMsg);
-
-      useWorkspaceStore.getState().setPendingChatMessage(null);
-    }
-  }, [pendingMsg]);
-
-  const handleVoiceToggle = async () => {
+  const handleVoiceToggle = useCallback(async () => {
     if (micActive) {
       stopMic();
       setWakeActive(false);
@@ -303,55 +325,25 @@ export function Conversation({
     } catch {
       setWakeActive(false);
     }
-  };
+  }, [micActive, startAgent, stopMic]);
 
-  const handleOptionSelect = (optionId: string) => {
-    handleSendText(optionId);
-  };
+  const handleOptionSelect = useCallback(
+    (optionId: string) => {
+      handleSendText(optionId);
+    },
+    [handleSendText],
+  );
 
-  const findOptionContext = (
-    optionId: string,
-  ): {
-    id: string;
-    name: string;
-    label: string;
-    description?: string;
-  } | null => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-
-      if (msg.type === "input" && msg.inputSpec?.fields) {
-        for (const field of msg.inputSpec.fields) {
-          if (field.type === "radio" && field.options) {
-            const found = field.options.find(
-              (option) => option.id === optionId,
-            );
-
-            if (found) {
-              return found;
-            }
-          }
-        }
-      }
-    }
-
-    return null;
-  };
-
-  const voiceLoading =
-    connectionState === "initializing" ||
-    connectionState === "connecting" ||
-    connectionState === "waiting_for_agent";
+  const displayStatus =
+    statusText && !statusText.toLowerCase().includes("reconnecting")
+      ? statusText
+      : undefined;
 
   return (
     <ConversationPage
       messages={messages}
-      isTyping={thinking || isSpeaking}
-      statusText={
-        voiceStatusText && !voiceStatusText.includes("reconnecting")
-          ? voiceStatusText
-          : undefined
-      }
+      isTyping={isSpeaking || (!isVoiceMode && Boolean(displayStatus))}
+      statusText={displayStatus}
       connecting={!socketConnected}
       onSendText={handleSendText}
       onVoiceRecorded={() => {}}

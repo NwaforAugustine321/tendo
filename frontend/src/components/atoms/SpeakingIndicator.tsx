@@ -1,19 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useAgentSessionStatus } from "../hooks/useAgentSessionStatus";
-import { useVoiceAgentStore } from "../lib/voice-agent/store";
+import { useMessage } from "../../hooks/useMessage";
 
 type Props = {
   active: boolean;
 };
 
 export function SpeakingIndicator({ active }: Props) {
-  const { agentSpeaking } = useVoiceAgentStore();
-
-  const { presence, clear } = useAgentSessionStatus([
-    "voice.presence",
-    "text.presence",
-  ]);
+  const { agentSpeaking, statusText } = useMessage();
 
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [pulse, setPulse] = useState(0);
@@ -21,7 +15,6 @@ export function SpeakingIndicator({ active }: Props) {
   const dragging = useRef(false);
   const offset = useRef({ x: 0, y: 0 });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const wasSpeaking = useRef(false);
 
   useEffect(() => {
     if (intervalRef.current) {
@@ -31,8 +24,6 @@ export function SpeakingIndicator({ active }: Props) {
 
     if (!active) {
       setPulse(0);
-      clear();
-      wasSpeaking.current = false;
       return;
     }
 
@@ -46,19 +37,7 @@ export function SpeakingIndicator({ active }: Props) {
         intervalRef.current = null;
       }
     };
-  }, [active, clear]);
-
-  /*
-   * When speaking finishes, remove the previous response/presence
-   * so the indicator returns to Listening...
-   */
-  useEffect(() => {
-    if (wasSpeaking.current && !agentSpeaking) {
-      clear();
-    }
-
-    wasSpeaking.current = agentSpeaking;
-  }, [agentSpeaking, clear]);
+  }, [active]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     dragging.current = true;
@@ -72,7 +51,9 @@ export function SpeakingIndicator({ active }: Props) {
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!dragging.current) return;
+    if (!dragging.current) {
+      return;
+    }
 
     setPos({
       x: e.clientX - offset.current.x,
@@ -83,34 +64,24 @@ export function SpeakingIndicator({ active }: Props) {
   const handlePointerUp = (e: React.PointerEvent) => {
     dragging.current = false;
 
-    if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    const element = e.currentTarget as HTMLElement;
+
+    if (element.hasPointerCapture(e.pointerId)) {
+      element.releasePointerCapture(e.pointerId);
     }
   };
 
-  if (!active) return null;
-
-  const presenceText = presence.text.trim();
-
-  /*
-   * Strict display priority:
-   *
-   * 1. Speaking
-   * 2. Presence/status text
-   * 3. Listening
-   */
-  let displayText = "Listening...";
-
-  if (agentSpeaking) {
-    displayText = "Speaking...";
-  } else if (presenceText) {
-    displayText = presenceText;
+  if (!active) {
+    return null;
   }
+
+  const displayText = statusText || "Listening...";
 
   const orbScale = 1 + pulse * 0.045;
   const glowScale = 1 + pulse * 0.16;
 
   const glowOpacity = 0.16 + pulse * 0.14;
+
   const whiteOpacity = 0.78 + pulse * 0.18;
 
   return (
@@ -279,13 +250,15 @@ export function SpeakingIndicator({ active }: Props) {
         </div>
       </div>
 
-      <div className="pointer-events-none absolute left-1/2 top-[91px] w-[100px] -translate-x-1/2">
-        <div className="mx-auto w-full rounded-2xl border border-white/[0.08] bg-zinc-950/75 px-3 py-1.5 text-center text-[10px] font-medium text-zinc-300 shadow-lg backdrop-blur-md">
-          <span className="block max-h-[48px] overflow-hidden break-words leading-[14px]">
-            {displayText}
-          </span>
+      {agentSpeaking && (
+        <div className="pointer-events-none absolute left-1/2 top-[91px] w-[100px] -translate-x-1/2">
+          <div className="mx-auto w-full rounded-2xl border border-white/[0.08] bg-zinc-950/75 px-3 py-1.5 text-center text-[10px] font-medium text-zinc-300 shadow-lg backdrop-blur-md">
+            <span className="block max-h-[48px] overflow-hidden break-words leading-[14px]">
+              {statusText}
+            </span>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

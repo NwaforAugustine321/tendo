@@ -43,11 +43,10 @@ class VoiceCommandHandlers:
             )
             return
 
-        logger.info(
-            "[VoiceCommandHandlers] Speaking: "
-            "event_id=%s type=%s",
-            event.event_id,
-            event.type,
-        )
-
-        await self._speak(text.strip())
+        try:
+            await self._speak(text.strip())
+        except Exception as exc:
+            logger.exception(
+                "[VoiceCommandHandlers] Failed to speak: event_id=%s",
+                event.event_id,
+            )

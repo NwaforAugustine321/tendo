@@ -1,8 +1,9 @@
 import { Calendar, StickyNote, Mic, MicOff, LoaderCircle } from "lucide-react";
 
-import { useVoiceAgentStore } from "../../lib/voice-agent/store";
+import { useMessage } from "../../hooks/useMessage";
+import { useVoiceAgentStore } from "../../store/voice";
 
-import { SpeakingIndicator } from "../SpeakingIndicator";
+import { SpeakingIndicator } from "../atoms/SpeakingIndicator";
 
 const RAIL_ITEMS = [
   {
@@ -22,14 +23,14 @@ export function RightRail() {
     connectionState,
     businessId,
     micActive,
-    agentSpeaking,
-    statusText,
     initAgent,
     startAgent,
     stopMic,
   } = useVoiceAgentStore();
 
-  const isActive = micActive || agentSpeaking;
+  const { isVoiceMode, agentSpeaking, statusText } = useMessage();
+
+  const isActive = isVoiceMode || micActive || agentSpeaking;
 
   const micLoading =
     connectionState === "initializing" ||
@@ -55,25 +56,7 @@ export function RightRail() {
     }
   };
 
-  let displayStatus = "";
-
-  if (connectionState === "initializing") {
-    displayStatus = "Initializing voice...";
-  } else if (connectionState === "connecting") {
-    displayStatus = "Connecting...";
-  } else if (connectionState === "waiting_for_agent") {
-    displayStatus = "Starting agent...";
-  } else if (agentSpeaking) {
-    displayStatus = "Tendo is speaking...";
-  } else if (connectionState === "error") {
-    displayStatus = statusText || "Voice connection failed";
-  } else if (connectionState === "reconnecting") {
-    displayStatus = "Reconnecting...";
-  } else if (micActive) {
-    displayStatus = "Listening...";
-  } else if (statusText) {
-    displayStatus = statusText;
-  }
+  const displayStatus = statusText;
 
   const micLabel = micLoading
     ? displayStatus || "Starting voice communication"
