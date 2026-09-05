@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import asyncio
@@ -49,7 +50,6 @@ class PresenceTracker:
         self._started = False
         self._closed = False
         self._progress_enabled = False
-        self._preemptive_generation = False
 
         self._interrupt_event = asyncio.Event()
 
@@ -148,9 +148,6 @@ class PresenceTracker:
             ),
         )
 
-        self._preemptive_generation = True
-        self._trigger_generation(force=True)
-
     async def classify(self) -> PresenceResult:
         if (
             self._closed
@@ -177,8 +174,10 @@ class PresenceTracker:
                 state=state,
                 phase=PresencePhase.INITIAL,
             )
+
         except asyncio.CancelledError:
             raise
+
         except Exception:
             if self._is_generation_valid(generation):
                 self._progress_enabled = True
@@ -305,7 +304,6 @@ class PresenceTracker:
 
         self._started = False
         self._progress_enabled = False
-        self._preemptive_generation = False
 
         self._generation += 1
         self._interval_index = 0
@@ -329,7 +327,6 @@ class PresenceTracker:
         self._closed = True
         self._started = False
         self._progress_enabled = False
-        self._preemptive_generation = False
 
         self._generation += 1
 
@@ -446,18 +443,11 @@ class PresenceTracker:
         except asyncio.CancelledError:
             raise
 
-    def _trigger_generation(
-        self,
-        *,
-        force: bool = False,
-    ) -> None:
+    def _trigger_generation(self) -> None:
         if (
             self._closed
             or not self._started
-            or (
-                not self._progress_enabled
-                and not self._preemptive_generation
-            )
+            or not self._progress_enabled
             or self._state is None
         ):
             return
@@ -468,23 +458,19 @@ class PresenceTracker:
         ):
             return
 
-        if not force:
-            if not self._interval_elapsed():
-                self._schedule_timer()
-                return
+        if not self._interval_elapsed():
+            self._schedule_timer()
+            return
 
-            if not self._silence_elapsed():
-                self._schedule_timer()
-                return
+        if not self._silence_elapsed():
+            self._schedule_timer()
+            return
 
         now = monotonic()
 
         if (
-            not force
-            and (
-                now - self._last_response_at
-                < self._config.minimum_response_interval
-            )
+            now - self._last_response_at
+            < self._config.minimum_response_interval
         ):
             self._schedule_timer()
             return
@@ -526,8 +512,6 @@ class PresenceTracker:
                 return
 
             if result.action != PresenceAction.STATUS:
-                if self._preemptive_generation:
-                    self._preemptive_generation = False
                 self._schedule_timer()
                 return
 
@@ -557,6 +541,7 @@ class PresenceTracker:
                 return
 
             current_state = self._state
+
             if current_state is None:
                 return
 
@@ -590,10 +575,6 @@ class PresenceTracker:
             self._last_delivered_state = state_key
             self._last_delivered_text = text
 
-            was_preemptive = self._preemptive_generation
-            if was_preemptive:
-                self._preemptive_generation = False
-
             if (
                 self._interval_index
                 < len(self._config.intervals) - 1
@@ -611,8 +592,6 @@ class PresenceTracker:
             if self._is_generation_valid(
                 generation,
             ):
-                if self._preemptive_generation:
-                    self._preemptive_generation = False
                 self._schedule_timer()
 
     def _is_generation_valid(

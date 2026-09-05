@@ -79,6 +79,59 @@ class AgentRunner:
                     user_request=run_context.user_request,
                 )
 
+            if presence_tracker is not None:
+                presence_result = (
+                    await run_context.presence_classify()
+                )
+
+                if (
+                    presence_result.action
+                    == PresenceAction.RESPOND
+                    and presence_result.message
+                ):
+                    response = self._build_presence_response(
+                        presence_result.message,
+                    )
+
+                    checked_response = (
+                        await run_context.guardrails.check_response(
+                            run_context,
+                            response,
+                        )
+                    )
+
+                    assistant_message = (
+                        ChatMessage.from_llm_response(
+                            response,
+                        )
+                    )
+
+                    run_context.add_message(
+                        assistant_message,
+                    )
+
+                    await run_context.middleware.dispatch(
+                        MiddlewareEvent.AFTER_LLM,
+                        run_context,
+                        AfterLLMEvent(
+                            message=assistant_message,
+                            response=response,
+                        ),
+                    )
+
+                    return response
+                else:
+
+                    if presence_result.action != PresenceAction.HANDOFF:
+                        response = (
+                            await self._force_final_response(
+                                session=session,
+                                run_context=run_context,
+                                reason="final answer",
+                            )
+                        )
+                        return response
+
             await run_context.middleware.dispatch(
                 MiddlewareEvent.BEFORE_RUN,
                 run_context,
@@ -119,55 +172,6 @@ class AgentRunner:
                 )
 
                 return response
-
-            if presence_tracker is not None:
-                presence_result = (
-                    await run_context.presence_classify()
-                )
-
-                if (
-                    presence_result.action
-                    == PresenceAction.RESPOND
-                    and presence_result.message
-                ):
-                    response = self._build_presence_response(
-                        presence_result.message,
-                    )
-
-                    checked_response = (
-                        await run_context.guardrails.check_response(
-                            run_context,
-                            response,
-                        )
-                    )
-
-                    if checked_response is not None:
-                        response = await self._force_final_response(
-                            session=session,
-                            run_context=run_context,
-                            reason="presence_response_blocked",
-                        )
-                    else:
-                        assistant_message = (
-                            ChatMessage.from_llm_response(
-                                response,
-                            )
-                        )
-
-                        run_context.add_message(
-                            assistant_message,
-                        )
-
-                        await run_context.middleware.dispatch(
-                            MiddlewareEvent.AFTER_LLM,
-                            run_context,
-                            AfterLLMEvent(
-                                message=assistant_message,
-                                response=response,
-                            ),
-                        )
-
-                        return response
 
             await run_context.presence_state(
                 event=StatusEvent(

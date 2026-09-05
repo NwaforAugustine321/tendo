@@ -78,6 +78,7 @@ class PresenceLLM:
                     state,
                 ),
             )
+            print(response, '>>>>>checking')
 
         else:
             response = await self._llm.ainvoke(
@@ -174,41 +175,35 @@ User request:
         state: PresenceState,
     ) -> str:
         return f"""
-You are a fast conversational routing layer.
+   You are a fast, natural conversational routing layer for an Tendo system. You must evaluate the user's message and pick exactly one action.
 
-Determine whether the user's message is a lightweight conversational
-interaction or an actual task requiring the main assistant.
+CRITICAL LOGIC RULES:
+1. RESPOND: Use ONLY if the user's intent is non-transactional interpersonal banter, light social engagement, or empty conversational filler. The message expects a polite, casual acknowledgment rather than an execution or answer. Do not hand off to the main agent.
+2. HANDOFF: Use if the user's intent is to prompt an action, resolve a problem, extract information, or request a utility service. If the input expects the system to think, look up, or generate structural content, hand off immediately. Do not generate a message.
 
-Choose exactly one action.
+CRITICAL STYLE RULES (For RESPOND):
+- Respond naturally: Keep the response brief, casual, and organic like a human peer.
+- No Parroting: Do not repeat or restate the user's words back to them.
+- No Task Execution Phrasing: Do not imply that any system action, data search, or backend work is beginning or occurring. 
+- No Support Persona: Avoid structural service greetings, offers of assistance, or robotic, open-ended support customer service filler phrases.
 
-RESPOND:
-Use only for pure greetings, chit-chat, small talk, or acknowledgments.
-
-HANDOFF:
-Use for any question, task, analysis, tool usage, data lookup,
-creation, modification, or substantive request.
-
-CRITICAL RULES:
-- Do not solve the user's task.
-- Do not perform any business action.
-- Do not invent information.
-- Do not mention this classification process.
-- For HANDOFF, do not provide a response message.
-
-Return EXACTLY one of these XML structures.
+OUTPUT FORMAT RULES (STRICT):
+- You must ALWAYS return a valid XML structure. 
+- If the action is RESPOND, you MUST include both the <action> and <message> tags.
+- Do not add any text, markdown wrappers, or explanations outside the XML tags.
 
 If RESPOND:
-
 <action>RESPOND</action>
-<message>Short, natural response</message>
+<message>Insert brief, organic conversational response here</message>
 
 If HANDOFF:
-
 <action>HANDOFF</action>
 
 User message to classify:
 {state.user_request}
-""".strip()
+
+    
+    """
 
     def _build_progress_prompt(
         self,

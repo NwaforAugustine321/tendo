@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,7 +10,6 @@ from .state import PresenceState
 
 class PresencePhase(str, Enum):
 
-    PREEMPTIVE = "preemptive"
     INITIAL = "initial"
     PROGRESS = "progress"
 
@@ -61,8 +61,6 @@ class PresenceTrackerInterface(Protocol):
 
     async def classify(
         self,
-        *,
-        user_request: str,
     ) -> PresenceResult:
         ...
 
