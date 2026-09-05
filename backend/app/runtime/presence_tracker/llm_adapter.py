@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from typing import Any
@@ -21,7 +22,7 @@ class PresenceLLM:
         classifier_llm: Any | None = None,
         *,
         max_tokens: int = 160,
-        classifier_max_tokens: int = 80,
+        classifier_max_tokens: int = 160,
     ) -> None:
         self._llm = (
             llm
@@ -65,26 +66,24 @@ class PresenceLLM:
         phase: PresencePhase,
     ) -> PresenceResult:
 
-        if phase is PresencePhase.PREEMPTIVE:
-            response = await self._llm.ainvoke(
-                self._build_preemptive_prompt(
-                    state,
-                ),
-            )
-
-        elif phase is PresencePhase.INITIAL:
+        if phase is PresencePhase.INITIAL:
             response = await self._classifier_llm.ainvoke(
                 self._build_initial_prompt(
                     state,
                 ),
             )
-            print(response, '>>>>>checking')
+            print('chekcing >>>', response)
 
-        else:
+        elif phase is PresencePhase.PROGRESS:
             response = await self._llm.ainvoke(
                 self._build_progress_prompt(
                     state,
                 ),
+            )
+
+        else:
+            return PresenceResult(
+                action=PresenceAction.HANDOFF,
             )
 
         content = self._extract_content(
@@ -124,86 +123,63 @@ class PresenceLLM:
             )
 
         return PresenceResult(
-            action=(
-                PresenceAction.RESPOND
-                if phase is PresencePhase.PREEMPTIVE
-                else PresenceAction.STATUS
-            ),
+            action=PresenceAction.STATUS,
             message=message,
         )
-
-    def _build_preemptive_prompt(
-        self,
-        state: PresenceState,
-    ) -> str:
-        return f"""
-You are the fast conversational layer of an AI assistant.
-
-The user has just submitted a request that may require the main
-assistant to do work.
-
-Generate one very short spoken acknowledgement indicating that you
-will look into the request.
-
-This is only an immediate conversational acknowledgement.
-
-Do not solve the request.
-Do not provide information about the request.
-Do not perform or claim any action.
-Do not claim that work has already been completed.
-Do not mention internal systems, agents, models, tools, reasoning,
-processing, backend operations, or classification.
-Do not greet the user.
-Do not ask a question.
-Do not say "please wait", "hold on", or "hang on".
-Do not repeat the user's request.
-
-Keep it natural and conversational.
-
-Maximum one short sentence.
-
-Return exactly:
-
-<message>short spoken acknowledgement</message>
-
-User request:
-{state.user_request}
-""".strip()
 
     def _build_initial_prompt(
         self,
         state: PresenceState,
     ) -> str:
         return f"""
-   You are a fast, natural conversational routing layer for an Tendo system. You must evaluate the user's message and pick exactly one action.
+You are a routing layer for the Tendo system. You must classify the user's message and execute exactly one action.
 
 CRITICAL LOGIC RULES:
-1. RESPOND: Use ONLY if the user's intent is non-transactional interpersonal banter, light social engagement, or empty conversational filler. The message expects a polite, casual acknowledgment rather than an execution or answer. Do not hand off to the main agent.
-2. HANDOFF: Use if the user's intent is to prompt an action, resolve a problem, extract information, or request a utility service. If the input expects the system to think, look up, or generate structural content, hand off immediately. Do not generate a message.
+1. RESPOND: Select this action exclusively when the user's message is a non-transactional social exchange, greeting, small talk, or empty conversational acknowledgment. Do not hand off to the main agent. You must resolve the response dynamically at this layer.
+2. HANDOFF: Select this action immediately if the user's message requires data retrieval, information processing, computation, task execution, problem-solving, or system action. You must resolve the response dynamically at this layer.
 
-CRITICAL STYLE RULES (For RESPOND):
-- Respond naturally: Keep the response brief, casual, and organic like a human peer.
-- No Parroting: Do not repeat or restate the user's words back to them.
-- No Task Execution Phrasing: Do not imply that any system action, data search, or backend work is beginning or occurring. 
-- No Support Persona: Avoid structural service greetings, offers of assistance, or robotic, open-ended support customer service filler phrases.
+CRITICAL GENERATION RULES:
+- You must dynamically compose an original, context-appropriate message for BOTH RESPOND and HANDOFF.
+- The <message> must be appropriate for the selected action.
+- Do not use, copy, or reference any placeholder text, instructions, or template words from this system prompt in your output.
+- Generate an organic, human-to-human statement.
+- Absolute Prohibition: Do not repeat or echo the user's input phrase.
+- Absolute Prohibition: Do not expose private reasoning or internal system information.
+
+RESPOND MESSAGE RULES:
+- Keep the response brief, casual, and natural.
+- Do not state that the system is looking up information, initiating tasks, or working on a request.
+- Do not offer assistance.
+
+HANDOFF MESSAGE RULES:
+- Keep the message brief and natural.
+- The message should acknowledge the user's request naturally while the request is handed off.
+- Do not solve the user's request.
+- Do not provide the answer to the user's request.
+- Do not claim that a specific tool, search, agent, or backend operation has already started.
+- Do not expose internal reasoning or implementation details.
+- Do not repeat the user's request.
+- The message must still be useful as a natural spoken transition.
 
 OUTPUT FORMAT RULES (STRICT):
-- You must ALWAYS return a valid XML structure. 
-- If the action is RESPOND, you MUST include both the <action> and <message> tags.
-- Do not add any text, markdown wrappers, or explanations outside the XML tags.
+- You must output valid XML structure only.
+- Do not append or prepend any text, markdown notation, backticks, or meta-commentary outside the XML boundaries.
+- You MUST always include exactly one <action> tag.
+- You MUST always include exactly one <message> tag.
+- The <action> must be either RESPOND or HANDOFF.
+- The <message> must contain the dynamically generated response.
 
 If RESPOND:
 <action>RESPOND</action>
-<message>Insert brief, organic conversational response here</message>
+<message>[CONVERSATIONAL_RESPONSE]</message>
 
 If HANDOFF:
 <action>HANDOFF</action>
+<message>[HANDOFF_RESPONSE]</message>
 
 User message to classify:
 {state.user_request}
-
-    
-    """
+""".strip()
 
     def _build_progress_prompt(
         self,
@@ -288,19 +264,15 @@ Return exactly:
 
         action = action.strip().upper()
 
-        if action == PresenceAction.RESPOND.value.upper():
-            message = extract_tag(
-                content,
-                "message",
-            )
+        message = extract_tag(
+            content,
+            "message",
+        )
 
-            if not message:
-                return PresenceResult(
-                    action=PresenceAction.HANDOFF,
-                )
-
+        if message:
             message = message.strip()
 
+        if action == PresenceAction.RESPOND.value.upper():
             if not message:
                 return PresenceResult(
                     action=PresenceAction.HANDOFF,
@@ -314,10 +286,12 @@ Return exactly:
         if action == PresenceAction.HANDOFF.value.upper():
             return PresenceResult(
                 action=PresenceAction.HANDOFF,
+                message=message or None,
             )
 
         return PresenceResult(
             action=PresenceAction.HANDOFF,
+            message=message or None,
         )
 
     @staticmethod
