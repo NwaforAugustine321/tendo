@@ -11,26 +11,36 @@ import {
 
 const BOTTOM_FOLLOW_THRESHOLD = 80;
 
-function isNearBottom(el: HTMLElement) {
+function isNearBottom(element: HTMLElement): boolean {
   return (
-    el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_FOLLOW_THRESHOLD
+    element.scrollHeight - element.scrollTop - element.clientHeight <=
+    BOTTOM_FOLLOW_THRESHOLD
   );
 }
 
-export type InputSpec = {
-  fields: Array<{
-    id?: string;
-    name: string;
-    label?: string;
-    placeholder?: string;
+export type InputField = {
+  id?: string;
+  name: string;
+  label?: string;
+  placeholder?: string;
+  description?: string;
+  type?: string;
+  options?: {
+    id: string;
+    label: string;
     description?: string;
-  }>;
+  }[];
+};
+
+export type InputSpec = {
+  fields: InputField[];
 };
 
 export type MessageItem = {
   id: string;
   role: "user" | "assistant";
   content: string;
+
   type:
     | "text"
     | "understanding"
@@ -38,8 +48,11 @@ export type MessageItem = {
     | "confirmation"
     | "operation"
     | "input";
+
   audioUrl?: string;
+
   stream?: boolean;
+
   understanding?: {
     title?: string;
     businessName?: string;
@@ -47,6 +60,7 @@ export type MessageItem = {
     behaviors?: string[];
     note?: string;
   };
+
   options?: {
     prompt: string;
     choices: {
@@ -55,6 +69,7 @@ export type MessageItem = {
       recommended?: boolean;
     }[];
   };
+
   confirmation?: {
     summary: string;
     details: {
@@ -62,6 +77,7 @@ export type MessageItem = {
       value: string;
     }[];
   };
+
   operation?: {
     operationType: string;
     changes: {
@@ -70,26 +86,53 @@ export type MessageItem = {
       after: string;
     }[];
   };
+
   inputSpec?: InputSpec;
 };
 
 type Props = {
   messages: MessageItem[];
+
+  /*
+   * Whether Tendo is currently processing
+   * or speaking.
+   */
   isTyping: boolean;
+
+  /*
+   * Current runtime status text.
+   *
+   * Examples:
+   *   "Reasoning..."
+   *   "Understanding your business..."
+   *   "Checking your data..."
+   *   "Speaking..."
+   *
+   * The component must never hard-code
+   * a reasoning message.
+   */
+  statusText?: string;
+
   fullScreen?: boolean;
   transparentBg?: boolean;
+
   onOptionSelect: (optionId: string) => void;
+
   onConfirm?: () => void;
   onModify?: () => void;
   onCancel?: () => void;
+
   onRevert?: (messageId: string) => void;
+
   onContinueFromHere?: (messageId: string) => void;
+
   onSendText?: (text: string) => void;
 };
 
 export function ConversationPage({
   messages,
   isTyping,
+  statusText,
   fullScreen = true,
   transparentBg = false,
   onSendText,
@@ -100,112 +143,204 @@ export function ConversationPage({
   onContinueFromHere,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const contentRef = useRef<HTMLDivElement>(null);
+
   const followBottomRef = useRef(true);
 
+  const mountedRef = useRef(false);
+
+  /*
+   * Scroll tracking.
+   */
   useEffect(() => {
-    const el = scrollRef.current;
+    const element = scrollRef.current;
 
-    if (!el) return;
-
-    const handleScroll = () => {
-      followBottomRef.current = isNearBottom(el);
-    };
-
-    el.addEventListener("scroll", handleScroll, {
-      passive: true,
-    });
-
-    return () => {
-      el.removeEventListener("scroll", handleScroll);
-    };
-  }, []);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-
-    if (!el) return;
-
-    const observer = new ResizeObserver(() => {
-      if (!followBottomRef.current) return;
-
-      el.scrollTo({
-        top: el.scrollHeight,
-      });
-    });
-
-    if (el.firstElementChild) {
-      observer.observe(el.firstElementChild);
-    }
-
-    return () => observer.disconnect();
-  }, [messages.length]);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-
-    if (!el) return;
-
-    const sentByUser = messages[messages.length - 1]?.role === "user";
-
-    if (sentByUser) {
-      followBottomRef.current = true;
-    } else if (!followBottomRef.current) {
+    if (!element) {
       return;
     }
 
-    el.scrollTo({
-      top: el.scrollHeight,
-      behavior: "smooth",
+    const handleScroll = () => {
+      followBottomRef.current = isNearBottom(element);
+    };
+
+    element.addEventListener("scroll", handleScroll, {
+      passive: true,
     });
-  }, [messages, isTyping]);
+
+    followBottomRef.current = true;
+
+    return () => {
+      element.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
+  /*
+   * Observe content size changes.
+   *
+   * This keeps the conversation pinned
+   * while streamed text or status content
+   * changes its height.
+   */
+  useEffect(() => {
+    const element = scrollRef.current;
+
+    const content = contentRef.current;
+
+    if (!element || !content) {
+      return;
+    }
+
+    const scrollToBottom = () => {
+      if (!followBottomRef.current) {
+        return;
+      }
+
+      element.scrollTop = element.scrollHeight;
+    };
+
+    const observer = new ResizeObserver(scrollToBottom);
+
+    observer.observe(content);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  /*
+   * Scroll when messages or typing/status
+   * state changes.
+   */
+  useEffect(() => {
+    const element = scrollRef.current;
+
+    if (!element) {
+      return;
+    }
+
+    const lastMessage = messages[messages.length - 1];
+
+    /*
+     * A newly submitted user message
+     * should always move to the bottom.
+     */
+    if (lastMessage?.role === "user") {
+      followBottomRef.current = true;
+    }
+
+    if (!followBottomRef.current) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      element.scrollTo({
+        top: element.scrollHeight,
+        behavior: mountedRef.current ? "smooth" : "auto",
+      });
+
+      mountedRef.current = true;
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [messages, isTyping, statusText]);
+
+  const hasMessages = messages.length > 0;
+
+  /*
+   * Only show the empty state when
+   * there is no conversation AND Tendo
+   * is not doing anything.
+   */
+  const showEmptyState = !hasMessages && !isTyping;
+
+  /*
+   * Show the runtime indicator when
+   * Tendo is processing.
+   *
+   * statusText is optional, so this
+   * component does not invent a status.
+   */
+  const showStatus = isTyping && Boolean(statusText);
 
   return (
     <div
-      className={`relative flex flex-col overflow-hidden bg-[#0a0a0a] ${
-        fullScreen ? "h-dvh" : "h-full"
-      }`}
+      className={[
+        "relative flex min-h-0 flex-col overflow-hidden",
+        fullScreen ? "h-dvh" : "h-full",
+        transparentBg ? "bg-transparent" : "bg-[#0a0a0a]",
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       <div
         ref={scrollRef}
-        className="relative z-10 flex-1 overflow-y-auto px-3 pb-4 pt-4 sm:px-5"
+        className="
+          relative z-10
+          min-h-0 flex-1
+          overflow-y-auto
+          overscroll-contain
+          px-3 pb-4 pt-4
+          sm:px-5
+        "
       >
-        {messages.length === 0 && !isTyping ? (
+        {showEmptyState ? (
           <EmptyState />
         ) : (
-          <div className="mx-auto max-w-2xl space-y-4">
-            {messages.map((msg, idx) => {
-              if (msg.type === "understanding" && msg.understanding) {
+          <div
+            ref={contentRef}
+            className="
+              mx-auto
+              flex
+              max-w-2xl
+              flex-col
+              space-y-4
+            "
+          >
+            {messages.map((message, index) => {
+              const isLast = index === messages.length - 1;
+
+              /*
+               * Understanding
+               */
+              if (message.type === "understanding" && message.understanding) {
                 return (
                   <UnderstandingCard
-                    key={msg.id}
-                    title={msg.understanding.title}
-                    businessName={msg.understanding.businessName}
-                    activities={msg.understanding.activities}
-                    behaviors={msg.understanding.behaviors}
-                    note={msg.understanding.note}
+                    key={message.id}
+                    title={message.understanding.title}
+                    businessName={message.understanding.businessName}
+                    activities={message.understanding.activities}
+                    behaviors={message.understanding.behaviors}
+                    note={message.understanding.note}
                   />
                 );
               }
 
-              if (msg.type === "input" && msg.inputSpec) {
-                const isLast = idx === messages.length - 1;
-
+              /*
+               * Input
+               */
+              if (message.type === "input" && message.inputSpec) {
                 return (
                   <InputCard
-                    key={msg.id}
-                    fields={(msg.inputSpec.fields as any[]) || []}
+                    key={message.id}
+                    fields={message.inputSpec.fields}
                     onSubmit={isLast ? (onSendText ?? (() => {})) : () => {}}
                     disabled={!isLast}
                   />
                 );
               }
 
-              if (msg.type === "confirmation" && msg.confirmation) {
+              /*
+               * Confirmation
+               */
+              if (message.type === "confirmation" && message.confirmation) {
                 return (
                   <ConfirmationCard
-                    key={msg.id}
-                    summary={msg.confirmation.summary}
-                    details={msg.confirmation.details}
+                    key={message.id}
+                    summary={message.confirmation.summary}
+                    details={message.confirmation.details}
                     onConfirm={onConfirm ?? (() => {})}
                     onModify={onModify ?? (() => {})}
                     onCancel={onCancel ?? (() => {})}
@@ -213,36 +348,67 @@ export function ConversationPage({
                 );
               }
 
-              if (msg.type === "operation" && msg.operation) {
+              /*
+               * Operation
+               */
+              if (message.type === "operation" && message.operation) {
                 return (
                   <OperationCard
-                    key={msg.id}
-                    operationType={msg.operation.operationType}
-                    changes={msg.operation.changes}
-                    onRevert={onRevert ? () => onRevert(msg.id) : undefined}
+                    key={message.id}
+                    operationType={message.operation.operationType}
+                    changes={message.operation.changes}
+                    onRevert={onRevert ? () => onRevert(message.id) : undefined}
                     onContinueFromHere={
                       onContinueFromHere
-                        ? () => onContinueFromHere(msg.id)
+                        ? () => onContinueFromHere(message.id)
                         : undefined
                     }
                   />
                 );
               }
 
+              /*
+               * Regular text message.
+               */
               return (
                 <MessageBubble
-                  key={msg.id}
-                  role={msg.role}
-                  content={msg.content}
-                  audioUrl={msg.audioUrl}
+                  key={message.id}
+                  role={message.role}
+                  content={message.content}
+                  audioUrl={message.audioUrl}
                   stream={
-                    msg.stream === true &&
-                    msg.role === "assistant" &&
-                    idx === messages.length - 1
+                    message.stream === true &&
+                    message.role === "assistant" &&
+                    isLast
                   }
                 />
               );
             })}
+
+            {showStatus && (
+              <div
+                className="
+                  flex
+                  items-center
+                  gap-2
+                  px-2
+                  py-2
+                  text-xs
+                  text-zinc-500
+                "
+              >
+                <span
+                  className="
+                    h-1.5 w-1.5
+                    animate-pulse
+                    rounded-full
+                    bg-zinc-500
+                  "
+                />
+
+                <span>{statusText}</span>
+              </div>
+            )}
           </div>
         )}
       </div>

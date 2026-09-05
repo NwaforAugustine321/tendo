@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Mic, MicOff, LoaderCircle } from "lucide-react";
 
 import { useMessage } from "../../../hooks/useMessage";
@@ -6,13 +6,17 @@ import { useWorkspaceStore } from "../../../store/workspace";
 
 export function HomeAskTendo() {
   const [value, setValue] = useState("");
+  const [textActive, setTextActive] = useState(false);
+  const [voiceActive, setVoiceActive] = useState(false);
 
   const {
-    interactionMode,
+    status,
     statusText,
     micActive,
     agentSpeaking,
     connectionState,
+    response,
+    transcript,
     stopMic,
   } = useMessage();
 
@@ -22,6 +26,66 @@ export function HomeAskTendo() {
     connectionState === "waiting_for_agent" ||
     connectionState === "reconnecting" ||
     connectionState === "stopping";
+
+  /*
+   * Text lifecycle.
+   *
+   * The indicator starts when the user
+   * submits text and stays visible until
+   * the final response arrives.
+   */
+  useEffect(() => {
+    if (status === "reasoning") {
+      return;
+    }
+
+    if (response?.event === "message") {
+      setTextActive(false);
+    }
+  }, [status, response]);
+
+  /*
+   * Voice lifecycle.
+   *
+   * Once a transcript arrives, the voice
+   * request is being processed.
+   *
+   * Keep the indicator visible while Tendo
+   * is reasoning or speaking.
+   */
+  useEffect(() => {
+    if (transcript) {
+      setVoiceActive(true);
+    }
+
+    if (response?.event === "voice.response" && !agentSpeaking) {
+      setVoiceActive(false);
+    }
+  }, [transcript, response, agentSpeaking]);
+
+  /*
+   * The indicator is controlled by the
+   * interaction lifecycle, NOT by whether
+   * statusText happens to contain text.
+   */
+  const showIndicator = textActive || voiceActive || agentSpeaking;
+
+  /*
+   * statusText is only the content inside
+   * the indicator.
+   *
+   * The indicator itself does not depend
+   * on statusText.
+   */
+  const displayedStatus =
+    statusText ||
+    (agentSpeaking
+      ? "Speaking..."
+      : status === "reasoning"
+        ? "Reasoning..."
+        : voiceActive
+          ? "Reasoning..."
+          : "Reasoning...");
 
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
@@ -34,27 +98,42 @@ export function HomeAskTendo() {
 
     setValue("");
 
+    /*
+     * Show the indicator immediately.
+     * It does not matter whether the backend
+     * has sent statusText yet.
+     */
+    setTextActive(true);
+
     useWorkspaceStore.getState().setPendingChatMessage(message);
   };
 
   const handleVoiceToggle = () => {
     if (micActive) {
       stopMic();
+      setVoiceActive(false);
+      return;
     }
+
+    /*
+     * Show the indicator immediately
+     * when voice mode starts.
+     */
+    setVoiceActive(true);
 
     window.dispatchEvent(new CustomEvent("tendo:voice-toggle"));
   };
 
-  const displayedStatus = statusText;
-
   return (
     <div className="w-full">
-      {displayedStatus && (
+      {showIndicator && (
         <div className="mb-2 flex justify-start">
           <div className="inline-flex w-fit items-center gap-2 rounded-2xl border border-zinc-800/90 bg-[#141414] px-4 py-2.5">
             <span className="flex items-center gap-1">
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:0ms]" />
+
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:150ms]" />
+
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:300ms]" />
             </span>
 

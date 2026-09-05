@@ -5,33 +5,24 @@ import { ConversationPage, type MessageItem } from "../components/containers";
 import { useMessage } from "../hooks/useMessage";
 
 import { useBusinessStore } from "../store/business";
-
 import { useWorkspaceStore } from "../store/workspace";
 
-import { connectSocket, disconnectSocket } from "../lib/ws";
+import { connectSocket } from "../lib/ws";
 
 type Props = {
   initialMessages?: MessageItem[];
-  sessionTitle?: string;
   sessionId?: string;
   fullScreen?: boolean;
-  showHeader?: boolean;
   transparentBg?: boolean;
-  flipCharacter?: boolean;
-  characterRightOffset?: number;
   recordId?: string;
   onFirstMessage?: () => void;
 };
 
 export function Conversation({
   initialMessages,
-  sessionTitle,
   sessionId,
   fullScreen = false,
-  showHeader = false,
   transparentBg = false,
-  flipCharacter = false,
-  characterRightOffset = 0,
   recordId,
   onFirstMessage,
 }: Props) {
@@ -39,165 +30,217 @@ export function Conversation({
     initialMessages ?? [],
   );
 
-  const [socketConnected, setSocketConnected] = useState(true);
-
-  const [wakeActive, setWakeActive] = useState(false);
-
   const { currentProfile } = useBusinessStore();
 
   const businessId = currentProfile?.id ?? "";
 
+  /*
+   * useMessage is the single owner of:
+   *
+   * - runtime events
+   * - presence
+   * - transcript
+   * - response
+   * - reasoning state
+   * - voice lifecycle
+   */
   const {
-    statusText,
-    isVoiceMode,
-    micActive,
-    agentSpeaking,
-    connectionState,
+    events,
+    status,
     startTextRequest,
+    initAgent,
+    micActive,
     startAgent,
     stopMic,
-    initAgent,
-    clearEvent,
   } = useMessage();
-
-  const { sendPrompt } = useMessage();
 
   const pendingMsg = useWorkspaceStore((state) => state.pendingChatMessage);
 
   const pendingSentRef = useRef<string | null>(null);
 
-  const isConnected =
-    connectionState === "ready" ||
-    connectionState === "listening" ||
-    connectionState === "speaking";
+  /*
+   * Number of runtime events already
+   * consumed by this Conversation.
+   */
+  const processedEventCountRef = useRef(0);
 
-  const isListening = connectionState === "listening";
+  /*
+   * Session currently represented by
+   * this Conversation instance.
+   */
+  const mountedSessionRef = useRef<string | undefined>(sessionId);
 
-  const isSpeaking = connectionState === "speaking";
-
-  const voiceLoading =
-    connectionState === "initializing" ||
-    connectionState === "connecting" ||
-    connectionState === "waiting_for_agent";
-
+  /*
+   * Keep persisted messages synchronized
+   * with ChatPanel.
+   */
   useEffect(() => {
-    if (initialMessages && initialMessages.length > 0) {
-      setMessages(initialMessages);
-    }
+    setMessages(initialMessages ?? []);
   }, [initialMessages]);
 
   /*
-   * The message lifecycle is owned by useMessage.
+   * Detect a session boundary.
    *
-   * Conversation only subscribes to the resulting
-   * events for rendering the conversation history.
+   * Runtime events belonging to the
+   * previous session must never be
+   * replayed into this session.
    */
   useEffect(() => {
-    const socket = connectSocket();
+    if (mountedSessionRef.current === sessionId) {
+      return;
+    }
 
-    const onConnect = () => {
-      setSocketConnected(true);
-    };
+    mountedSessionRef.current = sessionId;
 
-    const onDisconnect = () => {
-      setSocketConnected(false);
-    };
+    /*
+     * Ignore all events that existed
+     * before this session became active.
+     */
+    processedEventCountRef.current = events.length;
 
-    socket.on("connect", onConnect);
-    socket.on("disconnect", onDisconnect);
+    setMessages(initialMessages ?? []);
 
-    setSocketConnected(socket.connected);
-
-    return () => {
-      socket.off("connect", onConnect);
-
-      socket.off("disconnect", onDisconnect);
-
-      disconnectSocket();
-    };
-  }, []);
+    pendingSentRef.current = null;
+  }, [sessionId, initialMessages, events.length]);
 
   /*
-   * Convert the events owned by useMessage into
-   * conversation UI messages.
+   * Convert only NEW runtime events
+   * into conversation messages.
    */
-  const { events } = useMessage();
-
   useEffect(() => {
     if (!events.length) {
       return;
     }
 
-    const latest = events[events.length - 1];
+    /*
+     * The message store may have been
+     * cleared while this component
+     * remained mounted.
+     */
+    if (processedEventCountRef.current > events.length) {
+      processedEventCountRef.current = events.length;
 
-    const type = latest.data?.type;
-
-    const payload: any = latest.data?.payload;
-
-    if (!payload || typeof payload !== "object") {
       return;
     }
 
-    const content: any =
-      typeof payload.content === "string"
-        ? payload.content
-        : typeof payload.message === "string"
-          ? payload.message
-          : "";
+    const startIndex = processedEventCountRef.current;
 
-    if (!content) {
+    const newEvents = events.slice(startIndex);
+
+    if (!newEvents.length) {
       return;
     }
 
-    if (type === "voice.transcript") {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `user-${Date.now()}`,
+    /*
+     * Advance the cursor BEFORE
+     * updating React state so the same
+     * events cannot be consumed twice.
+     */
+    processedEventCountRef.current = events.length;
+
+    const newMessages: MessageItem[] = [];
+
+    for (const event of newEvents) {
+      const type = event.data?.type;
+
+      if (
+        type !== "voice.transcript" &&
+        type !== "message" &&
+        type !== "voice.response"
+      ) {
+        continue;
+      }
+
+      const payload = event.data?.payload;
+
+      if (!payload || typeof payload !== "object") {
+        continue;
+      }
+
+      const payloadRecord = payload as Record<string, unknown>;
+
+      const content =
+        typeof payloadRecord.content === "string"
+          ? payloadRecord.content
+          : typeof payloadRecord.message === "string"
+            ? payloadRecord.message
+            : "";
+
+      if (!content.trim()) {
+        continue;
+      }
+
+      if (type === "voice.transcript") {
+        newMessages.push({
+          id: `user-${Date.now()}-${newMessages.length}`,
           role: "user",
           content,
           type: "text",
-        },
-      ]);
+        });
 
+        continue;
+      }
+
+      newMessages.push({
+        id: `assistant-${Date.now()}-${newMessages.length}`,
+        role: "assistant",
+        content,
+        type: "text",
+        stream: true,
+      });
+    }
+
+    if (!newMessages.length) {
       return;
     }
 
-    if (type === "message" || type === "voice.response") {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `assistant-${Date.now()}`,
-          role: "assistant",
-          content,
-          type: "text",
-          stream: true,
-        },
-      ]);
-    }
+    setMessages((previous) => [...previous, ...newMessages]);
   }, [events]);
 
+  /*
+   * Send a text request through the
+   * existing application socket.
+   *
+   * This does NOT create or own the
+   * socket lifecycle.
+   */
   const sendChatText = useCallback(
-    (text: string) => {
-      if (!text.trim() || !businessId || !sessionId) {
-        return;
+    (text: string): boolean => {
+      const message = text.trim();
+
+      if (!message || !businessId || !sessionId) {
+        return false;
       }
 
-      const socket = connectSocket();
+      try {
+        const socket = connectSocket();
 
-      socket.emit("message", {
-        type: "text",
-        payload: {
-          content: text,
-          business_id: businessId,
-          session_id: sessionId,
-          record_id: recordId || "",
-        },
-      });
+        if (!socket.connected) {
+          return false;
+        }
+
+        socket.emit("message", {
+          type: "text",
+          payload: {
+            content: message,
+            business_id: businessId,
+            session_id: sessionId,
+            record_id: recordId ?? "",
+          },
+        });
+
+        return true;
+      } catch {
+        return false;
+      }
     },
     [businessId, sessionId, recordId],
   );
 
+  /*
+   * Resolve radio option IDs to
+   * human-readable labels.
+   */
   const findOptionContext = useCallback(
     (
       optionId: string,
@@ -207,14 +250,14 @@ export function Conversation({
       label: string;
       description?: string;
     } | null => {
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const msg = messages[i];
+      for (let index = messages.length - 1; index >= 0; index--) {
+        const message = messages[index];
 
-        if (msg.type !== "input" || !msg.inputSpec?.fields) {
+        if (message.type !== "input" || !message.inputSpec?.fields) {
           continue;
         }
 
-        for (const field of msg.inputSpec.fields) {
+        for (const field of message.inputSpec.fields) {
           if (field.type !== "radio" || !field.options) {
             continue;
           }
@@ -232,18 +275,33 @@ export function Conversation({
     [messages],
   );
 
+  /*
+   * Main text request.
+   */
   const handleSendText = useCallback(
     (text: string) => {
-      if (!text.trim()) {
+      const message = text.trim();
+
+      if (!message || !businessId || !sessionId) {
         return;
       }
 
-      const optionContext = findOptionContext(text);
+      const optionContext = findOptionContext(message);
 
-      const displayText = optionContext?.label || text;
+      const displayText = optionContext?.label ?? message;
 
-      setMessages((prev) => [
-        ...prev,
+      /*
+       * Verify transport before
+       * modifying the conversation UI.
+       */
+      const sent = sendChatText(message);
+
+      if (!sent) {
+        return;
+      }
+
+      setMessages((previous) => [
+        ...previous,
         {
           id: `user-${Date.now()}`,
           role: "user",
@@ -252,29 +310,38 @@ export function Conversation({
         },
       ]);
 
+      /*
+       * Enter:
+       *
+       * Reasoning...
+       */
       startTextRequest();
-
-      sendChatText(text);
 
       if (onFirstMessage && messages.length === 0) {
         onFirstMessage();
       }
     },
     [
+      businessId,
+      sessionId,
       findOptionContext,
-      messages.length,
-      onFirstMessage,
       sendChatText,
       startTextRequest,
+      onFirstMessage,
+      messages.length,
     ],
   );
 
   /*
-   * HomeAskTendo sends text requests through the
-   * workspace pending-message mechanism.
+   * Consume a pending message from
+   * HomeAskTendo.
    */
   useEffect(() => {
     if (!pendingMsg || pendingMsg === pendingSentRef.current) {
+      return;
+    }
+
+    if (!businessId || !sessionId) {
       return;
     }
 
@@ -283,50 +350,73 @@ export function Conversation({
     handleSendText(pendingMsg);
 
     useWorkspaceStore.getState().setPendingChatMessage(null);
-  }, [pendingMsg, handleSendText]);
+  }, [pendingMsg, businessId, sessionId, handleSendText]);
 
   /*
-   * Initialize the LiveKit voice session once
-   * the selected business/session is available.
+   * Initialize LiveKit for this
+   * exact business/session pair.
+   *
+   * IMPORTANT:
+   * Catch the rejected promise.
+   * The voice store intentionally
+   * rethrows initialization errors.
    */
   useEffect(() => {
     if (!businessId || !sessionId) {
       return;
     }
 
-    void initAgent(businessId, sessionId);
+    let cancelled = false;
+
+    const initialize = async () => {
+      try {
+        await initAgent(businessId, sessionId);
+      } catch {
+        /*
+         * useMessage / voice store
+         * already exposes the error
+         * through its state.
+         *
+         * Do not allow an async
+         * initialization rejection
+         * to become an unhandled
+         * promise rejection.
+         */
+        if (cancelled) {
+          return;
+        }
+      }
+    };
+
+    void initialize();
+
+    return () => {
+      cancelled = true;
+    };
   }, [businessId, sessionId, initAgent]);
 
   /*
-   * Keep the wake state synchronized with the
-   * actual voice interaction state.
+   * Voice toggle.
    */
-  useEffect(() => {
-    if (isConnected && micActive) {
-      setWakeActive(true);
-      return;
-    }
-
-    if (!isSpeaking && !isListening) {
-      setWakeActive(false);
-    }
-  }, [isConnected, isSpeaking, isListening, micActive]);
-
   const handleVoiceToggle = useCallback(async () => {
     if (micActive) {
       stopMic();
-      setWakeActive(false);
       return;
     }
 
     try {
       await startAgent();
-      setWakeActive(true);
     } catch {
-      setWakeActive(false);
+      /*
+       * Voice store owns the
+       * error state.
+       */
     }
   }, [micActive, startAgent, stopMic]);
 
+  /*
+   * Input option selection.
+   */
   const handleOptionSelect = useCallback(
     (optionId: string) => {
       handleSendText(optionId);
@@ -334,36 +424,24 @@ export function Conversation({
     [handleSendText],
   );
 
-  const displayStatus =
-    statusText && !statusText.toLowerCase().includes("reconnecting")
-      ? statusText
-      : undefined;
-
+  /*
+   * ConversationPage only needs
+   * message state and interaction
+   * callbacks.
+   */
   return (
     <ConversationPage
       messages={messages}
-      isTyping={isSpeaking || (!isVoiceMode && Boolean(displayStatus))}
-      statusText={displayStatus}
-      connecting={!socketConnected}
+      isTyping={status === "reasoning" || status === "speaking"}
+      fullScreen={fullScreen}
+      transparentBg={transparentBg}
       onSendText={handleSendText}
-      onVoiceRecorded={() => {}}
-      onVoiceToggle={handleVoiceToggle}
-      isListening={isListening || isSpeaking}
-      voiceLoading={voiceLoading}
       onOptionSelect={handleOptionSelect}
       onConfirm={() => handleOptionSelect("confirm")}
       onModify={() => {}}
       onCancel={() => handleOptionSelect("cancel")}
       onRevert={() => {}}
       onContinueFromHere={() => {}}
-      showHeader={showHeader}
-      headerSubtitle={sessionTitle ?? "Your AI Business Assistant"}
-      fullScreen={fullScreen}
-      transparentBg={transparentBg}
-      flipCharacter={flipCharacter}
-      characterRightOffset={characterRightOffset}
-      wakeActive={wakeActive}
-      onWakeToggle={handleVoiceToggle}
     />
   );
 }

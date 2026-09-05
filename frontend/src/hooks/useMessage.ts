@@ -31,11 +31,12 @@ export function useMessage() {
     stopMic,
     stopAgent,
     sendPrompt,
+    initAgent,
   } = useVoiceAgentStore();
 
   const [reasoning, setReasoning] = useState(false);
 
-  const { events: receivedEvents } = useEventReceiver([
+  const { event: receivedEvent } = useEventReceiver([
     "voice.transcript",
     "voice.presence",
     "text.presence",
@@ -43,40 +44,59 @@ export function useMessage() {
     "voice.response",
   ]);
 
+  /*
+   * Runtime events.
+   */
   useEffect(() => {
-    if (!receivedEvents.length) {
+    if (!receivedEvent) {
       return;
     }
 
-    addEvents(receivedEvents);
-  }, [receivedEvents, addEvents]);
-
-  const interactionMode: MessageInteractionMode = voiceInteractionMode;
+    addEvents([receivedEvent]);
+  }, [receivedEvent, addEvents]);
 
   /*
-   * A voice transcript is the user's message.
+   * Start a completely new request.
    *
-   * It starts the reasoning phase.
+   * Clear transient state from the previous
+   * request before entering reasoning.
+   */
+  const startRequest = useCallback(() => {
+    clearEvent("text.presence");
+    clearEvent("voice.presence");
+    clearEvent("voice.response");
+    clearEvent("message");
+    clearEvent("voice.transcript");
+
+    setReasoning(true);
+  }, [clearEvent]);
+
+  /*
+   * Voice transcript means the user has
+   * finished speaking and Tendo is now
+   * processing the request.
    */
   useEffect(() => {
     if (!transcript) {
       return;
     }
 
+    /*
+     * A transcript starts a NEW voice request.
+     *
+     * Clear anything left over from the
+     * previous request first.
+     */
     clearEvent("text.presence");
+    clearEvent("voice.presence");
     clearEvent("voice.response");
+    clearEvent("message");
 
     setReasoning(true);
   }, [transcript, clearEvent]);
 
   /*
    * A final response ends reasoning.
-   *
-   * voice.response:
-   *   Voice mode -> Listening...
-   *
-   * message:
-   *   Text mode -> nothing
    */
   useEffect(() => {
     if (!response) {
@@ -84,14 +104,16 @@ export function useMessage() {
     }
 
     clearEvent("text.presence");
+    clearEvent("voice.presence");
+
     setReasoning(false);
   }, [response, clearEvent]);
 
   /*
-   * Agent speaking is the voice TTS phase.
+   * Agent finished speaking.
    *
-   * Once speaking finishes, voice mode returns
-   * to Listening...
+   * Only applies to an active voice
+   * interaction.
    */
   useEffect(() => {
     if (agentSpeaking) {
@@ -102,19 +124,18 @@ export function useMessage() {
       return;
     }
 
-    if (interactionMode !== "speaking") {
+    if (voiceInteractionMode !== "speaking") {
       return;
     }
 
     clearEvent("text.presence");
+    clearEvent("voice.presence");
+
     setReasoning(false);
-  }, [agentSpeaking, micActive, interactionMode, clearEvent]);
+  }, [agentSpeaking, micActive, voiceInteractionMode, clearEvent]);
 
   /*
-   * A voice response explicitly returns the voice
-   * interaction to Listening...
-   *
-   * This happens only for voice.response.
+   * Final voice response.
    */
   useEffect(() => {
     if (!response) {
@@ -130,14 +151,13 @@ export function useMessage() {
     }
 
     setReasoning(false);
+
     clearEvent("text.presence");
+    clearEvent("voice.presence");
   }, [response, micActive, clearEvent]);
 
   /*
-   * A normal message is the text interaction response.
-   *
-   * It clears the reasoning state and leaves the
-   * text interaction with no status.
+   * Final text response.
    */
   useEffect(() => {
     if (!response) {
@@ -149,21 +169,25 @@ export function useMessage() {
     }
 
     setReasoning(false);
+
     clearEvent("text.presence");
+    clearEvent("voice.presence");
   }, [response, clearEvent]);
 
   /*
-   * Starting a text request enters reasoning.
+   * Start a text request.
+   *
+   * This clears the previous startup/
+   * presence state first.
    */
   const startTextRequest = useCallback(() => {
-    clearEvent("text.presence");
-    clearEvent("voice.response");
-
-    setReasoning(true);
-  }, [clearEvent]);
+    startRequest();
+  }, [startRequest]);
 
   /*
-   * Presence replaces the initial Reasoning... state.
+   * Presence replaces the generic
+   * "Reasoning..." state with the actual
+   * runtime progress text.
    */
   useEffect(() => {
     if (!presence.text) {
@@ -174,7 +198,10 @@ export function useMessage() {
   }, [presence.text]);
 
   /*
-   * Microphone activation starts Listening...
+   * Do NOT reset reasoning simply because
+   * micActive is false.
+   *
+   * Text requests have micActive === false.
    */
   useEffect(() => {
     if (!micActive) {
@@ -182,9 +209,23 @@ export function useMessage() {
     }
 
     setReasoning(false);
+
     clearEvent("text.presence");
+    clearEvent("voice.presence");
   }, [micActive, clearEvent]);
 
+  /*
+   * Effective interaction mode.
+   */
+  const interactionMode: MessageInteractionMode = micActive
+    ? agentSpeaking
+      ? "speaking"
+      : "listening"
+    : "text";
+
+  /*
+   * Overall status.
+   */
   const status = useMemo<MessageStatus>(() => {
     if (agentSpeaking) {
       return "speaking";
@@ -205,6 +246,9 @@ export function useMessage() {
     return "idle";
   }, [agentSpeaking, presence.text, reasoning, micActive]);
 
+  /*
+   * Human-readable status.
+   */
   const statusText = useMemo(() => {
     if (agentSpeaking) {
       return "Speaking...";
@@ -259,6 +303,7 @@ export function useMessage() {
     stopMic,
     stopAgent,
     sendPrompt,
+    initAgent,
 
     startTextRequest,
 

@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { connectSocket } from "../lib/ws";
+
 import type { Socket } from "socket.io-client";
+
+import { connectSocket } from "../lib/ws";
 
 export type RuntimeEvent = {
   event: string;
   data: Record<string, unknown>;
 };
 
+type SocketPayload = Record<string, unknown>;
+
 export function useEventReceiver(events?: string[]) {
-  const [received, setReceived] = useState<RuntimeEvent[]>([]);
+  const [received, setReceived] = useState<RuntimeEvent | null>(null);
+
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
@@ -16,43 +21,26 @@ export function useEventReceiver(events?: string[]) {
 
     socketRef.current = socket;
 
-    const handler = (raw: RuntimeEvent | string) => {
-      let parsed: RuntimeEvent;
+    const listeners = new Map<string, (payload: SocketPayload) => void>();
 
-      try {
-        parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-      } catch {
-        return;
-      }
+    for (const eventName of events ?? []) {
+      const listener = (payload: SocketPayload) => {
+        console.log(`[socket] ${eventName}`, payload);
 
-      if (!parsed || typeof parsed.event !== "string") {
-        return;
-      }
+        setReceived({
+          event: eventName,
+          data: payload,
+        });
+      };
 
-      if (!parsed.data) {
-        parsed = { ...parsed, data: {} };
-      }
+      listeners.set(eventName, listener);
 
-      setReceived((prev) => [...prev, parsed]);
-    };
-
-    if (events?.length) {
-      for (const event of events) {
-        socket.on(event, handler);
-      }
-    } else {
-      socket.onAny((_event, payload) => {
-        handler(payload);
-      });
+      socket.on(eventName, listener);
     }
 
     return () => {
-      if (events?.length) {
-        for (const event of events) {
-          socket.off(event, handler);
-        }
-      } else {
-        socket.offAny();
+      for (const [eventName, listener] of listeners) {
+        socket.off(eventName, listener);
       }
 
       socketRef.current = null;
@@ -60,15 +48,21 @@ export function useEventReceiver(events?: string[]) {
   }, [events?.join(",")]);
 
   const clear = useCallback(() => {
-    setReceived([]);
+    setReceived(null);
   }, []);
 
   const clearEvent = useCallback((eventName: string) => {
-    setReceived((prev) => prev.filter((e) => e.event !== eventName));
+    setReceived((current) => {
+      if (current?.event === eventName) {
+        return null;
+      }
+
+      return current;
+    });
   }, []);
 
   return {
-    events: received,
+    event: received,
     clear,
     clearEvent,
   };

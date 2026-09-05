@@ -92,11 +92,11 @@ export function useHomeData() {
     return () => clearInterval(interval);
   }, [currentProfile?.id, refresh]);
 
-  const { events: recordUpdatedEvents } = useEventReceiver(["record_updated"]);
+  const { event: recordUpdatedEvent } = useEventReceiver(["record_updated"]);
 
   useEffect(() => {
-    const latest = recordUpdatedEvents.at(-1);
-    const data = latest?.data as any;
+    if (!recordUpdatedEvent) return;
+    const data = recordUpdatedEvent.data as any;
     if (!data || data.business_id !== currentProfile?.id) return;
 
     const id = `record-${data.id}`;
@@ -116,7 +116,7 @@ export function useHomeData() {
             },
       ),
     );
-  }, [recordUpdatedEvents, currentProfile?.id]);
+  }, [recordUpdatedEvent, currentProfile?.id]);
 
   useEffect(() => {
     const handleNewRecord = () => void refresh();
