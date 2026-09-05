@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import asyncio
@@ -37,14 +38,36 @@ configure_webhook_router(
 )
 
 
+async def _run_livekit_server(
+    shutdown_event: asyncio.Event,
+) -> None:
+
+    try:
+
+        await server.run()
+
+    except asyncio.CancelledError:
+
+        raise
+
+    except Exception:
+
+        if not shutdown_event.is_set():
+            raise
+
+
 @asynccontextmanager
 async def lifespan(
     app: FastAPI,
 ):
     await livekit_transport.start()
 
+    shutdown_event = asyncio.Event()
+
     agent_task = asyncio.create_task(
-        server.run(),
+        _run_livekit_server(
+            shutdown_event,
+        ),
         name="livekit-agent-server",
     )
 
@@ -52,6 +75,8 @@ async def lifespan(
         yield
 
     finally:
+        shutdown_event.set()
+
         try:
             try:
                 await asyncio.wait_for(

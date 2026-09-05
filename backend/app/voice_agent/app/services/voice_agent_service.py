@@ -579,6 +579,7 @@ class VoiceService:
                 agent_name=AGENT_NAME,
                 room=room,
                 metadata=metadata,
+                restart_policy=api.JobRestartPolicy.JRP_ON_FAILURE,
             )
         )
 

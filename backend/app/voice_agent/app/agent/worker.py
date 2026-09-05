@@ -86,7 +86,7 @@ sys.path.insert(
 
 
 server = AgentServer(
-    num_idle_processes=2,
+    num_idle_processes=10,
 )
 
 

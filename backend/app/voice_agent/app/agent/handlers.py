@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import asyncio
@@ -69,7 +70,6 @@ class VoiceSessionHandlers:
 
             self._run_background_task(
                 self._update_runtime_state(
-
                     agent_state=ev.new_state,
                     session_status=agent_protocol.JobStatus.JS_RUNNING,
                 ),
@@ -192,14 +192,41 @@ class VoiceSessionHandlers:
 
         @session.on("close")
         def on_close(
-            *args: Any,
+            ev: Any,
         ) -> None:
+
+            reason = getattr(ev, "reason", None)
+            error = getattr(ev, "error", None)
+
+            reason_value = getattr(
+                reason,
+                "value",
+                str(reason) if reason is not None else "",
+            )
 
             logger.info(
                 "[VoiceSessionHandlers] AgentSession closed: "
-                "session_id=%s",
+                "session_id=%s reason=%s error=%s",
                 self._session_id,
+                reason_value,
+                error,
             )
+
+            if reason_value == "error" or error is not None:
+                session_error = (
+                    str(error)
+                    if error is not None
+                    else "Agent session closed because of an error."
+                )
+
+                self._run_background_task(
+                    self._update_runtime_state(
+                        session_status=agent_protocol.JobStatus.JS_FAILED,
+                        session_error=session_error,
+                    ),
+                )
+
+                return
 
             self._run_background_task(
                 self._update_runtime_state(
@@ -220,14 +247,13 @@ class VoiceSessionHandlers:
             )
 
         except Exception:
+
             logger.exception(
                 "[VoiceSessionHandlers] "
                 "Failed to update voice session state: "
-                "session_id=%s agent_state=%s "
-                "session_status=%s",
+                "session_id=%s updates=%s",
                 self._session_id,
-                agent_state,
-                session_status.name,
+                updates,
             )
 
     async def _send_transcript(

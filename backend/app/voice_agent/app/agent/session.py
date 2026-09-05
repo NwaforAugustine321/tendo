@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import logging
@@ -250,6 +251,55 @@ class VoiceSessionService:
             )
 
             await handlers.register(session)
+
+            @session.on("close")
+            def on_session_close(event: Any) -> None:
+
+                reason = getattr(
+                    event,
+                    "reason",
+                    None,
+                )
+
+                error = getattr(
+                    event,
+                    "error",
+                    None,
+                )
+
+                reason_value = getattr(
+                    reason,
+                    "value",
+                    str(reason) if reason is not None else "",
+                )
+
+                logger.info(
+                    "[VoiceSessionService] AgentSession closed: "
+                    "room=%s session_id=%s reason=%s error=%s",
+                    ctx.room.name,
+                    data.session_id,
+                    reason_value,
+                    error,
+                )
+
+                if (
+                    reason_value == "error"
+                    or error is not None
+                ):
+
+                    logger.error(
+                        "[VoiceSessionService] AgentSession "
+                        "closed because of an error: "
+                        "room=%s session_id=%s reason=%s error=%s",
+                        ctx.room.name,
+                        data.session_id,
+                        reason_value,
+                        error,
+                    )
+
+                    ctx.shutdown(
+                        reason="agent_session_error",
+                    )
 
         except Exception:
 
