@@ -11,7 +11,7 @@ _webhook_client = WebhookClient(
         f"{HOOKS.VOICE_AGENT}": WebhookConfig(
             url=settings.voice_agent_webhook_url,
             secret=settings.webhook_internal_secret,
-            timeout=settings.webhook_default_timeout,
+
         ),
     },
 )

@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 import httpx
 
+from ..config.settings import settings
 from .contracts import WebhookEvent
 from .interface import WebhookClientInterface
 
@@ -20,12 +21,10 @@ class WebhookConfig:
         *,
         url: str,
         secret: str,
-        timeout: float = 30.0,
     ) -> None:
 
         self.url = url
         self.secret = secret
-        self.timeout = timeout
 
 
 class WebhookClient(WebhookClientInterface):
@@ -81,17 +80,18 @@ class WebhookClient(WebhookClientInterface):
                 "Accept": "application/json",
                 "X-Webhook-Secret": webhook.secret,
             },
-            timeout=webhook.timeout,
+            timeout=settings.webhook_default_timeout,
         )
 
         response.raise_for_status()
 
         logger.debug(
-            "Webhook event sent",
+            "Webhook event acknowledged",
             extra={
                 "hook": hook,
                 "type": event.type,
                 "event_id": event.event_id,
                 "request_id": event.request_id,
+                "status_code": response.status_code,
             },
         )

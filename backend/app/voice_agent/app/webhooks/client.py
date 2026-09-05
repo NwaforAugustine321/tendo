@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import logging
@@ -146,9 +147,10 @@ class WebhookClient(WebhookClientInterface):
             return
 
         logger.debug(
-            "Webhook event sent: "
-            "hook=%s type=%s event_id=%s request_id=%s",
+            "Webhook event acknowledged: "
+            "hook=%s status=%s type=%s event_id=%s request_id=%s",
             hook,
+            response.status_code,
             event.type,
             event.event_id,
             event.request_id,
