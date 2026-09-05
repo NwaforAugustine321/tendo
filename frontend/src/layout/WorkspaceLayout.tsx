@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
 import { Outlet, useLocation } from "react-router-dom";
 
@@ -23,8 +23,15 @@ export function WorkspaceLayout() {
 
   const { toggleDashboardSidebar } = useWorkspaceStore();
 
+  const mainRef = useRef<HTMLElement>(null);
+
   const isDashboard =
     location.pathname === "/me" || location.pathname === "/me/";
+
+  // Reset scroll to top on every navigation
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, left: 0 });
+  }, [location.pathname]);
 
   return (
     <div className="flex h-dvh max-h-dvh flex-col overflow-hidden bg-[#0a0a0a] text-zinc-100">
@@ -46,9 +53,12 @@ export function WorkspaceLayout() {
           />
         </div>
 
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-[#0a0a0a]">
+        <main
+          ref={mainRef}
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-[#0a0a0a]"
+        >
           <div className="flex h-full min-h-0 w-full min-w-0 flex-col justify-start">
-            <Outlet />
+            <Outlet key={location.key} />
           </div>
         </main>
 

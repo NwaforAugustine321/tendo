@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useEventReceiver, type RuntimeEvent } from "./useEmitReceiver";
 
@@ -67,8 +67,19 @@ export function useAgentSessionStatus(
     }
 
     let nextPresence = presence;
+    let shouldReset = false;
 
     for (const event of newEvents) {
+      /*
+       * "message" is the Socket.IO response event.
+       *
+       * Once it arrives, the current presence is complete.
+       */
+      if (event.event === "message") {
+        shouldReset = true;
+        continue;
+      }
+
       const type = getEventType(event);
 
       if (type !== "voice.presence" && type !== "text.presence") {
@@ -107,36 +118,65 @@ export function useAgentSessionStatus(
       };
     }
 
-    if (nextPresence !== presence) {
+    if (shouldReset) {
+      if (presence.text || presence.event) {
+        setPresence({
+          text: "",
+          event: null,
+        });
+      }
+    } else if (
+      nextPresence.text !== presence.text ||
+      nextPresence.event !== presence.event
+    ) {
       setPresence(nextPresence);
     }
 
     processedCountRef.current = receivedEvents.length;
-  }, [receivedEvents]);
+  }, [receivedEvents, presence]);
 
-  const clear = () => {
-    setPresence({
-      text: "",
-      event: null,
-    });
+  const clear = useCallback(() => {
+    setPresence((current) => {
+      if (!current.text && !current.event) {
+        return current;
+      }
 
-    processedCountRef.current = 0;
-
-    clearReceivedEvents();
-  };
-
-  const clearEvent = (eventName: string) => {
-    clearReceivedEvent(eventName);
-
-    if (eventName === "voice.presence" || eventName === "text.presence") {
-      setPresence({
+      return {
         text: "",
         event: null,
-      });
+      };
+    });
 
-      processedCountRef.current = 0;
-    }
-  };
+    processedCountRef.current = receivedEvents.length;
+
+    clearReceivedEvents();
+  }, [clearReceivedEvents, receivedEvents.length]);
+
+  const clearEvent = useCallback(
+    (eventName: string) => {
+      clearReceivedEvent(eventName);
+
+      if (
+        eventName === "voice.presence" ||
+        eventName === "text.presence" ||
+        eventName === "message"
+      ) {
+        setPresence((current) => {
+          if (!current.text && !current.event) {
+            return current;
+          }
+
+          return {
+            text: "",
+            event: null,
+          };
+        });
+
+        processedCountRef.current = receivedEvents.length;
+      }
+    },
+    [clearReceivedEvent, receivedEvents.length],
+  );
 
   return {
     events: receivedEvents,

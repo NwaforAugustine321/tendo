@@ -10,12 +10,16 @@ type AuthStore = {
   clear: () => void;
 };
 
-export const useAuthStore = create<AuthStore>((set) => ({
+export const useAuthStore = create<AuthStore>((set, get) => ({
   user: null,
   loading: true,
 
   fetchUser: async () => {
-    set({ loading: true });
+    // Only show the loading spinner on first load when no user is known yet.
+    // This prevents navigation from triggering a blank spinner screen.
+    if (!get().user) {
+      set({ loading: true });
+    }
     try {
       const user = await getMe();
       set({ user, loading: false });

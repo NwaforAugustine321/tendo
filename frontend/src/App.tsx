@@ -1,7 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
-import { AuthProvider } from "./context/auth";
-
 import { ProtectedRoute } from "./components/containers/ProtectedRoute";
 
 import { Landing } from "./pages/Landing";
@@ -30,54 +28,28 @@ import Documents from "./pages/DocumentsSpace";
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Routes>
-        {/* ============================================================ */}
-        {/* Public routes                                                 */}
-        {/* ============================================================ */}
+    <Routes>
+      {/* ============================================================ */}
+      {/* Public routes                                                 */}
+      {/* ============================================================ */}
 
-        <Route path="/" element={<Landing />} />
+      <Route path="/" element={<Landing />} />
 
-        <Route path="/login" element={<Login />} />
+      <Route path="/login" element={<Login />} />
 
-        <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
 
-        <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
 
-        <Route path="/register" element={<Register />} />
+      <Route path="/register" element={<Register />} />
 
-        <Route path="/welcome" element={<Welcome />} />
+      <Route path="/welcome" element={<Welcome />} />
 
-        {/* ============================================================ */}
-        {/* Protected setup routes                                        */}
-        {/* ============================================================ */}
+      <Route element={<ProtectedRoute />}>
+        <Route path="/business-profile" element={<SelectBusiness />} />
+        <Route path="/onboarding" element={<Onboarding />} />
 
-        <Route
-          path="/business-profile"
-          element={
-            <ProtectedRoute>
-              <SelectBusiness />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/onboarding"
-          element={
-            <ProtectedRoute>
-              <Onboarding />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/me"
-          element={
-            <ProtectedRoute>
-              <WorkspaceLayout />
-            </ProtectedRoute>
-          }
-        >
+        <Route path="/me" element={<WorkspaceLayout />}>
           <Route index element={<HomeSpace />} />
 
           <Route path="profile" element={<Profile />} />
@@ -94,9 +66,9 @@ export default function App() {
           <Route path="attention/:id" element={<AttentionDetailSpace />} />
           <Route path="mems" element={<Documents />} />
         </Route>
+      </Route>
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AuthProvider>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

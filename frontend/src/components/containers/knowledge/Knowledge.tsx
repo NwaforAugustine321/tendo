@@ -686,7 +686,7 @@ export default function Knowledge() {
    */
 
   return (
-    <div className="h-screen overflow-hidden bg-[#0f0f0f] text-zinc-100">
+    <div className="h-full overflow-hidden bg-[#0f0f0f] text-zinc-100">
       <div className="mx-auto flex h-full w-full max-w-[1400px] gap-8 px-6">
         {selectedRecord && selectedDefinition ? (
           <main className="min-w-0 flex-1">
