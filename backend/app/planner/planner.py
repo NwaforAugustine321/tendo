@@ -97,6 +97,8 @@ async def _voice_agent_response_callback(
     agent_identity: str
 ) -> None:
 
+    print('reciven>>>>>>>>>>>>>', text, agent_identity, kind)
+
     if kind == Kind.RESPONSE.value:
         event_type = WebhookType.VOICE_RESPONSE
 

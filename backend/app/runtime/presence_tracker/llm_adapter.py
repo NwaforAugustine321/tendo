@@ -72,7 +72,6 @@ class PresenceLLM:
                     state,
                 ),
             )
-            print('chekcing >>>', response)
 
         elif phase is PresencePhase.PROGRESS:
             response = await self._llm.ainvoke(

@@ -214,6 +214,8 @@ class PresenceTracker:
                 phase=PresencePhase.INITIAL,
             )
 
+            print('res check', result)
+
         except asyncio.CancelledError:
             raise
 
@@ -248,12 +250,6 @@ class PresenceTracker:
             else None
         )
 
-        if message and len(message) > max_length:
-
-            message = message[
-                :max_length
-            ].rstrip()
-
         if result.action == PresenceAction.RESPOND:
 
             if not message:
@@ -279,10 +275,16 @@ class PresenceTracker:
 
             if message:
 
-                await self._deliver_handoff_message(
+                await self._output.deliver(
                     text=message,
                     generation=generation,
                 )
+
+                if self._is_generation_valid(
+                    generation,
+                ):
+                    self._last_response_at = monotonic()
+                    self._last_delivered_text = message
 
             if self._is_generation_valid(
                 generation,
@@ -298,9 +300,8 @@ class PresenceTracker:
 
         if message:
 
-            await self._deliver_handoff_message(
+            self._record_initial_response(
                 text=message,
-                generation=generation,
             )
 
         if self._is_generation_valid(
