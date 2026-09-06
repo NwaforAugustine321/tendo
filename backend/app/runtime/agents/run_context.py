@@ -86,6 +86,7 @@ class RunContext:
     ) -> None:
 
         status = event.status
+        message = event.message
 
         tracker = self.presence_tracker
 
@@ -99,6 +100,7 @@ class RunContext:
 
         state.status = status.value
         state.stage = status.value
+        state.message = message
         state.iteration = iteration
 
         tracker.notify_state_event(

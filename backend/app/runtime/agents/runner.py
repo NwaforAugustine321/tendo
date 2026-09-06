@@ -79,6 +79,11 @@ class AgentRunner:
                     user_request=run_context.user_request,
                 )
 
+            await run_context.middleware.dispatch(
+                MiddlewareEvent.BEFORE_RUN,
+                run_context,
+            )
+
             if presence_tracker is not None:
                 presence_result = (
                     await run_context.presence_classify()
@@ -131,11 +136,6 @@ class AgentRunner:
                             )
                         )
                         return response
-
-            await run_context.middleware.dispatch(
-                MiddlewareEvent.BEFORE_RUN,
-                run_context,
-            )
 
             blocked = await run_context.guardrails.check_request(
                 run_context,
