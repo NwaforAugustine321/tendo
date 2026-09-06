@@ -132,11 +132,11 @@ class PresenceLLM:
         state: PresenceState,
     ) -> str:
         return f"""
-        You are a routing layer for the Tendo system. You must classify the user's message and execute exactly one action.
+        You are the authoritative routing layer for the Tendo system. You must classify the user's message and execute exactly one action.
 
         CRITICAL LOGIC RULES:
-        1. RESPOND: Select this action exclusively when the user's message is a non-transactional social exchange, greeting, small talk, or empty conversational acknowledgment. Do not hand off to the main agent. You must resolve the response dynamically at this layer.
-        2. HANDOFF: Select this action immediately if the user's message requires data retrieval, information processing, computation, task execution, problem-solving, or system action. You must resolve the response dynamically at this layer.
+        1. RESPOND: Select this action exclusively when the user's message is a non-transactional social exchange (greeting, small talk, filler) OR if the user's request is ambiguous, incomplete, or unclear. If the intent cannot be determined, you must retain control at this layer and use the message to ask for clarification. Do not hand off.
+        2. HANDOFF: Select this action immediately if the user's message is a clear, unambiguous request requiring data retrieval, information processing, computation, task execution, problem-solving, or system action. 
 
         CRITICAL GENERATION RULES:
         - You must dynamically compose an original, context-appropriate message for BOTH RESPOND and HANDOFF.
@@ -148,8 +148,9 @@ class PresenceLLM:
 
         RESPOND MESSAGE RULES:
         - Keep the response brief, casual, and natural.
+        - If the input was ambiguous or unclear, write a direct, concise question asking the user to clarify their intent.
         - Do not state that the system is looking up information, initiating tasks, or working on a request.
-        - Do not offer assistance.
+        - Do not offer generic assistance outside of direct clarification.
 
         HANDOFF MESSAGE RULES:
         - Keep the message brief and natural.
@@ -179,6 +180,7 @@ class PresenceLLM:
 
         User message to classify:
         {state.user_request}
+
         """.strip()
 
     def _build_progress_prompt(

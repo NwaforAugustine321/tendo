@@ -87,39 +87,6 @@ def _get_llm() -> LangChainLLM:
     return _llm_instance
 
 
-# def _create_callbacks(
-#     user_id: str = "",
-# ):
-#     async def progress_callback(
-#         event: StatusEvent,
-#     ) -> None:
-
-#         if not user_id:
-#             return
-
-#         payload = {
-#             "type": "text.presence",
-#             "payload": {
-#                 "status": event.status.value,
-#                 "message": event.message,
-#             },
-#             "user_id": user_id,
-#         }
-
-#         await get_event_bus().publish(
-#             ApplicationEvent(
-#                 event="text.presence",
-#                 source="agent",
-#                 delivery=EventDelivery.APP,
-#                 data=payload,
-#             ),
-#         )
-
-#     return [
-#         progress_callback,
-#     ]
-
-
 async def _voice_agent_response_callback(
     text: str,
     kind: str,
