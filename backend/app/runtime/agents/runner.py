@@ -1655,7 +1655,7 @@ class AgentRunner:
         fallback_response.action = LLMAction.FINAL
 
         final_response = await run_context.presence_generate_final_message(
-            reason=Status.Status.UNSUCCESSFUL.message
+            reason=Status.UNSUCCESSFUL.message
         )
 
         fallback_response.text = final_response
