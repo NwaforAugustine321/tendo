@@ -141,10 +141,6 @@ class Pipeline(RAGPipeline):
         # --------------------------------------------------------------
         self._vdb.set_collection(collection_name)
 
-        print(
-            f">>>>> Active collection: {self._vdb.collection_name}"
-        )
-
         # --------------------------------------------------------------
         # Check/create the LanceDB collection.
         # --------------------------------------------------------------
@@ -153,18 +149,10 @@ class Pipeline(RAGPipeline):
         )
 
         if not exists:
-            print(
-                f">>>>> Creating collection: {collection_name}"
-            )
 
             self._vdb.create_collection(
                 collection_name=collection_name,
                 collection_type="text",
-            )
-        else:
-            print(
-                f">>>>> Collection already exists: "
-                f"{collection_name}"
             )
 
         # --------------------------------------------------------------
@@ -180,9 +168,6 @@ class Pipeline(RAGPipeline):
         #
         # The active collection is already set on self._vdb.
         # --------------------------------------------------------------
-        print(
-            f">>>>> Ingesting file: {file_path}"
-        )
 
         return await self._ingestor.upload_documents(
             filepaths=[file_path],

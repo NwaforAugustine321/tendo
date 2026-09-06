@@ -30,7 +30,7 @@ async def moa_node(state: dict) -> dict:
         "record_id": record_id,
     }
 
-    planner = Planner(session=session)
+    planner = Planner(session_context=session)
 
     response = await planner.run(
         user_message=user_message

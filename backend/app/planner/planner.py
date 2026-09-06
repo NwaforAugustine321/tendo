@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from langchain_core.tools import tool
 from app.runtime.agents.agent import Agent
+from app.runtime.agents.session import AgentSession
 from app.runtime.middlewares.middleware import AgentMiddleware
 from app.llm.client import get_client
 from app.runtime.llm_vendors.langchain import LangChainLLM
@@ -96,8 +97,6 @@ async def _voice_agent_response_callback(
     session_id: str,
     agent_identity: str
 ) -> None:
-
-    print('reciven>>>>>>>>>>>>>', text, agent_identity, kind)
 
     if kind == Kind.RESPONSE.value:
         event_type = WebhookType.VOICE_RESPONSE
@@ -913,32 +912,33 @@ class Planner:
 
     def __init__(
         self,
-        session: dict = {},
+        session_context: dict | None = None,
     ) -> None:
 
-        self._session = session
+        self._session_context = session_context or {}
+        self._agent_session: AgentSession
 
-        self._agent_identity = self._session.get(
+        self._agent_identity = self._session_context.get(
             "agent_identity",
             "",
         )
 
-        self._session_id = self._session.get(
+        self._session_id = self._session_context.get(
             "session_id",
             "",
         )
 
-        self._business_id = self._session.get(
+        self._business_id = self._session_context.get(
             "business_id",
             "",
         )
 
-        self._record_id = self._session.get(
+        self._record_id = self._session_context.get(
             "record_id",
             "",
         )
 
-        self._user_id = self._session.get(
+        self._user_id = self._session_context.get(
             "user_id",
             "",
         )
@@ -953,16 +953,6 @@ class Planner:
                 f"business/{self._business_id}"
                 f"/record/{self._record_id}",
             )
-
-        # Keep existing progress callback behavior.
-        # callbacks = _create_callbacks(
-        #     self._user_id,
-        # )
-
-        # emitter.on(
-        #     EventType.PROGRESS,
-        #     callbacks,
-        # )
 
         agent = Agent(
             name="Assistant",
@@ -1024,7 +1014,7 @@ class Planner:
             ]
         )
 
-        self._session = agent.create_session(
+        self._agent_session = agent.create_session(
             session_id=self._session_id,
             emitter=emitter,
         )
@@ -1036,7 +1026,7 @@ class Planner:
         messages: list | None = None,
     ):
 
-        response = await self._session.run(
+        response = await self._agent_session.run(
             user_message,
         )
 

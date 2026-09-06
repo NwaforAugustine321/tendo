@@ -32,13 +32,13 @@ class VoiceAgentWebHookHandler:
         event: WebhookEvent,
     ) -> None:
 
-        payload = event.payload
+        event_payload = event.payload
 
-        user_message = payload.get(
+        user_message = event_payload.get(
             "text",
         )
 
-        user_id = payload.get(
+        user_id = event_payload.get(
             "user_id",
         )
 
@@ -67,11 +67,11 @@ class VoiceAgentWebHookHandler:
         )
 
         session = {
-            **payload
+            **event_payload
         }
 
         planner = Planner(
-            session=session,
+            session_context=session,
         )
 
         response = await planner.run(

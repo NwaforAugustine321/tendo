@@ -45,11 +45,7 @@ export async function request<T>(
     });
 
     if (!res.ok) {
-      if (
-        res.status === 401 &&
-        !path.includes("/auth/") &&
-        !path.includes("/voice/")
-      ) {
+      if (res.status === 401 && !path.includes("/auth/")) {
         const { useAuthStore } = await import("../../store/auth");
 
         useAuthStore.getState().clear();
@@ -64,10 +60,6 @@ export async function request<T>(
 
       const message = data.message || data.detail || "Something went wrong";
 
-      if (!silent) {
-        toast.error(message);
-      }
-
       throw new ApiError(message, res.status);
     }
 
@@ -78,10 +70,6 @@ export async function request<T>(
     }
 
     const message = "Could not connect to server";
-
-    if (!silent) {
-      toast.error(message);
-    }
 
     throw new ApiError(message, 0);
   }

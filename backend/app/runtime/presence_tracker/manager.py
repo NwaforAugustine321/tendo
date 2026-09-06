@@ -214,8 +214,6 @@ class PresenceTracker:
                 phase=PresencePhase.INITIAL,
             )
 
-            print('res check', result)
-
         except asyncio.CancelledError:
             raise
 
