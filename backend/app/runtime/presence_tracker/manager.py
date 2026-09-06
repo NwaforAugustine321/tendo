@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import asyncio
@@ -454,6 +453,7 @@ class PresenceTracker:
         self,
         *,
         state: PresenceState | None = None,
+        user_request: str | None = None,
     ) -> None:
 
         if (
@@ -478,7 +478,45 @@ class PresenceTracker:
 
         self._last_state_event_at = monotonic()
 
-        self._evaluate_presence()
+        self._evaluate_presence(
+            user_request=user_request,
+        )
+
+    async def generate_final_message(
+        self,
+        *,
+        user_request: str | None = None,
+    ) -> str | None:
+
+        state = PresenceState(
+            user_request=user_request,
+            max_response_length=(
+                self._config.max_response_length
+            ),
+        )
+
+        try:
+            result = await self._llm.generate(
+                state=state,
+                phase=PresencePhase.PROGRESS,
+            )
+
+        except asyncio.CancelledError:
+            return None
+
+        except Exception:
+            return None
+
+        message = (
+            result.message.strip()
+            if result.message
+            else None
+        )
+
+        if not message:
+            return None
+
+        return message
 
     def stop(self) -> None:
 
@@ -534,7 +572,11 @@ class PresenceTracker:
 
         self._generation_task = None
 
-    def _evaluate_presence(self) -> None:
+    def _evaluate_presence(
+        self,
+        *,
+        user_request: str | None = None,
+    ) -> None:
 
         if (
             self._closed
@@ -550,7 +592,9 @@ class PresenceTracker:
         ):
             return
 
-        self._trigger_generation()
+        self._trigger_generation(
+            user_request=user_request,
+        )
 
     def _interval_elapsed(self) -> bool:
 
@@ -634,7 +678,11 @@ class PresenceTracker:
         except asyncio.CancelledError:
             raise
 
-    def _trigger_generation(self) -> None:
+    def _trigger_generation(
+        self,
+        *,
+        user_request: str | None = None,
+    ) -> None:
 
         if (
             self._closed
@@ -680,6 +728,9 @@ class PresenceTracker:
         state = self._state.snapshot()
 
         state.elapsed_seconds = state.elapsed
+
+        if user_request is not None:
+            state.user_request = user_request
 
         state_key = (
             state.status,

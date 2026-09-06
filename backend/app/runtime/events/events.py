@@ -245,6 +245,11 @@ class Status(str, Enum):
         "I wasn't able to complete that successfully.",
     )
 
+    UNSUCCESSFUL = (
+        "unsuccessfull",
+        "I’m sorry, I wasn’t able to complete that for you this time."
+    )
+
     MAX_ITERATION = (
         "max_iteration",
         "I've reached the processing limit, so I'm finishing with what I have...",

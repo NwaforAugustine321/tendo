@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -40,6 +41,8 @@ class RunContext:
 
     async def presence_classify(
         self,
+        *,
+        user_request: str | None = None,
     ) -> PresenceResult | None:
 
         tracker = self.presence_tracker
@@ -47,13 +50,39 @@ class RunContext:
         if tracker is None:
             return None
 
-        return await tracker.classify()
+        return await tracker.classify(
+            user_request=(
+                user_request
+                if user_request is not None
+                else self.user_request
+            ),
+        )
+
+    async def presence_generate_final_message(
+        self,
+        *,
+        reason: str | None = None,
+    ) -> str | None:
+
+        tracker = self.presence_tracker
+
+        if tracker is None:
+            return None
+
+        return await tracker.generate_final_message(
+            user_request=(
+                reason
+                if reason is not None
+                else ""
+            ),
+        )
 
     async def presence_state(
         self,
         *,
         event: StatusEvent,
         iteration: int = 0,
+        user_request: str | None = None,
     ) -> None:
 
         status = event.status
@@ -74,6 +103,7 @@ class RunContext:
 
         tracker.notify_state_event(
             state=state.snapshot(),
+            user_request=user_request,
         )
 
     def refresh_context_threshold(

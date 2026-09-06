@@ -1653,12 +1653,13 @@ class AgentRunner:
         )
 
         fallback_response.action = LLMAction.FINAL
-        fallback_response.text = (
-            "Please rephrase your request again."
+
+        final_response = await run_context.presence_generate_final_message(
+            reason=Status.Status.UNSUCCESSFUL.message
         )
-        fallback_response.content = (
-            "Please rephrase your request again."
-        )
+
+        fallback_response.text = final_response
+        fallback_response.content = final_response
         fallback_response.question = None
 
         assistant_message = (
