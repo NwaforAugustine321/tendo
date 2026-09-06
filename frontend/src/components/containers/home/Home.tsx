@@ -273,12 +273,6 @@ export function Home() {
           <ChatPanel />
         </div>
       </aside>
-
-      {loading && (
-        <div className="pointer-events-none fixed bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-zinc-800/70 bg-[#111111]/90 px-3 py-1.5 text-[10px] text-zinc-600 backdrop-blur">
-          Updating
-        </div>
-      )}
     </div>
   );
 }

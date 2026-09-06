@@ -36,10 +36,4 @@ async def moa_node(state: dict) -> dict:
         user_message=user_message
     )
 
-    response_payload = {"mode": "conversation",
-                        "text":  response, "msg_type": "answer"}
-
-    return {
-        "response": response_payload,
-        "type": "message"
-    }
+    return response

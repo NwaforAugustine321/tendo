@@ -291,18 +291,10 @@ async def message(
             graph_state,
         )
 
-        response = result.get(
-            "response",
-            {},
-        )
-
         payload = {
             "type": "message",
             "payload": {
-                "message": response.get(
-                    "text",
-                    "",
-                ),
+                "message": result,
             },
             "user_id": user_id,
         }
