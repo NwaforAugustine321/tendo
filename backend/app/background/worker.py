@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import logging
@@ -31,8 +32,8 @@ class BackgroundWorker(ABC):
 
     Those responsibilities belong to the background infrastructure.
 
-    Background jobs are scoped to through ``id``.
-
+    Background workers run inside external worker processes managed
+    by the background worker manager.
     """
 
     def __init__(
@@ -136,7 +137,7 @@ class BackgroundWorker(ABC):
         Return the ID associated with the job.
 
         Some background jobs may be system-level jobs and therefore
-        do not belong to a specific id.
+        do not belong to a specific entity.
         """
 
         if not isinstance(
@@ -209,8 +210,8 @@ class BackgroundWorker(ABC):
         BackgroundRunner.
 
         Exceptions intentionally propagate to the runner so the
-        durable job system can record the failure and apply the
-        database retry policy.
+        durable job system can record the failure and allow
+        PostgreSQL to apply the retry policy.
         """
 
         self._validate_job(
@@ -428,7 +429,6 @@ class BackgroundWorker(ABC):
 
                     id
                     job_type
-                    id
                     payload
                     attempts
                     max_attempts

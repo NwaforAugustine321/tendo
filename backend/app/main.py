@@ -43,10 +43,12 @@ from app.webhooks.client import (
 )
 from app.webhooks.contracts import (
     HOOKS,
-    WebhookType
+    WebhookType,
 )
 from app.webhooks.dispatcher import WebhookDispatcher
-from app.webhooks.handlers.voice_agent_webhook_handler import VoiceAgentWebHookHandler
+from app.webhooks.handlers.voice_agent_webhook_handler import (
+    VoiceAgentWebHookHandler,
+)
 
 import app.communication.ws.chat_handler
 
@@ -85,16 +87,9 @@ async def lifespan(
 
     main.py is responsible only for application composition.
 
-    Background-job infrastructure is created and owned by
-    BackgroundJobSystem.
-
-    BackgroundJobSystem owns:
-
-        - BackgroundJobRPC
-        - WorkerRegistry
-        - BackgroundRunner
-        - BackgroundDispatcher
-        - BackgroundScheduler
+    Background jobs are not executed by the FastAPI process.
+    Jobs are persisted through the background-job RPC layer and
+    executed by the external background worker manager.
 
     Communication infrastructure is created and owned by
     the communication setup layer.
@@ -106,9 +101,7 @@ async def lifespan(
         - Event subscribers
     """
 
-    from app.background.factory import (
-        create_background_job_system,
-    )
+    from app.background.rpc import DatabaseBackgroundJobRPC
 
     # ------------------------------------------------------------------------
     # EventBus
@@ -142,6 +135,7 @@ async def lifespan(
     # ------------------------------------------------------------------------
     # Webhook System
     # ------------------------------------------------------------------------
+
     webhook_client = get_webhook_client()
 
     voice_agent_webhook_handler = VoiceAgentWebHookHandler(
@@ -164,43 +158,24 @@ async def lifespan(
     )
 
     # ------------------------------------------------------------------------
-    # Background Job System
+    # Background Job RPC
     # ------------------------------------------------------------------------
 
-    background_job_system = None
+    background_job_rpc = DatabaseBackgroundJobRPC()
 
     try:
 
         await webhook_client.start()
 
-        background_job_system = (
-            create_background_job_system()
-        )
-
-        # ---------------------------------------------------------------
-        # Start background-job infrastructure
-        #
-        # This starts APScheduler only.
-        #
-        # APScheduler will independently trigger:
-        #
-        #     dispatch_once()
-        #     recover_once()
-        #
-        # The runner and RPC layer handle the actual work.
-        # ---------------------------------------------------------------
-
-        background_job_system.start()
-
-        # ---------------------------------------------------------------
+        # --------------------------------------------------------------------
         # Start application event system
-        # ---------------------------------------------------------------
+        # --------------------------------------------------------------------
 
         event_manager.start()
 
-        # ---------------------------------------------------------------
+        # --------------------------------------------------------------------
         # Store application-wide resources
-        # ---------------------------------------------------------------
+        # --------------------------------------------------------------------
 
         app.state.event_bus_provider = (
             event_bus_provider
@@ -226,35 +201,8 @@ async def lifespan(
             voice_agent_webhook_handler
         )
 
-        app.state.background_job_system = (
-            background_job_system
-        )
-
-        # ---------------------------------------------------------------
-        # Optional background-job component references
-        #
-        # These are convenience references for application services
-        # that need to enqueue jobs or inspect the infrastructure.
-        # ---------------------------------------------------------------
-
         app.state.background_job_rpc = (
-            background_job_system.rpc
-        )
-
-        app.state.background_worker_registry = (
-            background_job_system.registry
-        )
-
-        app.state.background_job_runner = (
-            background_job_system.runner
-        )
-
-        app.state.background_job_dispatcher = (
-            background_job_system.dispatcher
-        )
-
-        app.state.background_scheduler = (
-            background_job_system.scheduler
+            background_job_rpc
         )
 
         logger.info(
@@ -290,26 +238,6 @@ async def lifespan(
             logger.exception(
                 "Failed to close application event manager.",
             )
-
-        # --------------------------------------------------------------------
-        # Stop background-job system
-        #
-        # This happens before closing shared resources such as
-        # Redis/EventBus because background workers may still depend
-        # on those resources.
-        # --------------------------------------------------------------------
-
-        if background_job_system is not None:
-
-            try:
-
-                await background_job_system.shutdown()
-
-            except Exception:
-
-                logger.exception(
-                    "Failed to stop background job system.",
-                )
 
         # --------------------------------------------------------------------
         # Close Webhook Client
@@ -425,9 +353,8 @@ app.include_router(
 )
 
 app.include_router(
-
     webhook_router,
-    prefix="/api"
+    prefix="/api",
 )
 
 

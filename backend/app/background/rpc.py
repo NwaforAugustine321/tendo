@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import logging
@@ -38,9 +39,10 @@ class DatabaseBackgroundJobRPC(
         - recurring execution
         - stale-job recovery
         - heartbeat ownership
+        - completion ownership
+        - failure ownership
 
-    The RPC knows the ID that owns the job.
-
+    The RPC knows the worker name that currently owns the job.
     """
 
     def __init__(self) -> None:
@@ -66,7 +68,7 @@ class DatabaseBackgroundJobRPC(
         Create a durable background job.
 
         id:
-         ID that owns/created the job.
+            ID that owns/created the job.
 
         run_at:
             First execution time.
@@ -104,7 +106,6 @@ class DatabaseBackgroundJobRPC(
                 interval_unit=IntervalUnit.YEARS
 
         The interval is independent of payload.
-
         """
 
         job_type = self._validate_job_type(
@@ -170,7 +171,7 @@ class DatabaseBackgroundJobRPC(
             scheduled_at = now
 
         data = {
-            "id":  job_id,
+            "id": job_id,
             "job_type": job_type,
             "payload": payload or {},
             "status": "pending",
@@ -189,7 +190,6 @@ class DatabaseBackgroundJobRPC(
         }
 
         try:
-
             response = (
                 self._client
                 .table(TABLE_NAME)
@@ -198,20 +198,18 @@ class DatabaseBackgroundJobRPC(
             )
 
         except Exception:
-
             logger.exception(
                 "[BackgroundJobRPC] "
                 "Failed to enqueue job: "
                 "job_id=%s "
                 "job_type=%s ",
                 job_id,
-                job_type
+                job_type,
             )
 
             raise
 
         if not response.data:
-
             raise RuntimeError(
                 "Failed to enqueue background job: "
                 f"job_type={job_type} "
@@ -269,7 +267,6 @@ class DatabaseBackgroundJobRPC(
         now = self._utc_now()
 
         try:
-
             response = self._client.rpc(
                 "claim_background_jobs",
                 {
@@ -280,7 +277,6 @@ class DatabaseBackgroundJobRPC(
             ).execute()
 
         except Exception:
-
             logger.exception(
                 "[BackgroundJobRPC] "
                 "Failed to claim jobs: "
@@ -323,10 +319,11 @@ class DatabaseBackgroundJobRPC(
         self,
         *,
         job_id: str,
+        worker_name: str,
         result: dict[str, Any] | None = None,
     ) -> None:
         """
-        Complete a running job.
+        Complete a running job owned by the specified worker.
 
         PostgreSQL decides what happens next.
 
@@ -343,10 +340,17 @@ class DatabaseBackgroundJobRPC(
             next scheduled_at
 
         The same database row is reused.
+
+        The database verifies that worker_name currently owns
+        the running job before completion is accepted.
         """
 
         job_id = self._validate_job_id(
             job_id,
+        )
+
+        worker_name = self._validate_worker_name(
+            worker_name,
         )
 
         if result is not None and not isinstance(
@@ -358,22 +362,23 @@ class DatabaseBackgroundJobRPC(
             )
 
         try:
-
             response = self._client.rpc(
                 "complete_background_job",
                 {
                     "p_job_id": job_id,
+                    "p_worker_name": worker_name,
                     "p_result": result or {},
                 },
             ).execute()
 
         except Exception:
-
             logger.exception(
                 "[BackgroundJobRPC] "
                 "Failed to complete job: "
-                "job_id=%s",
+                "job_id=%s "
+                "worker=%s",
                 job_id,
+                worker_name,
             )
 
             raise
@@ -381,7 +386,8 @@ class DatabaseBackgroundJobRPC(
         if not response.data:
             raise RuntimeError(
                 "Background job could not be completed: "
-                f"{job_id}.",
+                f"{job_id} "
+                f"worker={worker_name}.",
             )
 
         updated_job = response.data[0]
@@ -390,9 +396,11 @@ class DatabaseBackgroundJobRPC(
             "[BackgroundJobRPC] "
             "Job completion processed: "
             "job_id=%s "
+            "worker=%s "
             "status=%s "
             "scheduled_at=%s",
             job_id,
+            worker_name,
             updated_job.get("status"),
             updated_job.get("scheduled_at"),
         )
@@ -405,12 +413,17 @@ class DatabaseBackgroundJobRPC(
         self,
         *,
         job_id: str,
+        worker_name: str,
         error: str,
         retry: bool = True,
     ) -> None:
 
         job_id = self._validate_job_id(
             job_id,
+        )
+
+        worker_name = self._validate_worker_name(
+            worker_name,
         )
 
         if not isinstance(
@@ -439,23 +452,24 @@ class DatabaseBackgroundJobRPC(
         ]
 
         try:
-
             response = self._client.rpc(
                 "fail_background_job",
                 {
                     "p_job_id": job_id,
+                    "p_worker_name": worker_name,
                     "p_error": error_message,
                     "p_retry": retry,
                 },
             ).execute()
 
         except Exception:
-
             logger.exception(
                 "[BackgroundJobRPC] "
                 "Failed to update job failure: "
-                "job_id=%s",
+                "job_id=%s "
+                "worker=%s",
                 job_id,
+                worker_name,
             )
 
             raise
@@ -463,7 +477,8 @@ class DatabaseBackgroundJobRPC(
         if not response.data:
             raise RuntimeError(
                 "Background job could not be marked "
-                f"as failed: {job_id}.",
+                f"as failed: {job_id} "
+                f"worker={worker_name}.",
             )
 
         updated_job = response.data[0]
@@ -472,10 +487,12 @@ class DatabaseBackgroundJobRPC(
             "[BackgroundJobRPC] "
             "Job failure recorded: "
             "job_id=%s "
+            "worker=%s "
             "status=%s "
             "attempts=%s "
             "scheduled_at=%s",
             job_id,
+            worker_name,
             updated_job.get("status"),
             updated_job.get("attempts"),
             updated_job.get("scheduled_at"),
@@ -501,7 +518,6 @@ class DatabaseBackgroundJobRPC(
         )
 
         try:
-
             response = self._client.rpc(
                 "heartbeat_background_job",
                 {
@@ -511,7 +527,6 @@ class DatabaseBackgroundJobRPC(
             ).execute()
 
         except Exception:
-
             logger.exception(
                 "[BackgroundJobRPC] "
                 "Heartbeat failed: "
@@ -555,7 +570,6 @@ class DatabaseBackgroundJobRPC(
             )
 
         try:
-
             response = self._client.rpc(
                 "recover_stale_background_jobs",
                 {
@@ -564,7 +578,6 @@ class DatabaseBackgroundJobRPC(
             ).execute()
 
         except Exception:
-
             logger.exception(
                 "[BackgroundJobRPC] "
                 "Failed to recover stale jobs: "
@@ -654,13 +667,11 @@ class DatabaseBackgroundJobRPC(
             IntervalUnit,
         ):
             try:
-
                 interval_unit = IntervalUnit(
                     interval_unit,
                 )
 
             except ValueError as exc:
-
                 raise ValueError(
                     "interval_unit must be one of: "
                     + ", ".join(
@@ -761,7 +772,6 @@ class DatabaseBackgroundJobRPC(
             )
 
         try:
-
             parsed = datetime.fromisoformat(
                 value.replace(
                     "Z",
@@ -770,7 +780,6 @@ class DatabaseBackgroundJobRPC(
             )
 
         except ValueError as exc:
-
             raise ValueError(
                 "run_at must be a valid ISO-8601 timestamp.",
             ) from exc

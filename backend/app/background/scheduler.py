@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import logging
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class BackgroundScheduler:
     """
-    APScheduler integration for the durable background-job system.
+    APScheduler integration for background-job recovery.
 
     The scheduler owns timing only.
 
@@ -25,16 +26,23 @@ class BackgroundScheduler:
         - execute workers
         - implement retries
         - calculate retry backoff
-        - recover jobs directly
-        - communicate with PostgreSQL
+        - execute background jobs directly
+        - communicate with PostgreSQL directly
 
-    It triggers two independent operations:
+    It triggers one operation:
 
-        1. Dispatch
-           -> BackgroundDispatcher.dispatch_once()
+        Recovery
+            -> BackgroundDispatcher.recover_once()
 
-        2. Recovery
-           -> BackgroundDispatcher.recover_once()
+    BackgroundRunner instances running inside the external
+    background worker processes are responsible for:
+
+        - claiming jobs
+        - resolving workers
+        - executing workers
+        - maintaining heartbeats
+        - completing jobs
+        - requesting failure/retry
 
     PostgreSQL remains responsible for:
 
@@ -48,7 +56,6 @@ class BackgroundScheduler:
         - permanent failure
     """
 
-    DISPATCH_JOB_ID = "background-job-dispatch"
     RECOVERY_JOB_ID = "background-job-recovery"
 
     def __init__(
@@ -67,9 +74,6 @@ class BackgroundScheduler:
                 "config cannot be None.",
             )
 
-        # Validate before creating the scheduler so invalid
-        # configuration cannot result in a partially initialized
-        # scheduler.
         config.validate()
 
         self._dispatcher = dispatcher
@@ -115,11 +119,11 @@ class BackgroundScheduler:
 
     def start(self) -> None:
         """
-        Register the dispatch and recovery jobs and start
-        APScheduler.
+        Register the recovery job and start APScheduler.
 
-        Dispatch and recovery are deliberately registered as
-        independent scheduled jobs.
+        APScheduler is responsible only for triggering stale-job
+        recovery. Background job execution is handled by the
+        external background worker processes.
         """
 
         if self._started:
@@ -142,8 +146,6 @@ class BackgroundScheduler:
                 "Failed to start scheduler.",
             )
 
-            # If APScheduler failed to start, make sure our own
-            # lifecycle state remains correct.
             self._started = False
 
             raise
@@ -152,18 +154,12 @@ class BackgroundScheduler:
 
         logger.info(
             "[BackgroundScheduler] Scheduler started: "
-            "worker=%s "
             "timezone=%s "
-            "dispatch_interval=%ss "
             "recovery_interval=%ss "
-            "recovery_timeout=%ss "
-            "heartbeat_interval=%ss",
-            self._config.worker_name,
+            "recovery_timeout=%ss",
             self._config.timezone,
-            self._config.dispatch_interval_seconds,
             self._config.recovery_interval_seconds,
             self._config.recovery_timeout_seconds,
-            self._config.heartbeat_interval_seconds,
         )
 
     async def shutdown(
@@ -196,18 +192,12 @@ class BackgroundScheduler:
                 wait=wait,
             )
 
-            # Dispatch no longer awaits job execution, so stopping the
-            # scheduler leaves detached job tasks running. Drain them
-            # explicitly instead of abandoning them to stale-job
-            # recovery.
-            if wait:
-                await self._dispatcher.runner.drain()
-
         except Exception:
             logger.exception(
                 "[BackgroundScheduler] "
                 "Scheduler shutdown failed.",
             )
+
             raise
 
         finally:
@@ -220,27 +210,8 @@ class BackgroundScheduler:
 
     def _register_jobs(self) -> None:
         """
-        Register the independent dispatch and recovery jobs.
+        Register the stale-job recovery job.
         """
-
-        self._scheduler.add_job(
-            self._dispatch,
-            trigger=IntervalTrigger(
-                seconds=self._config.dispatch_interval_seconds,
-                timezone=self._config.timezone,
-            ),
-            id=self.DISPATCH_JOB_ID,
-            name="Background Job Dispatch",
-            replace_existing=True,
-            max_instances=self._config.max_dispatch_instances,
-            coalesce=True,
-            misfire_grace_time=max(
-                1,
-                int(
-                    self._config.dispatch_interval_seconds,
-                ),
-            ),
-        )
 
         self._scheduler.add_job(
             self._recover,
@@ -263,35 +234,10 @@ class BackgroundScheduler:
 
         logger.info(
             "[BackgroundScheduler] "
-            "Scheduled jobs registered: "
-            "dispatch=%ss recovery=%ss",
-            self._config.dispatch_interval_seconds,
+            "Scheduled recovery job: "
+            "interval=%ss",
             self._config.recovery_interval_seconds,
         )
-
-    async def _dispatch(self) -> None:
-        """
-        APScheduler callback for background-job dispatch.
-
-        The dispatcher performs the actual claim and execution.
-        """
-
-        try:
-            count = await self._dispatcher.dispatch_once()
-
-            if count > 0:
-                logger.debug(
-                    "[BackgroundScheduler] "
-                    "Dispatch cycle completed: "
-                    "claimed=%s",
-                    count,
-                )
-
-        except Exception:
-            logger.exception(
-                "[BackgroundScheduler] "
-                "Dispatch job failed.",
-            )
 
     async def _recover(self) -> None:
         """
@@ -320,7 +266,7 @@ class BackgroundScheduler:
 
     def remove_jobs(self) -> None:
         """
-        Remove the background dispatch and recovery jobs.
+        Remove the background recovery job.
 
         This does not shut down APScheduler itself.
 
@@ -330,14 +276,10 @@ class BackgroundScheduler:
             - controlled job replacement
         """
 
-        for job_id in (
-            self.DISPATCH_JOB_ID,
-            self.RECOVERY_JOB_ID,
-        ):
-            with suppress(Exception):
-                self._scheduler.remove_job(
-                    job_id,
-                )
+        with suppress(Exception):
+            self._scheduler.remove_job(
+                self.RECOVERY_JOB_ID,
+            )
 
         logger.info(
             "[BackgroundScheduler] "
@@ -375,18 +317,6 @@ class BackgroundScheduler:
 
         return self._scheduler.get_job(
             job_id,
-        )
-
-    def is_dispatch_scheduled(self) -> bool:
-        """
-        Return whether the dispatch job is registered.
-        """
-
-        return (
-            self.get_job(
-                self.DISPATCH_JOB_ID,
-            )
-            is not None
         )
 
     def is_recovery_scheduled(self) -> bool:

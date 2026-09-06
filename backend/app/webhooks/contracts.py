@@ -1,8 +1,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
-from enum import StrEnum, Enum
+from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -11,6 +11,7 @@ class WebhookType(StrEnum):
     VOICE_TRANSCRIPT = "voice.transcript"
     VOICE_PRESENCE = "voice.presence"
     VOICE_RESPONSE = "voice.response"
+    DOCUMENT_INGESTION = "document.ingestion"
 
 
 class HOOKS(StrEnum):

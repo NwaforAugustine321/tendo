@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import asyncio
@@ -16,6 +17,8 @@ class BackgroundRunner:
     """
     Generic executor for durable background jobs.
 
+    A runner operates inside one background worker process.
+
     Responsibilities:
         - Claim jobs from the durable queue.
         - Resolve the appropriate worker.
@@ -29,10 +32,15 @@ class BackgroundRunner:
         - Calculate retry backoff.
         - Sleep between retries.
         - Recover stale jobs.
-        - Contain job-specific id logic.
+        - Contain job-specific logic.
 
-    Those responsibilities belong to the database, dispatcher,
-    and registered BackgroundWorker implementations.
+    Those responsibilities belong to the database,
+    BackgroundScheduler/BackgroundDispatcher, and registered
+    BackgroundWorker implementations.
+
+    Multiple BackgroundRunner instances may operate concurrently
+    across separate OS processes. PostgreSQL is responsible for
+    atomic job claiming and ownership.
     """
 
     def __init__(
@@ -75,10 +83,11 @@ class BackgroundRunner:
         self._heartbeat_interval = heartbeat_interval
         self._max_concurrency = max_concurrency
 
-        # Jobs currently executing in this instance.
+        # Jobs currently executing in this runner process.
         #
-        # Dispatch does not await these, so the dispatch tick stays
-        # short regardless of how long individual jobs run.
+        # run_once() does not await these tasks, so the worker
+        # process can continue claiming work while existing jobs
+        # remain in flight.
         self._in_flight: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
@@ -131,7 +140,7 @@ class BackgroundRunner:
         )
 
     # ------------------------------------------------------------------
-    # Dispatch
+    # Job execution dispatch
     # ------------------------------------------------------------------
 
     async def run_once(
@@ -142,20 +151,14 @@ class BackgroundRunner:
         """
         Claim one batch of background jobs and start executing them.
 
-        This does NOT wait for the claimed jobs to finish. Execution
-        runs in detached tasks so the dispatch cycle stays short and
-        the scheduler keeps its configured cadence even while
-        long-running jobs are in flight.
+        This method does not wait for the claimed jobs to finish.
+        Execution runs in detached tasks so the worker process can
+        continue accepting additional work while existing jobs run.
 
         Only as many jobs as there is free capacity are claimed.
-        `claim` marks a job running and sets its initial heartbeat, so
-        a claimed job must begin executing immediately. Buffering
-        claimed jobs would let them look stale to recovery while they
-        are still waiting to start.
 
-        PostgreSQL atomically claims the jobs, so multiple
-        application instances can safely execute this method
-        concurrently.
+        PostgreSQL atomically claims the jobs, so multiple worker
+        processes can safely execute this method concurrently.
 
         Args:
             limit:
@@ -168,7 +171,7 @@ class BackgroundRunner:
         Raises:
             Exception:
                 Exceptions raised while claiming jobs are allowed
-                to propagate to the dispatcher/scheduler.
+                to propagate to the worker process.
         """
 
         if limit <= 0:
@@ -233,11 +236,11 @@ class BackgroundRunner:
         task: asyncio.Task[None],
     ) -> None:
         """
-        Release capacity and surface unexpected execution errors.
+        Release execution capacity and surface unexpected runner errors.
 
-        `_execute` already handles job failures and reports them to
-        the durable store, so anything reaching here is a defect in
-        the runner itself rather than a failed job.
+        Job execution failures are handled by _execute() and persisted
+        through the durable RPC layer. Exceptions reaching this callback
+        are therefore unexpected runner-level failures.
         """
 
         self._in_flight.discard(
@@ -269,9 +272,9 @@ class BackgroundRunner:
         """
         Wait for in-flight jobs to finish.
 
-        Detached execution tasks are not owned by APScheduler, so
-        shutdown must drain them explicitly or jobs are abandoned
-        mid-execution and left to stale-job recovery.
+        Worker processes call this during graceful shutdown so
+        currently executing jobs have an opportunity to complete
+        before the process exits.
 
         Args:
             timeout:
@@ -280,6 +283,10 @@ class BackgroundRunner:
 
         Returns:
             Number of jobs still in flight after draining.
+
+        Note:
+            Jobs still running when the process exits are eventually
+            handled by stale-job recovery through the scheduler.
         """
 
         if not self._in_flight:
@@ -297,7 +304,7 @@ class BackgroundRunner:
             timeout,
         )
 
-        done, still_pending = await asyncio.wait(
+        _, still_pending = await asyncio.wait(
             pending,
             timeout=timeout,
         )
@@ -447,10 +454,14 @@ class BackgroundRunner:
 
             # ----------------------------------------------------------
             # Persist successful completion.
+            #
+            # The worker name is passed so PostgreSQL can verify that
+            # the worker completing the job is the worker that owns it.
             # ----------------------------------------------------------
 
             await self._rpc.complete(
                 job_id=job_id,
+                worker_name=self._worker_name,
                 result=(
                     result
                     if isinstance(
@@ -540,6 +551,7 @@ class BackgroundRunner:
         try:
             await self._rpc.fail(
                 job_id=job_id,
+                worker_name=self._worker_name,
                 error=(
                     error
                     or "Background job failed."

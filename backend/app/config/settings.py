@@ -13,7 +13,14 @@ class Settings(BaseSettings):
     mongodb_url: str = ""
     mongodb_user: str = ""
     mongodb_pass: str = ""
-    mongodb_database: str = "tendo"
+    mongodb_database: str
+
+    minio_endpoint: str
+    minio_public_endpoint: str
+    minio_access_key: str
+    minio_secret_key: str
+    minio_bucket: str
+    minio_secure: bool
 
     # LLM
     llm_provider: str = ""

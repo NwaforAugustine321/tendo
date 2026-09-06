@@ -1,7 +1,7 @@
 import asyncio
 
-from app.rag_pipeline.pipeline import Pipeline
-from app.rag_pipeline.interface import DocumentSource, SourceType
+from app.services.ingestions.pipeline import Pipeline
+from app.services.ingestions.interface import DocumentSource, SourceType
 
 import json
 import base64
