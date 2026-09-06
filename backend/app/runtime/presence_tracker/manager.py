@@ -266,9 +266,8 @@ class PresenceTracker:
                     action=PresenceAction.HANDOFF,
                 )
 
-            await self._deliver_initial_message(
+            self._record_initial_response(
                 text=message,
-                generation=generation,
             )
 
             return PresenceResult(
@@ -280,7 +279,7 @@ class PresenceTracker:
 
             if message:
 
-                await self._deliver_initial_message(
+                await self._deliver_handoff_message(
                     text=message,
                     generation=generation,
                 )
@@ -299,7 +298,7 @@ class PresenceTracker:
 
         if message:
 
-            await self._deliver_initial_message(
+            await self._deliver_handoff_message(
                 text=message,
                 generation=generation,
             )
@@ -316,7 +315,7 @@ class PresenceTracker:
             message=message,
         )
 
-    async def _deliver_initial_message(
+    async def _deliver_handoff_message(
         self,
         *,
         text: str,
@@ -337,6 +336,16 @@ class PresenceTracker:
             generation,
         ):
             return
+
+        self._last_response_at = monotonic()
+
+        self._last_delivered_text = text
+
+    def _record_initial_response(
+        self,
+        *,
+        text: str,
+    ) -> None:
 
         self._last_response_at = monotonic()
 
@@ -826,6 +835,7 @@ class PresenceTracker:
         task.cancel()
 
         try:
+
             await task
 
         except asyncio.CancelledError:
